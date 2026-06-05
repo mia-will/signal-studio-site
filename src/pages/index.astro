@@ -46,7 +46,13 @@ let offerGroups: Awaited<ReturnType<typeof getOfferGroups>> = [];
 if (!isMichelle) {
   // ── Fetch core structure ──────────────────────────────────────
   [site, page, headerNav, footerNav] = await Promise.all([
-    getSite(SITE_SLUG),
+    getSite(SITE_SLUG).then((result) => {
+      console.log('[signal-studio-site:index]', {
+        SITE_SLUG: import.meta.env.SITE_SLUG,
+        site: result,
+      });
+      return result;
+    }),
     getHomepagePage(SITE_SLUG, 'home', isPreview),
     getNavItems(SITE_SLUG, 'header'),
     getNavItems(SITE_SLUG, 'footer'),
