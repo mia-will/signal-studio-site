@@ -1,0 +1,406 @@
+---
+import type { MediaAsset } from '../../types/content';
+
+interface Props {
+  block: any;
+  imageAsset?: MediaAsset;
+}
+
+const { block, imageAsset } = Astro.props;
+const introImageUrl = imageAsset?.image_url;
+const introImageAlt = imageAsset?.alt_text ?? '';
+const imageObjectPosition = block.props?.image_object_position as string | undefined;
+const hasBullets     = Array.isArray(block.props?.bullets) && block.props.bullets.length > 0;
+const paddingTop     = (block.props?.padding_top as string | undefined) ?? 'var(--layout_padding_y)';
+const bodyHtml       = (block.props?.body_html ?? null) as string | null;
+const bodyParagraphs = bodyHtml ? [] : (
+  block.body
+    ? block.body.split('\n\n').map((p: string) => p.trim()).filter(Boolean)
+    : []
+);
+
+const layoutVariant  = block.layout_variant as string | undefined;
+const isFullBleed    = layoutVariant === 'full_bleed';
+const isSplitLayout  = (layoutVariant === 'split_right' || layoutVariant === 'split_left');
+const imageLeft      = layoutVariant === 'split_left';
+
+const blockVariant      = block.props?.variant as string | undefined;
+const isCompactStrip    = blockVariant === 'compact_strip';
+const isDirectoryIntro  = blockVariant === 'directory_intro';
+const stripItems        = isCompactStrip
+  ? (block.props?.items ?? []) as Array<{ heading: string; body: string; icon?: string }>
+  : [];
+const isBox             = block.props?.container === 'box';
+const titlePosition     = block.props?.title_position as string | undefined;
+const compactPaddingBlock = block.props?.keep_height === 'low'
+  ? 'var(--text_gap_lg)'
+  : 'var(--layout_padding_y_sm)';
+const compactBoxPaddingBlock = block.props?.keep_height === 'low'
+  ? 'var(--text_gap_lg)'
+  : 'var(--layout_padding_y_sm)';
+
+// SVG path markup keyed by Lucide-style icon name — structural, not style values
+const iconPaths: Record<string, string> = {
+  'users':       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  'calendar':    '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  'arrow-right': '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+};
+---
+
+<section class="page-intro-block" style={`max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);${isCompactStrip ? ` padding-block: ${compactPaddingBlock};` : isDirectoryIntro ? ' padding-block: var(--layout_padding_y_md) var(--layout_padding_y_sm);' : isFullBleed ? ' padding-block: var(--space_2xl); border-bottom: 1px solid var(--color_border);' : ` padding-top: ${paddingTop}; padding-bottom: var(--layout_padding_y);`}`}>
+
+  {isCompactStrip ? (
+    <div style={`display: flex; align-items: center; gap: var(--gap_lg); padding-block: var(--layout_padding_y_sm);`}>
+      {(block.title ?? block.props?.title) && (
+        <p style={`flex: 0 0 auto; font-family: var(--font_heading); font-size: var(--text_base); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; padding-right: var(--gap_lg); border-right: 1px solid var(--color_border); line-height: var(--leading_tight);`}>
+          {block.title ?? block.props?.title}
+        </p>
+      )}
+      {stripItems.length > 0 && (
+        <div style={`flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap_md);`}>
+          {stripItems.map((item) => (
+            <div style={`display: flex; flex-direction: column; gap: var(--text_gap_xs);`}>
+              {item.icon && iconPaths[item.icon] && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={`color: var(--color_cta_primary); flex-shrink: 0;`} set:html={iconPaths[item.icon]} />
+              )}
+              <p style={`font-size: var(--text_base); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_tight);`}>
+                {item.heading}
+              </p>
+              <p style={`font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed);`}>
+                {item.body}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : isDirectoryIntro ? (
+
+    <div class="page-intro-directory">
+      {(block.eyebrow ?? block.props?.eyebrow) && (
+        <p class="page-intro-directory-eyebrow">
+          {block.eyebrow ?? block.props?.eyebrow}
+        </p>
+      )}
+      {block.title && (
+        <h2 class="page-intro-directory-title">
+          {block.title}
+        </h2>
+      )}
+      {(block.subtitle ?? block.props?.subtitle) && (
+        <p class="page-intro-directory-subtitle">
+          {block.subtitle ?? block.props?.subtitle}
+        </p>
+      )}
+      {bodyHtml && <div class="pi-body-html" set:html={bodyHtml} />}
+      {bodyParagraphs.length > 0 && (
+        <div class="page-intro-directory-body">
+          {bodyParagraphs.map((para: string) => (
+            <p>{para}</p>
+          ))}
+        </div>
+      )}
+    </div>
+
+  ) : isFullBleed ? (
+
+    <!-- Full bleed: centred single column, constrained to content width -->
+    <div style="max-width: var(--layout_content_width); margin-inline: auto;">
+      {(block.eyebrow ?? block.props?.eyebrow) && (
+        <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_accent, var(--color_cta_primary)); margin: 0 0 var(--space_sm);">
+          {block.eyebrow ?? block.props?.eyebrow}
+        </p>
+      )}
+      {block.title && (
+        <h2 style="font-family: var(--font_heading); font-size: var(--text_3xl); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--space_md);">
+          {block.title}
+        </h2>
+      )}
+      {bodyParagraphs.length > 0 && (
+        <div style="display: flex; flex-direction: column; gap: var(--gap_sm);">
+          {bodyParagraphs.map((para: string) => (
+            <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0;">{para}</p>
+          ))}
+        </div>
+      )}
+    </div>
+
+  ) : isSplitLayout && introImageUrl ? (
+
+    <!-- Split layout: two-column grid, order determined by split_left / split_right -->
+    <div class="page-intro-split-grid" style={`display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap_xl); align-items: start;`}>
+
+      {imageLeft && (
+        <div style={`order: 0;`}>
+          <img
+            src={`${introImageUrl}?width=800&quality=80`}
+            alt={introImageAlt}
+            style={`width: 100%; height: auto; border-radius: var(--radius_md); display: block;${imageObjectPosition ? ` object-fit: cover; object-position: ${imageObjectPosition};` : ''}`}
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      )}
+
+      <!-- Content column -->
+      <div style={`order: ${imageLeft ? 1 : 0};`}>
+        {(block.eyebrow ?? block.props?.eyebrow) && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_accent, var(--color_cta_primary)); margin: 0 0 var(--space_sm);">
+            {block.eyebrow ?? block.props?.eyebrow}
+          </p>
+        )}
+        {block.title && (
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_4xl); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--gap_sm);">
+            {block.title}
+          </h2>
+        )}
+        {bodyHtml && <div class="pi-body-html" set:html={bodyHtml} />}
+        {bodyParagraphs.length > 0 && (
+          <div style="display: flex; flex-direction: column; gap: var(--gap_sm); margin-top: var(--gap_sm);">
+            {bodyParagraphs.map((para: string) => (
+              <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0;">{para}</p>
+            ))}
+          </div>
+        )}
+        {hasBullets && (
+          <ul style="list-style: none; margin: var(--gap_sm) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap_sm);">
+            {(block.props.bullets as string[]).map((bullet: string) => (
+              <li style="display: flex; align-items: baseline; gap: var(--gap_sm); font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_secondary);">
+                <span style="color: var(--color_cta_primary); font-weight: var(--font_weight_bold); flex-shrink: 0;" aria-hidden="true">—</span>
+                {bullet}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {!imageLeft && (
+        <div style={`order: 1;`}>
+          <img
+            src={`${introImageUrl}?width=800&quality=80`}
+            alt={introImageAlt}
+            style={`width: 100%; height: auto; border-radius: var(--radius_md); display: block;${imageObjectPosition ? ` object-fit: cover; object-position: ${imageObjectPosition};` : ''}`}
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      )}
+
+    </div>
+
+  ) : isSplitLayout && hasBullets ? (
+
+    <!-- Split with bullets: two columns — title + body left, bullet list right -->
+    <div class="page-intro-split-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap_xl); align-items: start;">
+
+      <!-- Left: eyebrow + title + body -->
+      <div>
+        {(block.eyebrow ?? block.props?.eyebrow) && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_accent, var(--color_cta_primary)); margin: 0 0 var(--space_sm);">
+            {block.eyebrow ?? block.props?.eyebrow}
+          </p>
+        )}
+        {block.title && (
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_4xl); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--gap_sm);">
+            {block.title}
+          </h2>
+        )}
+        {(block.subtitle ?? block.props?.subtitle) && (
+          <p style="font-size: var(--text_xl); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm);">
+            {block.subtitle ?? block.props?.subtitle}
+          </p>
+        )}
+        {bodyHtml && <div class="pi-body-html" set:html={bodyHtml} />}
+        {bodyParagraphs.length > 0 && (
+          <div style="display: flex; flex-direction: column; gap: var(--gap_sm);">
+            {bodyParagraphs.map((para: string) => (
+              <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0;">{para}</p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <!-- Right: bullet list -->
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap_sm);">
+        {(block.props.bullets as string[]).map((bullet: string) => (
+          <li style="display: flex; align-items: baseline; gap: var(--gap_sm); font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_secondary);">
+            <span style="color: var(--color_cta_primary); font-weight: var(--font_weight_bold); flex-shrink: 0;" aria-hidden="true">—</span>
+            {bullet}
+          </li>
+        ))}
+      </ul>
+
+    </div>
+
+  ) : isSplitLayout ? (
+
+    <!-- Split declared but no bullets or image — narrow single column -->
+    <div style="max-width: 640px;">
+      {(block.eyebrow ?? block.props?.eyebrow) && (
+        <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_accent, var(--color_cta_primary)); margin: 0 0 var(--space_sm);">
+          {block.eyebrow ?? block.props?.eyebrow}
+        </p>
+      )}
+      {block.title && (
+        <h2 style="font-family: var(--font_heading); font-size: var(--text_4xl); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--gap_sm);">
+          {block.title}
+        </h2>
+      )}
+      {(block.subtitle ?? block.props?.subtitle) && (
+        <p style="font-size: var(--text_xl); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm);">
+          {block.subtitle ?? block.props?.subtitle}
+        </p>
+      )}
+      {bodyHtml && <div class="pi-body-html" set:html={bodyHtml} />}
+      {bodyParagraphs.length > 0 && (
+        <div style="display: flex; flex-direction: column; gap: var(--gap_sm);">
+          {bodyParagraphs.map((para: string) => (
+            <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0;">{para}</p>
+          ))}
+        </div>
+      )}
+    </div>
+
+  ) : (
+
+    <!-- Default: existing single-column behaviour unchanged -->
+    <div class="page-intro-default-grid" style={`display: grid; grid-template-columns: ${hasBullets ? '1fr 1fr' : '1fr'}; gap: var(--gap_lg); align-items: start;`}>
+      <div>
+        {(block.eyebrow ?? block.props?.eyebrow) && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_accent, var(--color_cta_primary)); margin: 0 0 var(--space_sm);">
+            {block.eyebrow ?? block.props?.eyebrow}
+          </p>
+        )}
+        {block.title && (
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_4xl); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--gap_sm);">
+            {block.title}
+          </h2>
+        )}
+        {(block.subtitle ?? block.props?.subtitle) && (
+          <p style="font-size: var(--text_xl); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm);">
+            {block.subtitle ?? block.props?.subtitle}
+          </p>
+        )}
+        {bodyHtml && <div class="pi-body-html" set:html={bodyHtml} />}
+        {bodyParagraphs.length > 0 && (
+          <div style="display: flex; flex-direction: column; gap: var(--gap_sm);">
+            {bodyParagraphs.map((para: string) => (
+              <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0;">{para}</p>
+            ))}
+          </div>
+        )}
+      </div>
+      {hasBullets && (
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap_sm);">
+          {(block.props.bullets as string[]).map((bullet: string) => (
+            <li style="display: flex; align-items: baseline; gap: var(--gap_sm); font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_secondary);">
+              <span style="color: var(--color_cta_primary); font-weight: var(--font_weight_bold); flex-shrink: 0;" aria-hidden="true">—</span>
+              {bullet}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+
+  )}
+
+</section>
+
+<style>
+  .page-intro-block,
+  .page-intro-block * {
+    box-sizing: border-box;
+  }
+
+  .page-intro-block {
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .page-intro-compact-box,
+  .page-intro-compact-grid,
+  .page-intro-split-grid,
+  .page-intro-default-grid,
+  .page-intro-block img {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .page-intro-directory {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_lg);
+  }
+
+  .page-intro-directory-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    color: var(--color_accent, var(--color_cta_primary));
+    margin: 0;
+  }
+
+  .page-intro-directory-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_4xl);
+    font-weight: var(--font_weight_bold);
+    line-height: var(--leading_tight);
+    color: var(--color_text_heading);
+    margin: 0;
+  }
+
+  .page-intro-directory-subtitle {
+    font-size: var(--text_xl);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+
+  .page-intro-directory-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_md);
+  }
+
+  .page-intro-directory-body p {
+    font-size: var(--text_lg);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+
+  .pi-body-html,
+  .pi-body-html :global(p) {
+    font-size: var(--text_lg);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0 0 var(--gap_sm);
+  }
+
+  .pi-body-html :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 768px) {
+    .page-intro-compact-box {
+      flex-direction: column;
+      gap: var(--gap_md) !important;
+      padding: var(--text_gap_lg) !important;
+    }
+
+    .page-intro-compact-title {
+      padding-right: 0 !important;
+      padding-bottom: var(--text_gap_md);
+      border-right: 0 !important;
+      border-bottom: 1px solid var(--color_border);
+    }
+
+    .page-intro-compact-grid,
+    .page-intro-split-grid,
+    .page-intro-default-grid {
+      grid-template-columns: 1fr !important;
+      width: 100%;
+    }
+  }
+</style>

@@ -1,0 +1,470 @@
+---
+import { cleanRemixUrl } from "../lib/cleanRemixUrl";
+interface NavItem {
+  label: string;
+  url: string;
+  open_in_new_tab?: boolean;
+}
+
+interface Props {
+  navItems: NavItem[];
+  logoUrl: string | null;
+  siteName: string;
+}
+
+const { navItems, logoUrl, siteName } = Astro.props;
+
+const pathname = Astro.url.pathname;
+function isNavActive(url: string): boolean {
+  if (url === '/') return pathname === '/';
+  return pathname === url || pathname.startsWith(url + '/');
+}
+---
+
+<div class="rm-site-header">
+
+  <!-- ROW 1: Brand -->
+  <div class="rm-header-brand">
+    <div class="rm-header-brand-inner">
+      <a href="/" class="rm-brand-lockup" aria-label={siteName}>
+        {logoUrl && (
+          <img src={logoUrl} alt="" class="rm-brand-logo" aria-hidden="true" />
+        )}
+        <span class="rm-brand-name">{siteName}</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- ROW 2: Nav + Join utility -->
+  <header class="rm-header-nav" id="rm-header-nav">
+    <div class="rm-header-nav-inner">
+
+      <nav aria-label="Main navigation" class="rm-nav-links">
+        {navItems.map((item) => (
+          <a
+            href={cleanRemixUrl(item.url)}
+            class={`rm-nav-link${isNavActive(cleanRemixUrl(item.url)) ? ' is-active' : ''}`}
+            aria-current={isNavActive(cleanRemixUrl(item.url)) ? 'page' : undefined}
+            target={item.open_in_new_tab ? '_blank' : undefined}
+            rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+          >{item.label}</a>
+        ))}
+      </nav>
+
+      <div class="rm-join-utility">
+        <form class="rm-join-form" id="rm-join-form" novalidate>
+          <input
+            type="email"
+            id="rm-join-email"
+            class="rm-join-email"
+            placeholder="your@email.com"
+            autocomplete="email"
+            aria-label="Email address"
+          />
+          <button type="submit" class="rm-join-btn">Join The Remix</button>
+        </form>
+        <span class="rm-join-success" id="rm-join-success" hidden>You're in ✓</span>
+      </div>
+
+      <!-- Hamburger — mobile only -->
+      <button
+        class="rm-menu-toggle"
+        id="rm-menu-toggle"
+        aria-label="Open menu"
+        aria-expanded="false"
+        aria-controls="rm-mobile-menu"
+      >
+        <span class="rm-hb-bar"></span>
+        <span class="rm-hb-bar"></span>
+        <span class="rm-hb-bar"></span>
+      </button>
+
+    </div>
+  </header>
+
+  <!-- Mobile menu drawer -->
+  <div class="rm-mobile-menu" id="rm-mobile-menu" aria-hidden="true">
+    <nav aria-label="Mobile navigation" class="rm-mobile-nav">
+      {navItems.map((item) => (
+        <a
+          href={cleanRemixUrl(item.url)}
+          class={`rm-mobile-nav-link${isNavActive(cleanRemixUrl(item.url)) ? ' is-active' : ''}`}
+          aria-current={isNavActive(cleanRemixUrl(item.url)) ? 'page' : undefined}
+          target={item.open_in_new_tab ? '_blank' : undefined}
+          rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+        >{item.label}</a>
+      ))}
+    </nav>
+    <div class="rm-mobile-join">
+      <form class="rm-mobile-join-form" id="rm-mobile-join-form" novalidate>
+        <input
+          type="email"
+          id="rm-mobile-join-email"
+          class="rm-mobile-join-email"
+          placeholder="your@email.com"
+          autocomplete="email"
+          aria-label="Email address"
+        />
+        <button type="submit" class="rm-mobile-join-btn">Join The Remix</button>
+      </form>
+      <span id="rm-mobile-join-success" hidden style="font-size: 14px; font-weight: var(--font_weight_semibold); color: var(--color_cta_primary);">You're in ✓</span>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  /* ── SITE HEADER ─────────────────────────────────────── */
+  .rm-site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    width: 100%;
+    background: var(--color_nav_background, #FFFFFF);
+  }
+
+  /* ── ROW 1: Brand ── */
+  .rm-header-brand {
+    border-bottom: 1px solid var(--color_border);
+    padding: 16px var(--layout_padding_x);
+  }
+
+  .rm-header-brand-inner {
+    max-width: var(--layout_max_width);
+    margin: 0 auto;
+  }
+
+  .rm-brand-lockup {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+  }
+
+  .rm-brand-logo {
+    height: 34px;
+    width: auto;
+    display: block;
+  }
+
+  .rm-brand-name {
+    font-family: var(--font_heading);
+    font-size: 26px;
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+
+  /* ── ROW 2: Nav + Join utility ── */
+  .rm-header-nav {
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .rm-header-nav-inner {
+    display: flex;
+    align-items: center;
+    max-width: var(--layout_max_width);
+    margin: 0 auto;
+    padding: 0 var(--layout_padding_x);
+    height: 48px;
+    gap: var(--gap_sm);
+  }
+
+  .rm-nav-links {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+  }
+
+  .rm-nav-link {
+    font-size: 14px;
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_secondary);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-radius: var(--radius_sm);
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+
+  .rm-nav-link:hover {
+    color: var(--color_text_primary);
+  }
+
+  .rm-nav-link.is-active {
+    color: var(--color_cta_primary);
+  }
+
+  .rm-join-utility {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .rm-join-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .rm-join-email {
+    height: 32px;
+    width: 196px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-family: var(--font_body);
+    border: 1.5px solid var(--color_border);
+    border-radius: var(--radius_sm);
+    background: var(--color_white);
+    color: var(--color_text_primary);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .rm-join-email::placeholder {
+    color: var(--color_text_secondary);
+    opacity: 0.5;
+  }
+
+  .rm-join-email:focus {
+    border-color: var(--color_cta_primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color_cta_primary) 12%, transparent);
+  }
+
+  .rm-join-btn {
+    height: 32px;
+    padding: 0 18px;
+    font-size: 13px;
+    font-weight: var(--font_weight_semibold);
+    font-family: var(--font_body);
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    border: none;
+    border-radius: var(--btn_radius_pill);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+
+  .rm-join-btn:hover:not(:disabled) { opacity: var(--hover_opacity); }
+  .rm-join-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .rm-join-success {
+    font-size: 13px;
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_cta_primary);
+    white-space: nowrap;
+  }
+
+  /* ── Hamburger button ── */
+  .rm-menu-toggle {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    width: 36px;
+    height: 36px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius_sm);
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  .rm-hb-bar {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--color_text_heading);
+    border-radius: 2px;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+
+  .rm-menu-toggle[aria-expanded="true"] .rm-hb-bar:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+  .rm-menu-toggle[aria-expanded="true"] .rm-hb-bar:nth-child(2) {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  .rm-menu-toggle[aria-expanded="true"] .rm-hb-bar:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+
+  /* ── Mobile menu drawer ── */
+  .rm-mobile-menu {
+    display: none;
+    flex-direction: column;
+    background: var(--color_nav_background, #FFFFFF);
+    border-bottom: 1px solid var(--color_border);
+    padding: 0.5rem var(--layout_padding_x) 1.25rem;
+  }
+
+  .rm-mobile-menu.rm-open {
+    display: flex;
+  }
+
+  .rm-mobile-nav {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rm-mobile-nav-link {
+    font-size: 15px;
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_primary);
+    text-decoration: none;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--color_border);
+    transition: color 0.15s;
+  }
+
+  .rm-mobile-nav-link:hover {
+    color: var(--color_cta_primary);
+  }
+
+  .rm-mobile-nav-link.is-active {
+    color: var(--color_cta_primary);
+  }
+
+  .rm-mobile-join {
+    padding-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .rm-mobile-join-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .rm-mobile-join-email {
+    height: 40px;
+    width: 100%;
+    padding: 0 12px;
+    font-size: 14px;
+    font-family: var(--font_body);
+    border: 1.5px solid var(--color_border);
+    border-radius: var(--radius_sm);
+    background: var(--color_white);
+    color: var(--color_text_primary);
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .rm-mobile-join-email::placeholder {
+    color: var(--color_text_secondary);
+    opacity: 0.5;
+  }
+
+  .rm-mobile-join-email:focus {
+    border-color: var(--color_cta_primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color_cta_primary) 12%, transparent);
+  }
+
+  .rm-mobile-join-btn {
+    height: 40px;
+    font-size: 14px;
+    font-weight: var(--font_weight_semibold);
+    font-family: var(--font_body);
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    border: none;
+    border-radius: var(--btn_radius_pill);
+    cursor: pointer;
+    width: 100%;
+    transition: opacity 0.15s;
+  }
+
+  .rm-mobile-join-btn:hover:not(:disabled) { opacity: var(--hover_opacity); }
+  .rm-mobile-join-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .rm-join-email { display: none; }
+  }
+
+  @media (max-width: 768px) {
+    .rm-nav-links    { display: none; }
+    .rm-join-utility { display: none; }
+    .rm-menu-toggle  { display: flex; }
+  }
+
+  @media (max-width: 640px) {
+    .rm-header-brand     { padding: 14px 24px; }
+    .rm-header-nav-inner { padding: 0 24px; }
+    .rm-mobile-menu      { padding-left: 24px; padding-right: 24px; }
+  }
+</style>
+
+<script>
+  function setupJoinForm(
+    formId: string,
+    emailId: string,
+    successId: string,
+    btnSelector: string,
+  ) {
+    const form    = document.getElementById(formId) as HTMLFormElement | null;
+    const emailEl = document.getElementById(emailId) as HTMLInputElement | null;
+    const success = document.getElementById(successId) as HTMLElement | null;
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const val = emailEl?.value?.trim();
+      if (!val) { emailEl?.focus(); return; }
+
+      const btn = form.querySelector<HTMLButtonElement>(btnSelector);
+      if (btn) { btn.disabled = true; btn.textContent = 'Joining…'; }
+
+      try {
+        const res = await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: val, source: 'header_join', site_slug: 'remix', page_path: window.location.pathname }),
+        });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          if (form)    form.style.display = 'none';
+          if (success) success.hidden = false;
+        } else {
+          if (btn) { btn.disabled = false; btn.textContent = 'Join The Remix'; }
+        }
+      } catch {
+        if (btn) { btn.disabled = false; btn.textContent = 'Join The Remix'; }
+      }
+    });
+  }
+
+  setupJoinForm('rm-join-form',        'rm-join-email',        'rm-join-success',        '.rm-join-btn');
+  setupJoinForm('rm-mobile-join-form', 'rm-mobile-join-email', 'rm-mobile-join-success', '.rm-mobile-join-btn');
+
+  // Hamburger toggle
+  const toggle = document.getElementById('rm-menu-toggle') as HTMLButtonElement | null;
+  const drawer = document.getElementById('rm-mobile-menu') as HTMLElement | null;
+
+  toggle?.addEventListener('click', () => {
+    const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+    toggle.setAttribute('aria-label', isOpen ? 'Open menu' : 'Close menu');
+    drawer?.classList.toggle('rm-open', !isOpen);
+    if (drawer) drawer.setAttribute('aria-hidden', String(isOpen));
+  });
+
+  drawer?.querySelectorAll('.rm-mobile-nav-link').forEach((link) => {
+    link.addEventListener('click', () => {
+      toggle?.setAttribute('aria-expanded', 'false');
+      toggle?.setAttribute('aria-label', 'Open menu');
+      drawer.classList.remove('rm-open');
+      drawer.setAttribute('aria-hidden', 'true');
+    });
+  });
+</script>

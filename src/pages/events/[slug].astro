@@ -1,0 +1,1055 @@
+---
+import { supabase } from '../../lib/supabase';
+import { cleanRemixUrl } from '../../lib/cleanRemixUrl';
+import Layout from '../../layouts/Layout.astro';
+import RemixFooter from '../../components/RemixFooter.astro';
+
+const SITE_ID   = '182a399d-ac31-4a2a-9fb0-38844eadeef4';
+const SITE_SLUG = 'remix';
+const BRAND_KEY = 'the_remix';
+
+const { slug } = Astro.params;
+
+// ── Parallel fetches ─────────────────────────────────────────
+const [tokensRes, navRes, siteRes, eventRes] = await Promise.all([
+
+  supabase
+    .from('brand_tokens')
+    .select('token_key, token_value')
+    .eq('brand_key', BRAND_KEY)
+    .order('sort_order', { ascending: true }),
+
+  supabase
+    .from('site_nav_items')
+    .select('label, url, is_external, open_in_new_tab, nav_style, track, active_color, border_color')
+    .eq('site_slug', SITE_SLUG)
+    .eq('nav_group', 'header')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true }),
+
+  supabase
+    .from('sites')
+    .select('name, logo_asset_id, primary_domain')
+    .eq('id', SITE_ID)
+    .single(),
+
+  supabase
+    .from('events')
+    .select(`
+      id, title, slug, summary, description,
+      start_at, end_at, timezone,
+      venue_name, location_name, street_address, location_address,
+      suburb, state, region,
+      audience_track, audience_description, audience_primary,
+      registration_url, featured_image_asset_id, show_on_remix
+    `)
+    .eq('show_on_remix', true)
+    .or(`slug.eq.${slug},event_slug.eq.${slug}`)
+    .maybeSingle(),
+]);
+
+// ── Process tokens ────────────────────────────────────────────
+const tokenRows = tokensRes.data ?? [];
+const rawTokenCSS = tokenRows.length
+  ? `:root {\n${tokenRows.map((t: any) => `  --${t.token_key}: ${t.token_value};`).join('\n')}\n}`
+  : '';
+
+const navItems = navRes.data ?? [];
+const site     = siteRes.data;
+const event    = eventRes.data ?? null;
+
+// ── Logo ─────────────────────────────────────────────────────
+let logoUrl: string | null = null;
+if (site?.logo_asset_id) {
+  const { data: logo } = await supabase
+    .from('media_assets')
+    .select('image_url')
+    .eq('id', site.logo_asset_id)
+    .single();
+  logoUrl = logo?.image_url ?? null;
+}
+
+// ── Event image ───────────────────────────────────────────────
+let imageUrl: string | null = null;
+if (event?.featured_image_asset_id) {
+  const { data: img } = await supabase
+    .from('media_assets')
+    .select('image_url')
+    .eq('id', event.featured_image_asset_id)
+    .single();
+  imageUrl = img?.image_url ?? null;
+}
+
+// ── Date / time formatting ────────────────────────────────────
+const tz = (event as any)?.timezone ?? 'Australia/Sydney';
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    timeZone: tz,
+  });
+}
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso)
+    .toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz })
+    .toLowerCase()
+    .replace(':00', ':00');
+}
+
+function tzAbbrev(isoDate: string, timezone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-AU', { timeZoneName: 'short', timeZone: timezone })
+      .formatToParts(new Date(isoDate));
+    return parts.find(p => p.type === 'timeZoneName')?.value ?? '';
+  } catch { return ''; }
+}
+
+const dateDisplay = formatDate(event?.start_at ?? null);
+const startTime   = formatTime(event?.start_at ?? null);
+const endTime     = formatTime(event?.end_at ?? null);
+const tzLabel     = event?.start_at ? tzAbbrev(event.start_at, tz) : '';
+const timeParts   = [startTime, endTime].filter(Boolean);
+const timeDisplay = timeParts.length
+  ? timeParts.join(' to ') + (tzLabel ? ` ${tzLabel}` : '')
+  : '';
+
+// ── Venue / address ───────────────────────────────────────────
+const venueName  = (event as any)?.venue_name || (event as any)?.location_name || null;
+const streetLine = (event as any)?.street_address || (event as any)?.location_address || null;
+const suburbLine = [(event as any)?.suburb, (event as any)?.state].filter(Boolean).join(' ') || null;
+
+// ── Audience card ─────────────────────────────────────────────
+const audienceText = (event as any)?.audience_description || (event as any)?.audience_primary || null;
+const track = (event as any)?.audience_track ?? '';
+const audienceBorderColor = track === 'appliers'
+  ? 'var(--color_track_applier)'
+  : track === 'builders'
+  ? 'var(--color_track_builder)'
+  : 'var(--color_cta_primary)';
+const audienceTintColor = track === 'appliers'
+  ? 'var(--color_track_applier_tint)'
+  : track === 'builders'
+  ? 'var(--color_track_builder_tint)'
+  : 'var(--color_surface)';
+
+// ── Description → paragraphs + lists ─────────────────────────
+type DescBlock = { type: 'p'; text: string } | { type: 'ul'; items: string[] };
+function parseDescription(text: string | null): DescBlock[] {
+  if (!text?.trim()) return [];
+  const blocks: DescBlock[] = [];
+  for (const raw of text.split(/\n\n+/)) {
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
+    const isList = lines.every(l => l.startsWith('- ') || l.startsWith('• '));
+    if (isList) {
+      blocks.push({ type: 'ul', items: lines.map(l => l.replace(/^[-•]\s+/, '')) });
+    } else {
+      blocks.push({ type: 'p', text: lines.join(' ') });
+    }
+  }
+  return blocks;
+}
+const descBlocks = parseDescription((event as any)?.description ?? null);
+
+// ── Google Calendar URL ───────────────────────────────────────
+function toGCalDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+const gCalUrl = event?.start_at
+  ? 'https://www.google.com/calendar/render?action=TEMPLATE' +
+    `&text=${encodeURIComponent(event.title ?? '')}` +
+    `&dates=${toGCalDate(event.start_at)}/${toGCalDate(event.end_at ?? event.start_at)}` +
+    ((event as any).summary ? `&details=${encodeURIComponent((event as any).summary)}` : '') +
+    (venueName ? `&location=${encodeURIComponent(venueName)}` : '')
+  : null;
+
+// ── SEO ───────────────────────────────────────────────────────
+const seoTitle       = event ? `${event.title} — ${site?.name ?? 'The Remix'}` : 'Event not found';
+const seoDescription = (event as any)?.summary ?? '';
+const canonical      = `https://${site?.primary_domain ?? 'theremix.au'}/events/${slug}`;
+---
+
+<Layout
+  title={seoTitle}
+  description={seoDescription}
+  canonical={canonical}
+  siteName={site?.name ?? 'The Remix'}
+  brandKey={BRAND_KEY}
+  rawTokenCSS={rawTokenCSS}
+>
+
+  <!-- ══════════════════════════════════════════════════════ -->
+  <!-- SITE HEADER                                            -->
+  <!-- ══════════════════════════════════════════════════════ -->
+  <div class="rm-site-header">
+
+    <div class="rm-header-brand">
+      <div class="rm-header-brand-inner">
+        <a href="/" class="rm-brand-lockup" aria-label={site?.name ?? 'The Remix'}>
+          {logoUrl && (
+            <img src={logoUrl} alt="" class="rm-brand-logo" aria-hidden="true" />
+          )}
+          <span class="rm-brand-name">{site?.name ?? 'The Remix'}</span>
+        </a>
+      </div>
+    </div>
+
+    <header class="rm-header-nav" id="rm-header-nav">
+      <div class="rm-header-nav-inner">
+
+        <nav aria-label="Main navigation" class="rm-nav-links">
+          {navItems.map((item: any) => (
+            <a
+              href={cleanRemixUrl(item.url)}
+              class="rm-nav-link"
+              target={item.open_in_new_tab ? '_blank' : undefined}
+              rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+            >{item.label}</a>
+          ))}
+        </nav>
+
+        <div class="rm-join-utility">
+          <form class="rm-join-form" id="rm-join-form" novalidate>
+            <input
+              type="email"
+              id="rm-join-email"
+              class="rm-join-email"
+              placeholder="your@email.com"
+              autocomplete="email"
+              aria-label="Email address"
+            />
+            <button type="submit" class="rm-join-btn">Join The Remix</button>
+          </form>
+          <span class="rm-join-success" id="rm-join-success" hidden>You're in ✓</span>
+        </div>
+
+      </div>
+    </header>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════ -->
+  <!-- MAIN CONTENT                                           -->
+  <!-- ══════════════════════════════════════════════════════ -->
+  <main id="main-content" style="background: var(--color_surface_page);">
+
+    {!event ? (
+
+      <!-- ── Not found ─────────────────────────────────── -->
+      <section style="padding: 96px 0; text-align: center;">
+        <div style="max-width: 480px; margin-inline: auto; padding-inline: 24px;">
+          <p style="font-size: 14px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 16px;">
+            Event not found
+          </p>
+          <h1 style="font-family: var(--font_heading); font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 800; color: var(--color_text_heading); margin: 0 0 20px; line-height: 1.1;">
+            We couldn't find that event
+          </h1>
+          <p style="font-size: 16px; color: var(--color_text_secondary); margin: 0 0 32px; line-height: 1.65;">
+            It may have been removed or the link may be incorrect.
+          </p>
+          <a
+            href="/"
+            style="display: inline-flex; align-items: center; padding: 12px 28px; background: var(--color_cta_primary); color: var(--color_text_on_dark); font-size: 14px; font-weight: 700; border-radius: var(--btn_radius_pill); text-decoration: none;"
+          >
+            Browse all events
+          </a>
+        </div>
+      </section>
+
+    ) : (
+
+      <>
+        <!-- ── Hero ──────────────────────────────────────── -->
+        <section class="ev-hero-section">
+          <div class="ev-container">
+            <div class="ev-hero-grid">
+
+              <!-- Left: content -->
+              <div class="ev-hero-left">
+
+                {(event as any).region && (
+                  <p class="ev-region-badge">
+                    {(event as any).region}
+                  </p>
+                )}
+
+                <h1 class="ev-title">
+                  {event.title}
+                </h1>
+
+                {(event as any).summary && (
+                  <p class="ev-summary">
+                    {(event as any).summary}
+                  </p>
+                )}
+
+                {(dateDisplay || timeDisplay) && (
+                  <div class="ev-meta-row">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="ev-meta-icon">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                      <line x1="16" y1="2" x2="16" y2="6"/>
+                      <line x1="8" y1="2" x2="8" y2="6"/>
+                      <line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    <span class="ev-meta-text">
+                      {[dateDisplay, timeDisplay].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                )}
+
+                {(venueName || streetLine || suburbLine) && (
+                  <div class="ev-meta-row">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="ev-meta-icon">
+                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+                      <circle cx="12" cy="10" r="3"/>
+                    </svg>
+                    <span class="ev-meta-text">
+                      {[venueName, streetLine, suburbLine].filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                )}
+
+                {event.registration_url && (
+                  <a
+                    href={event.registration_url}
+                    class="ev-register-btn"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Register for this event
+                  </a>
+                )}
+
+              </div>
+
+              <!-- Right: image -->
+              <div class="ev-hero-right">
+                {imageUrl ? (
+                  <img
+                    src={imageUrl}
+                    alt={event.title ?? ''}
+                    class="ev-hero-image"
+                    loading="eager"
+                    decoding="async"
+                  />
+                ) : (
+                  <div class="ev-hero-placeholder" aria-hidden="true"></div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Actions row ───────────────────────────────── -->
+        <div class="ev-actions-shell">
+          <div class="ev-container">
+            <div class="ev-actions-row">
+
+              <button
+                type="button"
+                class="ev-action-btn"
+                id="ev-share-btn"
+                data-title={event.title ?? ''}
+                data-url={canonical}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                </svg>
+                <span id="ev-share-label">Share</span>
+              </button>
+
+              {gCalUrl && (
+                <a
+                  href={gCalUrl}
+                  class="ev-action-btn"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/>
+                    <line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                  Add to calendar
+                </a>
+              )}
+
+              <a href="/events" class="ev-action-btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="19" y1="12" x2="5" y2="12"/>
+                  <polyline points="12 19 5 12 12 5"/>
+                </svg>
+                All events
+              </a>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Body content ──────────────────────────────── -->
+        <section class="ev-body-section">
+          <div class="ev-container">
+            <div class="ev-body-inner">
+
+              {descBlocks.length > 0 && (
+                <div class="ev-description">
+                  <h2 class="ev-section-heading">About this event</h2>
+                  {descBlocks.map((block) => (
+                    block.type === 'ul' ? (
+                      <ul class="ev-list">
+                        {block.items.map((item) => (
+                          <li class="ev-list-item">{item}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p class="ev-body-para">{block.text}</p>
+                    )
+                  ))}
+                </div>
+              )}
+
+              {audienceText && (
+                <div
+                  class="ev-audience-card"
+                  style={`border-left-color: ${audienceBorderColor}; background: ${audienceTintColor};`}
+                >
+                  <h3 class="ev-audience-heading" style={`color: ${audienceBorderColor};`}>
+                    Who this is for
+                  </h3>
+                  <p class="ev-audience-body">
+                    {audienceText}
+                  </p>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Pre-footer strip ──────────────────────────── -->
+        <div class="ev-prefooter-strip">
+          <div class="ev-container">
+            <div class="ev-prefooter-inner">
+              <div>
+                <p class="ev-prefooter-label">Ready to join?</p>
+                <p class="ev-prefooter-title">{event.title}</p>
+              </div>
+              {event.registration_url && (
+                <a
+                  href={event.registration_url}
+                  class="ev-register-btn ev-register-btn--sm"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Register now
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+      </>
+    )}
+
+  </main>
+
+  <RemixFooter />
+
+</Layout>
+
+<style>
+  /* ── Header ───────────────────────────────────────────── */
+  .rm-site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    width: 100%;
+    background: var(--color_nav_background, #FFFFFF);
+  }
+
+  .rm-header-brand {
+    border-bottom: 1px solid var(--color_border);
+    padding: 16px var(--layout_padding_x);
+  }
+
+  .rm-header-brand-inner {
+    max-width: var(--layout_max_width);
+    margin: 0 auto;
+  }
+
+  .rm-brand-lockup {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+  }
+
+  .rm-brand-logo {
+    height: 34px;
+    width: auto;
+    display: block;
+  }
+
+  .rm-brand-name {
+    font-family: var(--font_heading);
+    font-size: 26px;
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+
+  .rm-header-nav {
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .rm-header-nav-inner {
+    display: flex;
+    align-items: center;
+    max-width: var(--layout_max_width);
+    margin: 0 auto;
+    padding: 0 var(--layout_padding_x);
+    height: 48px;
+    gap: var(--gap_sm);
+  }
+
+  .rm-nav-links {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+  }
+
+  .rm-nav-link {
+    font-size: 14px;
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_secondary);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-radius: var(--radius_sm);
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+
+  .rm-nav-link:hover {
+    color: var(--color_text_primary);
+  }
+
+  .rm-join-utility {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .rm-join-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .rm-join-email {
+    height: 32px;
+    width: 196px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-family: var(--font_body);
+    border: 1.5px solid var(--color_border);
+    border-radius: var(--radius_sm);
+    background: var(--color_white);
+    color: var(--color_text_primary);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .rm-join-email::placeholder {
+    color: var(--color_text_secondary);
+    opacity: 0.5;
+  }
+
+  .rm-join-email:focus {
+    border-color: var(--color_cta_primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color_cta_primary) 12%, transparent);
+  }
+
+  .rm-join-btn {
+    height: 32px;
+    padding: 0 18px;
+    font-size: 13px;
+    font-weight: var(--font_weight_semibold);
+    font-family: var(--font_body);
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    border: none;
+    border-radius: var(--btn_radius_pill);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+
+  .rm-join-btn:hover:not(:disabled) { opacity: var(--hover_opacity); }
+  .rm-join-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .rm-join-success {
+    font-size: 13px;
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_cta_primary);
+    white-space: nowrap;
+  }
+
+  /* ── Page layout ──────────────────────────────────────── */
+  .ev-container {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+  }
+
+  /* ── Hero grid ────────────────────────────────────────── */
+  .ev-hero-section {
+    background: var(--color_surface_hero);
+    padding: var(--layout_padding_y_sm) 0 0;
+  }
+
+  .ev-hero-grid {
+    display: grid;
+    grid-template-columns: 1fr 44%;
+    gap: var(--gap_lg);
+    align-items: start;
+    padding-bottom: 0;
+  }
+
+  .ev-hero-left {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_lg);
+    padding-top: var(--text_gap_sm);
+  }
+
+  .ev-region-badge {
+    display: inline-block;
+    align-self: flex-start;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    background: var(--color_surface);
+    border: 1px solid var(--color_border);
+    padding: 4px 12px;
+    border-radius: var(--btn_radius_pill);
+    margin: 0;
+    max-width: none;
+  }
+
+  .ev-title {
+    font-family: var(--font_heading);
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 800;
+    color: var(--color_nav_dark);
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+    margin: 0;
+    max-width: none;
+  }
+
+  .ev-summary {
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--color_text_secondary);
+    margin: 0;
+    max-width: 52ch;
+  }
+
+  .ev-meta-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+  }
+
+  .ev-meta-icon {
+    flex-shrink: 0;
+    color: var(--color_text_secondary);
+    margin-top: 2px;
+  }
+
+  .ev-meta-text {
+    font-size: 15px;
+    color: var(--color_text_secondary);
+    line-height: 1.5;
+  }
+
+  .ev-register-btn {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    margin-top: var(--text_gap_sm);
+    padding: var(--btn_padding_lg);
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    font-family: var(--font_body);
+    font-size: 15px;
+    font-weight: var(--font_weight_semibold);
+    border-radius: var(--btn_radius_pill);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+    max-width: none;
+  }
+
+  .ev-register-btn:hover {
+    opacity: var(--hover_opacity);
+  }
+
+  .ev-register-btn--sm {
+    padding: var(--btn_padding);
+    font-size: 14px;
+    margin-top: 0;
+  }
+
+  .ev-hero-right {
+    position: sticky;
+    top: 120px;
+  }
+
+  .ev-hero-image {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    display: block;
+    border-radius: var(--radius_md);
+  }
+
+  .ev-hero-placeholder {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: var(--color_surface);
+    border-radius: var(--radius_md);
+    border: 1px solid var(--color_border);
+  }
+
+  /* ── Actions row ──────────────────────────────────────── */
+  .ev-actions-shell {
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .ev-actions-row {
+    display: flex;
+    align-items: center;
+    gap: var(--text_gap_sm);
+    padding: var(--text_gap_md) 0;
+  }
+
+  .ev-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--text_gap_sm);
+    padding: var(--btn_padding_sm);
+    font-size: 13px;
+    font-weight: var(--font_weight_semibold);
+    font-family: var(--font_body);
+    color: var(--color_text_secondary);
+    background: transparent;
+    border: 1px solid var(--color_border);
+    border-radius: var(--btn_radius);
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .ev-action-btn:hover {
+    color: var(--color_text_heading);
+    border-color: var(--color_text_secondary);
+  }
+
+  /* ── Body content ─────────────────────────────────────── */
+  .ev-body-section {
+    padding: 0 0 var(--layout_padding_y_md);
+  }
+
+  .ev-body-inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_lg);
+    max-width: 720px;
+  }
+
+  .ev-section-heading {
+    font-family: var(--font_heading);
+    font-size: clamp(1.3rem, 2.5vw, 1.7rem);
+    font-weight: 800;
+    color: var(--color_nav_dark);
+    margin: 0 0 var(--text_gap_lg);
+    line-height: 1.15;
+    max-width: none;
+  }
+
+  .ev-body-para {
+    font-size: 16px;
+    line-height: 1.75;
+    color: var(--color_text_secondary);
+    margin: 0 0 var(--text_gap_md);
+    max-width: none;
+  }
+
+  .ev-body-para:last-child {
+    margin-bottom: 0;
+  }
+
+  .ev-list {
+    padding-left: var(--text_gap_lg);
+    margin: 0 0 var(--text_gap_md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_sm);
+  }
+
+  .ev-list-item {
+    font-size: 16px;
+    line-height: 1.65;
+    color: var(--color_text_secondary);
+    max-width: none;
+  }
+
+  .ev-description {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Audience card ────────────────────────────────────── */
+  .ev-audience-card {
+    border-left: 4px solid;
+    border-radius: 0 var(--radius_md) var(--radius_md) 0;
+    padding: var(--card_padding);
+  }
+
+  .ev-audience-heading {
+    font-family: var(--font_heading);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+    line-height: 1;
+    max-width: none;
+  }
+
+  .ev-audience-body {
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--color_text_secondary);
+    margin: 0;
+    max-width: none;
+  }
+
+  /* ── Pre-footer ───────────────────────────────────────── */
+  .ev-prefooter-strip {
+    background: var(--color_surface);
+    border-top: 1px solid var(--color_border);
+    border-bottom: 1px solid var(--color_border);
+    padding: var(--layout_padding_y_sm) 0;
+  }
+
+  .ev-prefooter-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .ev-prefooter-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color_text_secondary);
+    margin: 0 0 6px;
+    max-width: none;
+  }
+
+  .ev-prefooter-title {
+    font-family: var(--font_heading);
+    font-size: clamp(1.1rem, 2vw, 1.4rem);
+    font-weight: 800;
+    color: var(--color_text_heading);
+    margin: 0;
+    line-height: 1.2;
+    max-width: none;
+  }
+
+  /* ── Responsive ───────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .rm-join-email { display: none; }
+
+    .ev-hero-grid {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+
+    .ev-hero-right {
+      position: static;
+      order: -1;
+    }
+
+    .ev-hero-image,
+    .ev-hero-placeholder {
+      aspect-ratio: 16 / 9;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .rm-nav-links { display: none; }
+
+    .ev-hero-section {
+      padding: var(--text_gap_lg) 0 0;
+    }
+
+    .ev-hero-left {
+      gap: var(--gap_sm);
+      padding-top: 0;
+    }
+
+    .ev-register-btn {
+      align-self: stretch;
+      justify-content: center;
+      padding: var(--btn_padding);
+      margin-top: 0;
+    }
+
+    .ev-actions-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--text_gap_sm);
+      padding: var(--text_gap_sm) 0 var(--text_gap_md);
+    }
+
+    .ev-action-btn {
+      justify-content: center;
+      padding: var(--btn_padding_sm);
+      text-align: center;
+    }
+
+    .ev-actions-row .ev-action-btn:last-child {
+      grid-column: 1 / -1;
+    }
+
+    .ev-body-section {
+      padding: var(--layout_padding_y_sm) 0 var(--layout_padding_y_md);
+    }
+
+    .ev-body-inner {
+      gap: var(--layout_padding_y_sm);
+    }
+
+    .ev-section-heading {
+      margin-bottom: var(--gap_sm);
+    }
+
+    .ev-body-para {
+      margin-bottom: var(--gap_sm);
+    }
+
+    .ev-list {
+      gap: var(--text_gap_sm);
+      margin-bottom: var(--gap_sm);
+    }
+
+    .ev-audience-card {
+      padding: var(--card_padding);
+    }
+
+    .ev-prefooter-strip {
+      padding: var(--layout_padding_y_sm) 0;
+    }
+
+    .ev-prefooter-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--text_gap_lg);
+    }
+  }
+
+  @media (max-width: 480px) {
+    .rm-join-btn { display: none; }
+  }
+
+  @media (max-width: 640px) {
+    .rm-header-brand { padding: 14px 24px; }
+    .rm-header-nav-inner { padding: 0 24px; }
+
+    .ev-hero-grid {
+      gap: var(--text_gap_lg);
+      padding-bottom: 0;
+    }
+  }
+</style>
+
+<script>
+  // ── Header join form ──────────────────────────────────────
+  const joinForm    = document.getElementById('rm-join-form') as HTMLFormElement | null;
+  const joinSuccess = document.getElementById('rm-join-success') as HTMLElement | null;
+  const joinEmail   = document.getElementById('rm-join-email') as HTMLInputElement | null;
+
+  joinForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = joinEmail?.value?.trim();
+    if (!email) { joinEmail?.focus(); return; }
+
+    const submitBtn = joinForm.querySelector<HTMLButtonElement>('.rm-join-btn');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Joining…'; }
+
+    try {
+      const res  = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, source: 'header_join', site_slug: 'remix' }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        if (joinForm)    joinForm.style.display = 'none';
+        if (joinSuccess) joinSuccess.hidden = false;
+      } else {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Join The Remix'; }
+      }
+    } catch {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Join The Remix'; }
+    }
+  });
+
+  // ── Share button ──────────────────────────────────────────
+  const shareBtn   = document.getElementById('ev-share-btn') as HTMLButtonElement | null;
+  const shareLabel = document.getElementById('ev-share-label');
+
+  shareBtn?.addEventListener('click', async () => {
+    const title = shareBtn.dataset.title ?? '';
+    const url   = shareBtn.dataset.url   ?? window.location.href;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+      } catch { /* user cancelled */ }
+      return;
+    }
+
+    // Clipboard fallback
+    try {
+      await navigator.clipboard.writeText(url);
+      if (shareLabel) {
+        shareLabel.textContent = 'Link copied';
+        setTimeout(() => { if (shareLabel) shareLabel.textContent = 'Share'; }, 2000);
+      }
+    } catch {
+      // Silent — clipboard not available
+    }
+  });
+</script>

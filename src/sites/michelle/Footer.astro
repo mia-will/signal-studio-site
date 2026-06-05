@@ -1,0 +1,192 @@
+---
+import type { NavItem, Site } from '../../types/content';
+
+const BRAND_KEY  = 'michelle_williams';
+
+interface Props {
+  site: Site;
+  footerItems: NavItem[];
+  tokens: Record<string, string>;
+}
+
+const { site, footerItems, tokens } = Astro.props;
+
+const REQUIRED_TOKENS = [
+  'footer_col_site_label',
+  'footer_col_ecosystem_label',
+  'footer_col_trust_label',
+  'footer_description',
+  'footer_copyright',
+] as const;
+
+for (const key of REQUIRED_TOKENS) {
+  if (!tokens[key]) {
+    throw new Error(
+      `Footer: missing brand_token "${key}" for brand_key="${BRAND_KEY}". Add it to Supabase before deploying.`
+    );
+  }
+}
+
+if (!site?.name) throw new Error('Missing: sites.name for slug=michelle');
+
+const columnOrder = ['michelle', 'ecosystem', 'trust'];
+
+const columnLabels: Record<string, string> = {
+  michelle:  tokens.footer_col_site_label,
+  ecosystem: tokens.footer_col_ecosystem_label,
+  trust:     tokens.footer_col_trust_label,
+};
+
+const grouped: Record<string, NavItem[]> = {};
+for (const item of footerItems) {
+  const col = item.footer_column ?? 'other';
+  if (!grouped[col]) grouped[col] = [];
+  grouped[col].push(item);
+}
+
+const year = new Date().getFullYear();
+---
+
+<footer class="mw-footer">
+  <div class="mw-footer-inner">
+    <div class="mw-footer-brand">
+      <a href="/" class="mw-footer-wordmark">
+        {site.name}
+      </a>
+      {tokens.footer_description && (
+        <p class="mw-footer-desc">{tokens.footer_description}</p>
+      )}
+    </div>
+
+    <nav class="mw-footer-nav" aria-label="Footer navigation">
+      {columnOrder.map((col) => {
+        const items = grouped[col];
+        if (!items?.length) return null;
+        return (
+          <div class="mw-footer-col">
+            <p class="mw-footer-col-heading">{columnLabels[col] ?? col}</p>
+            <ul role="list">
+              {items.map((item) => (
+                <li>
+                  <a
+                    href={item.url}
+                    class="mw-footer-link"
+                    target={item.open_in_new_tab ? '_blank' : undefined}
+                    rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+                  >
+                    {item.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </nav>
+  </div>
+
+  <div class="mw-footer-bottom">
+    <div class="mw-footer-bottom-inner">
+      <p class="mw-footer-copy">
+        &copy; {year} {tokens.footer_copyright}. All rights reserved.
+      </p>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .mw-footer {
+    background: var(--color_accent_ink, #1F1F1F);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .mw-footer-inner {
+    max-width: var(--layout_max_width, 1100px);
+    margin: 0 auto;
+    padding: var(--layout_padding_y, 72px) var(--layout_padding_x, 48px);
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: var(--gap_lg, 48px);
+  }
+
+  .mw-footer-wordmark {
+    font-family: var(--font_heading, 'DM Sans', sans-serif);
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: #FFFFFF;
+    text-decoration: none;
+    letter-spacing: -0.02em;
+  }
+
+  .mw-footer-desc {
+    margin-top: 0.75rem;
+    font-family: var(--font_body, 'Inter', sans-serif);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.55);
+    max-width: 260px;
+  }
+
+  .mw-footer-nav {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--gap_md, 24px);
+  }
+
+  .mw-footer-col ul {
+    list-style: none;
+    padding: 0;
+    margin: 0.75rem 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .mw-footer-col-heading {
+    font-family: var(--font_body, 'Inter', sans-serif);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+    margin: 0;
+  }
+
+  .mw-footer-link {
+    font-family: var(--font_body, 'Inter', sans-serif);
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.65);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .mw-footer-link:hover { color: #FFFFFF; }
+
+  .mw-footer-bottom {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .mw-footer-bottom-inner {
+    max-width: var(--layout_max_width, 1100px);
+    margin: 0 auto;
+    padding: 1.5rem var(--layout_padding_x, 48px);
+  }
+
+  .mw-footer-copy {
+    font-family: var(--font_body, 'Inter', sans-serif);
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.35);
+    margin: 0;
+  }
+
+  @media (max-width: 900px) {
+    .mw-footer-inner { grid-template-columns: 1fr; }
+    .mw-footer-nav { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 560px) {
+    .mw-footer-inner { padding-inline: 1.25rem; }
+    .mw-footer-nav { grid-template-columns: 1fr; gap: var(--gap_lg, 48px); }
+    .mw-footer-bottom-inner { padding-inline: 1.25rem; }
+  }
+</style>

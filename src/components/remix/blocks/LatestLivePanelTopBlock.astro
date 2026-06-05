@@ -1,0 +1,78 @@
+---
+import { supabase } from '../../../lib/supabase';
+
+interface Props {
+  block: any;
+}
+
+const { block } = Astro.props;
+
+const upcomingLimit    = Number(block.props?.upcoming_limit ?? 3);
+const emptyLabel       = (block.props?.upcoming_empty_label ?? 'More events coming soon.') as string;
+const activityLines    = (block.props?.community_activity_lines ?? []) as string[];
+
+const { data: eventsData } = await supabase
+  .from('events')
+  .select('id, title, slug, start_at, location_name')
+  .eq('show_on_remix', true)
+  .eq('publish_status', 'published')
+  .gt('start_at', new Date().toISOString())
+  .order('start_at', { ascending: true })
+  .limit(upcomingLimit);
+
+const upcomingEvents = eventsData ?? [];
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Australia/Sydney' });
+}
+---
+
+<div>
+
+  <!-- Module A: Upcoming events -->
+  <div style="padding: var(--space_lg);">
+    <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--space_md);">
+      Upcoming
+    </p>
+
+    {upcomingEvents.length > 0 ? (
+      <div style="display: flex; flex-direction: column; gap: var(--space_md);">
+        {upcomingEvents.map((ev: any) => (
+          <a href={`/events/${ev.slug}`} style="display: block; text-decoration: none; color: inherit;">
+            <p style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); margin: 0 0 var(--space_xs); line-height: var(--leading_tight);">
+              {ev.title}
+            </p>
+            <p style="font-size: var(--text_xs); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed);">
+              {[formatDate(ev.start_at), ev.location_name].filter(Boolean).join(' · ')}
+            </p>
+          </a>
+        ))}
+      </div>
+    ) : (
+      <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; opacity: 0.7;">
+        {emptyLabel}
+      </p>
+    )}
+  </div>
+
+  <!-- Divider -->
+  <div style="height: 1px; background: var(--color_border);"></div>
+
+  <!-- Module B: Community Activity -->
+  {activityLines.length > 0 && (
+    <div style="padding: var(--space_lg);">
+      <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--space_md);">
+        Community
+      </p>
+      <div style="display: flex; flex-direction: column; gap: var(--space_sm);">
+        {activityLines.map((line: string) => (
+          <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed);">
+            {line}
+          </p>
+        ))}
+      </div>
+    </div>
+  )}
+
+</div>

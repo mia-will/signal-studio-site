@@ -1,0 +1,403 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import { supabase } from '../../lib/supabase';
+import { getSite, getNavItems, getMediaAssets } from '../../lib/queries';
+import { marked } from 'marked';
+
+export const prerender = false;
+
+const SITE_SLUG = 'signal_studio';
+const { slug } = Astro.params;
+
+// ── Site + nav ─────────────────────────────────────────────────
+const [site, headerNav, footerNav] = await Promise.all([
+  getSite(SITE_SLUG),
+  getNavItems(SITE_SLUG, 'header'),
+  getNavItems(SITE_SLUG, 'footer'),
+]);
+
+if (!site) return Astro.redirect('/500');
+
+if (!site.primary_domain) throw new Error('Missing: sites.primary_domain for slug=signal_studio');
+if (!site.brand_key)      throw new Error('Missing: sites.brand_key for slug=signal_studio');
+
+// ── Post ───────────────────────────────────────────────────────
+const { data: post } = await supabase
+  .from('posts')
+  .select('id, title, slug, summary, content, published_at, category, tags, reading_time_minutes, hero_media_asset_id, meta_title, meta_description, author_name')
+  .eq('slug', slug)
+  .contains('site_show', ['signal_studio'])
+  .eq('status', 'published')
+  .maybeSingle();
+
+if (!post) return Astro.redirect('/404');
+
+Astro.response.headers.set('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+
+// ── CTA block + related posts + hero image ─────────────────────
+const relatedQuery = post.category
+  ? supabase
+      .from('posts')
+      .select('id, title, slug, summary, published_at, category, reading_time_minutes')
+      .contains('site_show', ['signal_studio'])
+      .eq('status', 'published')
+      .eq('category', post.category)
+      .neq('id', post.id)
+      .order('published_at', { ascending: false })
+      .limit(3)
+  : Promise.resolve({ data: [] as any[] });
+
+const [ctaResult, relatedResult, mediaAssets] = await Promise.all([
+  supabase
+    .from('__page_blocks')
+    .select('title, body, cta_primary_label, cta_primary_href, cta_secondary_label, cta_secondary_href, props, is_enabled')
+    .eq('section_key', 'post_detail_cta_signal_studio')
+    .eq('is_enabled', true)
+    .maybeSingle(),
+  relatedQuery,
+  post.hero_media_asset_id
+    ? getMediaAssets([post.hero_media_asset_id])
+    : Promise.resolve({} as Record<string, any>),
+]);
+
+const ctaBlock = ctaResult.data ?? null;
+const relatedPosts = (relatedResult.data ?? []) as any[];
+const heroImage = post.hero_media_asset_id ? mediaAssets[post.hero_media_asset_id] : null;
+
+// ── CTA values — flat columns first, props fallback ────────────
+const ctaTitle          = ctaBlock?.title                        ?? ctaBlock?.props?.title                   ?? null;
+const ctaBody           = ctaBlock?.body                         ?? ctaBlock?.props?.body                    ?? null;
+const ctaPrimaryLabel   = ctaBlock?.cta_primary_label            ?? ctaBlock?.props?.cta_primary?.label      ?? null;
+const ctaPrimaryHref    = ctaBlock?.cta_primary_href             ?? ctaBlock?.props?.cta_primary?.href       ?? null;
+const ctaSecondaryLabel = ctaBlock?.cta_secondary_label          ?? ctaBlock?.props?.cta_secondary?.label    ?? null;
+const ctaSecondaryHref  = ctaBlock?.cta_secondary_href           ?? ctaBlock?.props?.cta_secondary?.href     ?? null;
+
+// ── Helpers ───────────────────────────────────────────────────
+function formatDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+}
+
+function formatLabel(val: string | null | undefined): string {
+  if (!val) return '';
+  return val.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function renderContent(content: string | null): string {
+  if (!content) return '';
+  const trimmed = content.trim();
+  if (trimmed.startsWith('<')) return content;
+  return marked.parse(trimmed) as string;
+}
+
+// ── SEO ───────────────────────────────────────────────────────
+const seoTitle       = post.meta_title       ?? `${post.title} | ${site.name}`;
+const seoDescription = post.meta_description ?? post.summary ?? '';
+const canonicalUrl   = `https://${site.primary_domain}/latest/${post.slug}`;
+---
+
+<Layout
+  title={seoTitle}
+  description={seoDescription}
+  canonical={canonicalUrl}
+  siteName={site.name}
+  brandKey={site.brand_key}
+>
+  <Nav navItems={headerNav} site={site} />
+
+  <main id="main-content">
+
+    <!-- ── Hero ── -->
+    <section style="background: var(--color_background); border-bottom: 1px solid var(--color_border); padding-top: clamp(3rem, 6vw, 5rem); padding-bottom: clamp(2rem, 4vw, 3.5rem);">
+      <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+
+        <a
+          href="/latest"
+          style="display: inline-flex; align-items: center; gap: 0.4em; font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_secondary); text-decoration: none; margin-bottom: var(--gap_lg);"
+        >
+          ← Latest
+        </a>
+
+        <div style="max-width: 72ch;">
+
+          {post.category && (
+            <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--gap_sm); font-family: var(--font_body);">
+              {formatLabel(post.category)}
+            </p>
+          )}
+
+          <h1 style="font-family: var(--font_heading); font-size: clamp(2rem, 4vw, 3rem); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); letter-spacing: -0.02em; color: var(--color_text_heading); margin: 0 0 var(--gap_md);">
+            {post.title}
+          </h1>
+
+          {post.summary && (
+            <p style="font-size: var(--text_lg); font-family: var(--font_body); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_md);">
+              {post.summary}
+            </p>
+          )}
+
+          <div style="display: flex; align-items: center; gap: var(--gap_sm); flex-wrap: wrap; font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_secondary);">
+            {post.published_at && <span>{formatDate(post.published_at)}</span>}
+            {post.reading_time_minutes && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{post.reading_time_minutes} min read</span>
+              </>
+            )}
+            {post.author_name && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{post.author_name}</span>
+              </>
+            )}
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── Hero image ── -->
+    {heroImage?.image_url && (
+      <div style="background: var(--color_background); border-bottom: 1px solid var(--color_border);">
+        <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x); padding-block: var(--gap_lg);">
+          <img
+            src={heroImage.image_url}
+            alt={heroImage.alt_text ?? post.title}
+            style="width: 100%; max-height: 480px; object-fit: cover; display: block; border-radius: var(--radius_md);"
+            loading="eager"
+            decoding="async"
+          />
+        </div>
+      </div>
+    )}
+
+    <!-- ── Article content ── -->
+    <section style="background: var(--color_background); padding-block: clamp(2.5rem, 5vw, 4rem);">
+      <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+        <div class="post-content" set:html={renderContent(post.content)} />
+      </div>
+    </section>
+
+    <!-- ── Related posts ── -->
+    {relatedPosts.length > 0 && (
+      <section style="background: var(--color_background); border-top: 1px solid var(--color_border); padding-block: clamp(2.5rem, 5vw, 4rem);">
+        <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 var(--gap_lg); font-family: var(--font_body);">
+            More in {formatLabel(post.category)}
+          </p>
+
+          <div class="related-grid">
+            {relatedPosts.map((related: any) => (
+              <article style="border-top: 1px solid var(--color_border); padding-top: var(--gap_md);">
+                {related.category && (
+                  <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 var(--gap_xs); font-family: var(--font_body);">
+                    {formatLabel(related.category)}
+                  </p>
+                )}
+                <h3 style="font-family: var(--font_heading); font-size: var(--text_lg); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--gap_xs);">
+                  <a href={`/latest/${related.slug}`} style="color: inherit; text-decoration: none;">
+                    {related.title}
+                  </a>
+                </h3>
+                {related.summary && (
+                  <p style="font-family: var(--font_body); font-size: var(--text_sm); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                    {related.summary}
+                  </p>
+                )}
+                <div style="display: flex; align-items: center; gap: var(--gap_sm); font-size: var(--text_xs); font-family: var(--font_body); color: var(--color_text_secondary); margin-bottom: var(--gap_sm);">
+                  {related.published_at && <span>{formatDate(related.published_at)}</span>}
+                  {related.reading_time_minutes && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span>{related.reading_time_minutes} min read</span>
+                    </>
+                  )}
+                </div>
+                <a href={`/latest/${related.slug}`} style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); text-decoration: none;">
+                  Read →
+                </a>
+              </article>
+            ))}
+          </div>
+
+        </div>
+      </section>
+    )}
+
+    <!-- ── CTA section ── -->
+    {ctaBlock && (
+      <section style="background: var(--color_background); border-top: 1px solid var(--color_border); padding-block: var(--space_3xl);">
+        <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+
+          <div class="post-cta">
+            <div class="post-cta-text">
+              {ctaTitle && (
+                <h2 style="font-family: var(--font_heading); font-size: clamp(var(--text_2xl), 3vw, var(--text_4xl)); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); letter-spacing: -0.02em; color: var(--color_text_heading); margin: 0 0 var(--gap_md);">
+                  {ctaTitle}
+                </h2>
+              )}
+              {ctaBody && (
+                <p style="font-family: var(--font_body); font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0; max-width: 56ch;">
+                  {ctaBody}
+                </p>
+              )}
+            </div>
+
+            <div class="post-cta-actions">
+              {ctaPrimaryLabel && ctaPrimaryHref && (
+                <a href={ctaPrimaryHref} class="btn btn--primary">
+                  {ctaPrimaryLabel}
+                </a>
+              )}
+              {ctaSecondaryLabel && ctaSecondaryHref && (
+                <a href={ctaSecondaryHref} class="btn btn--outline">
+                  {ctaSecondaryLabel}
+                </a>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </section>
+    )}
+
+  </main>
+
+  <Footer footerItems={footerNav} site={site} acknowledgement={site.acknowledgement} />
+</Layout>
+
+<style>
+  .post-content {
+    max-width: 68ch;
+  }
+
+  .post-content :global(p) {
+    font-family: var(--font_body);
+    font-size: var(--text_lg);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_primary);
+    margin: 0 0 var(--space_md);
+  }
+
+  .post-content :global(h2) {
+    font-family: var(--font_heading);
+    font-size: var(--text_3xl);
+    font-weight: var(--font_weight_bold);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    color: var(--color_text_heading);
+    margin: var(--space_lg) 0 var(--space_md);
+  }
+
+  .post-content :global(h3) {
+    font-family: var(--font_heading);
+    font-size: var(--text_2xl);
+    font-weight: var(--font_weight_bold);
+    line-height: var(--leading_tight);
+    color: var(--color_text_heading);
+    margin: var(--space_lg) 0 var(--space_md);
+  }
+
+  .post-content :global(h4) {
+    font-family: var(--font_heading);
+    font-size: var(--text_lg);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: var(--space_md) 0 var(--space_sm);
+  }
+
+  .post-content :global(ul),
+  .post-content :global(ol) {
+    font-family: var(--font_body);
+    font-size: var(--text_lg);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_primary);
+    padding-left: 1.4em;
+    margin: 0 0 var(--space_md);
+    list-style: revert;
+  }
+
+  .post-content :global(li) {
+    margin-bottom: 0.4em;
+  }
+
+  .post-content :global(a) {
+    color: var(--color_cta_primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .post-content :global(strong) {
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading);
+  }
+
+  .post-content :global(blockquote) {
+    border-left: 3px solid var(--color_cta_primary);
+    padding-left: var(--space_md);
+    margin: var(--space_md) 0;
+    color: var(--color_text_secondary);
+    font-style: italic;
+  }
+
+  .post-content :global(hr) {
+    border: none;
+    border-top: 1px solid var(--color_border);
+    margin: var(--space_lg) 0;
+  }
+
+  .post-content :global(p:last-child),
+  .post-content :global(ul:last-child),
+  .post-content :global(ol:last-child) {
+    margin-bottom: 0;
+  }
+
+  .related-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+  }
+
+  .post-cta {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: center;
+  }
+
+  .post-cta-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 900px) {
+    .related-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .post-cta {
+      grid-template-columns: 1fr;
+      gap: var(--gap_xl);
+    }
+
+    .post-cta-actions {
+      flex-direction: column;
+      width: 100%;
+    }
+
+    .post-cta-actions .btn {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+</style>

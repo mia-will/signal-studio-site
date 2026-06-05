@@ -1,0 +1,153 @@
+---
+/**
+ * STARTER TEMPLATE — copy this file when creating a new page.
+ * Delete placeholder comments and fill in real values.
+ * This file must never be imported or rendered directly.
+ *
+ * Pattern rules enforced here:
+ *  1. All independent queries run in a single Promise.all (batch 1)
+ *  2. Queries that depend on batch 1 results run in a second Promise.all (batch 2)
+ *  3. Only true waterfalls (where each step needs the previous result) run sequentially
+ *  4. .maybeSingle() everywhere — never .single()
+ *  5. Shared components (Footer, Nav) receive data as props — they don't query Supabase
+ *  6. Cache-Control header set before any await — applies to the SSR response
+ */
+
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import BlockRenderer from '../components/BlockRenderer.astro';
+import { supabase } from '../lib/supabase';
+import { getNavItems } from '../lib/queries';
+import type { Site, SitePage, PageBlock, PageSEO, NavItem } from '../types/content';
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+// Change SITE_SLUG and BRAND_KEY per site; PAGE_SLUG per page.
+const SITE_SLUG = 'signal-studio'; // e.g. 'signal-studio' | 'remix' | 'retreats' | 'summit' | 'michelle'
+const BRAND_KEY = 'studio';         // matches brand_tokens.brand_key
+const PAGE_SLUG = 'home';           // matches site_pages.slug
+const now = new Date().toISOString();
+
+// ─── Cache-Control ───────────────────────────────────────────────────────────
+// Set before any await so it applies even if a query is slow.
+// Omit on pages that must always be fresh (e.g. auth-gated, personalised).
+Astro.response.headers.set('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+
+// ─── Batch 1 — all queries independent of each other ────────────────────────
+const [
+  tokensRes,
+  headerNavRes,
+  footerNavRes,
+  pageRes,
+  siteRes,
+] = await Promise.all([
+  // Brand tokens — always first so CSS vars are available
+  supabase
+    .from('brand_tokens')
+    .select('key, value')
+    .eq('brand_key', BRAND_KEY),
+
+  // Header nav
+  getNavItems(SITE_SLUG, 'header'),
+
+  // Footer nav
+  getNavItems(SITE_SLUG, 'footer'),
+
+  // Page record (gates everything below — but the page lookup itself is independent)
+  supabase
+    .from('site_pages')
+    .select('id, site_id, slug, title, url_path, is_published, robots, og_image_asset_id, site_slug')
+    .eq('site_slug', SITE_SLUG)
+    .eq('slug', PAGE_SLUG)
+    .eq('is_published', true)
+    .maybeSingle(),
+
+  // Site config (acknowledgement, logo_asset_id, etc.)
+  supabase
+    .from('sites')
+    .select('id, slug, name, tagline, primary_domain, brand_key, logo_asset_id, linkedin_url, contact_email, footer_description, acknowledgement')
+    .eq('slug', SITE_SLUG)
+    .maybeSingle(),
+]);
+
+const tokens    = tokensRes.data ?? [];
+const headerNav = headerNavRes as NavItem[];
+const footerNav = footerNavRes as NavItem[];
+const page      = pageRes.data as SitePage | null;
+const site      = siteRes.data as Site | null;
+
+// Hard-stop: if page doesn't exist, return 404 before further queries.
+if (!page) {
+  return new Response(null, { status: 404 });
+}
+
+// ─── Batch 2 — queries that need batch 1 results ─────────────────────────────
+const [
+  seoRes,
+  blocksRes,
+  logoRes,
+  // Add other queries here that depend on page.id or site.*
+] = await Promise.all([
+  // SEO — needs page.id
+  supabase
+    .from('page_seo')
+    .select('id, site_page_id, seo_title_override, seo_description_override, jsonld, aeo_summary')
+    .eq('site_page_id', page.id)
+    .maybeSingle(),
+
+  // Page blocks — needs page.id
+  supabase
+    .from('__page_blocks')
+    .select(
+      'id, site_page_id, site_id, site_slug, block_type_key, sort_order, is_enabled, admin_label, section_key, anchor, eyebrow, title, subtitle, body, cta_primary_label, cta_primary_href, cta_secondary_label, cta_secondary_href, layout, layout_variant, source_table, source_filter, source_key, "limit", form_embed_url, media_asset_id, props'
+    )
+    .eq('site_page_id', page.id)
+    .eq('is_enabled', true)
+    .order('sort_order', { ascending: true }),
+
+  // Logo — needs site.logo_asset_id
+  site?.logo_asset_id
+    ? supabase
+        .from('media_assets')
+        .select('image_url, alt_text')
+        .eq('id', site.logo_asset_id)
+        .maybeSingle()
+    : Promise.resolve({ data: null }),
+]);
+
+const seo    = seoRes.data ?? null;
+const blocks = (blocksRes.data ?? []) as PageBlock[];
+const logoUrl = logoRes.data?.image_url ?? null;
+
+// ─── CSS token injection ──────────────────────────────────────────────────────
+const cssVars = tokens
+  .map((t: { key: string; value: string }) => `--${t.key}: ${t.value};`)
+  .join(' ');
+---
+
+<Layout
+  title={seo?.seo_title_override ?? page.title ?? site?.name ?? 'Page'}
+  description={seo?.seo_description_override ?? site?.tagline ?? ''}
+  robots={page.robots ?? 'index, follow'}
+  jsonld={seo?.jsonld ?? null}
+  aeoSummary={seo?.aeo_summary ?? null}
+>
+  <!-- Inject brand tokens as CSS custom properties -->
+  <style set:html={`body { ${cssVars} }`}></style>
+
+  <Nav items={headerNav} logoUrl={logoUrl} />
+
+  <main>
+    <!-- Render page blocks from the CMS -->
+    {blocks.map((block) => (
+      <BlockRenderer block={block} />
+    ))}
+  </main>
+
+  <!-- Footer receives acknowledgement as a prop — it does NOT query Supabase -->
+  <Footer
+    footerItems={footerNav}
+    site={site!}
+    acknowledgement={site?.acknowledgement ?? null}
+  />
+</Layout>

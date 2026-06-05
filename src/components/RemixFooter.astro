@@ -1,0 +1,457 @@
+---
+import { supabase } from '../lib/supabase';
+import { cleanRemixUrl } from '../lib/cleanRemixUrl';
+
+const SITE_SLUG = 'remix';
+const BRAND_KEY = 'the_remix';
+
+const [navResult, siteResult, tokenResult] = await Promise.all([
+  supabase
+    .from('site_nav_items')
+    .select('id, label, url, is_external, footer_column, sort_order, open_in_new_tab')
+    .eq('site_slug', SITE_SLUG)
+    .eq('nav_group', 'footer')
+    .eq('is_active', true)
+    .order('footer_column', { ascending: true })
+    .order('sort_order', { ascending: true }),
+
+  supabase
+    .from('sites')
+    .select('name, tagline, footer_description, acknowledgement')
+    .eq('slug', SITE_SLUG)
+    .maybeSingle(),
+
+  supabase
+    .from('brand_tokens')
+    .select('token_key, token_value')
+    .eq('brand_key', BRAND_KEY)
+    .in('token_key', [
+      'footer_col_1_label',
+      'footer_col_2_label',
+      'footer_col_3_label',
+      'footer_byline',
+      'footer_copyright_suffix',
+    ]),
+]);
+
+const navItems = navResult.data ?? [];
+const site     = siteResult.data;
+
+const tokens: Record<string, string> = {};
+for (const t of (tokenResult.data ?? [])) {
+  tokens[t.token_key] = t.token_value;
+}
+
+// Group nav items by footer_column value ("1", "2", "3")
+const grouped: Record<string, typeof navItems> = {};
+for (const item of navItems) {
+  const col = item.footer_column ?? 'other';
+  if (!grouped[col]) grouped[col] = [];
+  grouped[col].push(item);
+}
+
+const columnOrder  = ['1', '2', '3'];
+const columnLabels: Record<string, string> = {
+  '1': tokens['footer_col_1_label'] ?? 'The Remix',
+  '2': tokens['footer_col_2_label'] ?? 'Tracks',
+  '3': tokens['footer_col_3_label'] ?? 'The Signal ecosystem',
+};
+
+const byline          = tokens['footer_byline']          ?? '';
+const copyrightSuffix = tokens['footer_copyright_suffix'] ?? '';
+if (!site?.name) throw new Error('Missing: sites.name for slug=remix');
+const siteName = site.name;
+const year            = new Date().getFullYear();
+
+const acknowledgementParagraphs = site?.acknowledgement
+  ? (site.acknowledgement as string).split('\n\n').filter(Boolean)
+  : [];
+---
+
+<footer class="rmf-footer">
+
+  <!-- ── Newsletter strip ── -->
+  <div class="rmf-newsletter">
+    <div class="container rmf-newsletter-inner">
+      <div class="rmf-nl-text">
+        <p class="rmf-nl-heading">Stay in the loop with {siteName}</p>
+        <p class="rmf-nl-sub">Weekly from The Remix. No spam.</p>
+      </div>
+      <form class="rmf-nl-form" id="rmf-nl-form" novalidate>
+        <input
+          type="email"
+          name="email"
+          id="rmf-nl-email"
+          placeholder="Your email address"
+          class="rmf-nl-input"
+          required
+          autocomplete="email"
+        />
+        <button type="submit" class="rmf-nl-btn">Join The Signal</button>
+      </form>
+      <p class="rmf-nl-success" id="rmf-nl-success" style="display:none">
+        You're in. Check your inbox.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Main body ── -->
+  <div class="container rmf-body">
+
+    <!-- Brand left -->
+    <div class="rmf-brand">
+      <p class="rmf-wordmark">{siteName}</p>
+      {site?.tagline && <p class="rmf-tagline">{site.tagline}</p>}
+      {site?.footer_description && <p class="rmf-desc">{site.footer_description}</p>}
+    </div>
+
+    <!-- Nav columns right -->
+    <nav class="rmf-nav" aria-label="Footer navigation">
+      {columnOrder.map((col) => {
+        const items = grouped[col];
+        if (!items || items.length === 0) return null;
+        return (
+          <div class="rmf-col">
+            <p class="rmf-col-label">{columnLabels[col]}</p>
+            <ul role="list">
+              {items.map((item) => (
+                <li>
+                  <a
+                    href={cleanRemixUrl(item.url)}
+                    class="rmf-link"
+                    target={item.open_in_new_tab ? '_blank' : undefined}
+                    rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+                  >
+                    {item.label}
+                    {item.is_external && (
+                      <span class="rmf-link-ext" aria-hidden="true">↗</span>
+                    )}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </nav>
+
+  </div>
+
+  <!-- ── Bottom bar ── -->
+  <div class="rmf-bottom">
+    <div class="container rmf-bottom-inner">
+      <p class="rmf-copy">
+        &copy; {year} {siteName}.{copyrightSuffix ? ` ${copyrightSuffix}` : ''}
+      </p>
+      {byline && <p class="rmf-copy">{byline}</p>}
+    </div>
+  </div>
+
+  {acknowledgementParagraphs.length > 0 && (
+    <div class="rmf-acknowledgement">
+      <div class="container">
+        {acknowledgementParagraphs.map((para) => (
+          <p class="rmf-copy rmf-acknowledgement-para">{para}</p>
+        ))}
+      </div>
+    </div>
+  )}
+
+</footer>
+
+<script>
+  const form      = document.getElementById('rmf-nl-form') as HTMLFormElement | null;
+  const successEl = document.getElementById('rmf-nl-success');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!form) return;
+
+    const btn        = form.querySelector<HTMLButtonElement>('.rmf-nl-btn');
+    const emailInput = form.querySelector<HTMLInputElement>('#rmf-nl-email');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+    try {
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: emailInput?.value || '',
+          site_slug: 'remix',
+          source: 'footer',
+          page_path: window.location.pathname,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success === true) {
+        form.style.display = 'none';
+        if (successEl) successEl.style.display = 'block';
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = 'Join The Signal'; }
+      }
+    } catch {
+      if (btn) { btn.disabled = false; btn.textContent = 'Join The Signal'; }
+    }
+  });
+</script>
+
+<style>
+  /* ── Outer shell ── */
+  .rmf-footer {
+    background: var(--color_surface_dark, #111111);
+    color: var(--color_white, #fff);
+    margin-top: auto;
+    font-family: var(--font_body, 'Inter', sans-serif);
+  }
+
+  /* ── Newsletter strip ── */
+  .rmf-newsletter {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-block: 32px;
+  }
+
+  .rmf-newsletter-inner {
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    flex-wrap: wrap;
+  }
+
+  .rmf-nl-text {
+    flex-shrink: 0;
+  }
+
+  .rmf-nl-heading {
+    font-family: var(--font_heading, 'Plus Jakarta Sans', sans-serif);
+    font-size: var(--text_base, 1rem);
+    font-weight: var(--font_weight_semibold, 600);
+    color: var(--color_white, #fff);
+    margin-bottom: 4px;
+    max-width: none;
+  }
+
+  .rmf-nl-sub {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.45);
+    max-width: none;
+  }
+
+  .rmf-nl-form {
+    display: flex;
+    gap: 10px;
+    flex: 1;
+    max-width: 480px;
+    flex-wrap: wrap;
+  }
+
+  .rmf-nl-input {
+    flex: 1;
+    min-width: 200px;
+    padding: 11px 16px;
+    background: transparent;
+    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    border-radius: 100px;
+    font-family: var(--font_body, 'Inter', sans-serif);
+    font-size: 14px;
+    color: var(--color_white, #fff);
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+
+  .rmf-nl-input::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .rmf-nl-input:focus {
+    border-color: var(--color_cta_primary, #FF8A33);
+  }
+
+  .rmf-nl-btn {
+    padding: 11px 24px;
+    background: var(--color_cta_primary, #FF8A33);
+    color: var(--color_white, #fff);
+    font-family: var(--font_body, 'Inter', sans-serif);
+    font-size: 14px;
+    font-weight: var(--font_weight_semibold, 600);
+    border: none;
+    border-radius: 100px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.2s ease;
+  }
+
+  .rmf-nl-btn:hover:not(:disabled) {
+    background: var(--color_cta_hover, #E07020);
+  }
+
+  .rmf-nl-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .rmf-nl-success {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.75);
+    font-style: italic;
+    flex: 1;
+    max-width: none;
+  }
+
+  /* ── Main body ── */
+  .rmf-body {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: var(--space_3xl, 4rem);
+    padding-top: 4rem;
+    padding-bottom: 3.5rem;
+    align-items: start;
+  }
+
+  /* ── Brand column ── */
+  .rmf-brand {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_md, 1rem);
+  }
+
+  .rmf-wordmark {
+    font-family: var(--font_heading, 'Plus Jakarta Sans', sans-serif);
+    font-size: 18px;
+    font-weight: var(--font_weight_bold, 800);
+    color: var(--color_white, #fff);
+    letter-spacing: -0.02em;
+    max-width: none;
+  }
+
+  .rmf-tagline {
+    font-size: var(--text_sm, 0.875rem);
+    color: rgba(255, 255, 255, 0.6);
+    line-height: var(--leading_relaxed, 1.6);
+    max-width: none;
+  }
+
+  .rmf-desc {
+    font-size: var(--text_sm, 0.875rem);
+    color: rgba(255, 255, 255, 0.45);
+    line-height: var(--leading_relaxed, 1.6);
+    max-width: none;
+  }
+
+  /* ── Nav columns ── */
+  .rmf-nav {
+    display: flex;
+    gap: var(--space_xl, 2rem);
+  }
+
+  .rmf-col {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rmf-col-label {
+    font-family: var(--font_body, 'Inter', sans-serif);
+    font-size: 11px;
+    font-weight: var(--font_weight_semibold, 600);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: var(--space_md, 1rem);
+    max-width: none;
+  }
+
+  .rmf-col ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .rmf-link {
+    font-size: var(--text_sm, 0.875rem);
+    color: rgba(255, 255, 255, 0.7);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    line-height: 2.2;
+    transition: color 0.15s ease;
+  }
+
+  .rmf-link:hover {
+    color: var(--color_cta_primary, #FF8A33);
+  }
+
+  .rmf-link-ext {
+    font-size: 10px;
+    opacity: 0.6;
+  }
+
+  /* ── Bottom bar ── */
+  .rmf-bottom {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .rmf-bottom-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-block: 2rem;
+  }
+
+  .rmf-copy {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.35);
+    max-width: none;
+  }
+
+  /* ── Acknowledgement ── */
+  .rmf-acknowledgement {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-block: var(--space_lg, 1.5rem);
+  }
+
+  .rmf-acknowledgement-para {
+    max-width: 72ch;
+    line-height: var(--leading_relaxed, 1.6);
+  }
+
+  .rmf-acknowledgement-para + .rmf-acknowledgement-para {
+    margin-top: var(--space_sm, 0.5rem);
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .rmf-body {
+      grid-template-columns: 1fr;
+      padding-top: 3rem;
+      padding-bottom: 2.5rem;
+    }
+
+    .rmf-nav {
+      flex-wrap: wrap;
+      gap: var(--space_lg, 1.5rem);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .rmf-newsletter-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    .rmf-nl-form {
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .rmf-bottom-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+    }
+  }
+</style>

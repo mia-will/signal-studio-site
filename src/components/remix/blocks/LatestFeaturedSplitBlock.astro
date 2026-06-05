@@ -1,0 +1,119 @@
+---
+interface Props {
+  block: any;
+  posts: any[];
+}
+
+const { block, posts = [] } = Astro.props;
+
+const categoryLabels = (block.props?.category_labels ?? {}) as Record<string, string>;
+const maxTags        = Number(block.props?.max_tags ?? 2);
+const ctaLabel       = (block.props?.cta_label ?? 'Read more') as string;
+
+// Featured post selection: is_featured_latest_news = true first, fallback per props.fallback
+const featuredPost = posts.find((p: any) => p.is_featured_latest_news) ?? posts[0] ?? null;
+const hasImage     = Boolean(featuredPost?.featured_image_url);
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+---
+
+{featuredPost && (
+  <div style="padding-block: var(--space_xl);">
+
+    <div class={`lfs-grid${hasImage ? ' lfs-grid--with-image' : ''}`} style={`display: grid; grid-template-columns: ${hasImage ? '1fr 1fr' : '1fr'}; column-gap: var(--gap_xl); row-gap: var(--space_sm); align-items: start;`}>
+
+      {categoryLabels[featuredPost.category] && (
+        <p class="lfs-eyebrow" style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0;">
+          {categoryLabels[featuredPost.category]}
+        </p>
+      )}
+
+      {/* Image — only when present; no broken-image placeholder */}
+      {hasImage && (
+        <a class="lfs-image" href={`/posts/${featuredPost.slug}`} style="display: block; overflow: hidden; border-radius: var(--radius_md);">
+          <img
+            src={featuredPost.featured_image_url}
+            alt={featuredPost.title}
+            style="width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block;"
+            loading="eager"
+            decoding="async"
+          />
+        </a>
+      )}
+
+      {/* Text column */}
+      <div class="lfs-content" style={`display: flex; flex-direction: column; gap: var(--space_sm); ${!hasImage ? 'max-width: var(--layout_content_width);' : ''}`}>
+        <a href={`/posts/${featuredPost.slug}`} style="text-decoration: none; color: inherit;">
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_3xl); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); letter-spacing: -0.02em; color: var(--color_text_heading); margin: 0;">
+            {featuredPost.title}
+          </h2>
+        </a>
+
+        {featuredPost.summary && (
+          <p style="font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0;">
+            {featuredPost.summary}
+          </p>
+        )}
+
+        <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; opacity: 0.7;">
+          {formatDate(featuredPost.published_at)}
+        </p>
+
+        {Array.isArray(featuredPost.tags) && featuredPost.tags.slice(0, maxTags).length > 0 && (
+          <div style="display: flex; gap: var(--gap_xs); flex-wrap: wrap; margin-top: var(--space_xs);">
+            {(featuredPost.tags as string[]).slice(0, maxTags).map((tag: string) => (
+              <span style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); color: var(--color_text_secondary); background: var(--color_surface); border: 1px solid var(--color_border); border-radius: var(--radius_sm); padding: 2px var(--space_xs);">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div style="margin-top: var(--space_sm);">
+          <a
+            href={`/posts/${featuredPost.slug}`}
+            style="display: inline-flex; align-items: center; padding: var(--space_sm) var(--space_lg); background: var(--color_cta_primary); color: var(--color_text_on_dark); font-family: var(--font_body); font-size: var(--text_sm); font-weight: var(--font_weight_semibold); border-radius: var(--btn_radius_pill); text-decoration: none; white-space: nowrap;"
+          >
+            {ctaLabel} →
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+)}
+
+<style>
+  .lfs-grid--with-image .lfs-eyebrow {
+    grid-column: 2;
+  }
+
+  .lfs-grid--with-image .lfs-image {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .lfs-grid--with-image .lfs-content {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  @media (max-width: 768px) {
+    .lfs-grid {
+      grid-template-columns: 1fr !important;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    .lfs-grid--with-image .lfs-eyebrow,
+    .lfs-grid--with-image .lfs-image,
+    .lfs-grid--with-image .lfs-content {
+      grid-column: auto;
+      grid-row: auto;
+    }
+  }
+</style>

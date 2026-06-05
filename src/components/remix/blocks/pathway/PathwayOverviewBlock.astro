@@ -1,0 +1,86 @@
+---
+import type { PageBlock } from '../../../../types/content';
+
+interface Props {
+  block: PageBlock;
+  pathway: any;
+}
+
+const { block, pathway } = Astro.props;
+
+const eyebrow = block.props?.eyebrow ?? block.eyebrow;
+const title   = block.props?.title   ?? block.title;
+const rawBody = block.props?.body    ?? block.body ?? pathway?.overview ?? null;
+
+const bodyParas = rawBody
+  ? (rawBody as string).split('\n\n').map((p: string) => p.trim()).filter(Boolean)
+  : [];
+---
+
+<section class="po">
+  <div class="po-inner">
+    <div class="po-content">
+      {eyebrow && (
+        <p class="po-eyebrow">{eyebrow}</p>
+      )}
+      {title && (
+        <h2 class="po-title">{title}</h2>
+      )}
+      {bodyParas.length > 0 && (
+        <div class="po-body">
+          {bodyParas.map((para: string) => (
+            <p>{para}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+</section>
+
+<style>
+  .po {
+    padding-block: var(--layout_padding_y_md);
+  }
+
+  .po-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+  }
+
+  .po-content {
+    max-width: 760px;
+  }
+
+  .po-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin: 0 0 var(--gap_sm);
+  }
+
+  .po-title {
+    font-family: var(--font_heading);
+    font-size: clamp(1.4rem, 2.5vw, 1.875rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--text_gap_lg);
+  }
+
+  .po-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_lg);
+  }
+
+  .po-body p {
+    font-size: var(--text_base);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+</style>

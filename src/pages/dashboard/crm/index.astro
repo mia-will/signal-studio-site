@@ -1,0 +1,620 @@
+---
+export const prerender = false
+
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+import ChatPanel from '../../../components/dashboard/ChatPanel.astro'
+
+const [buildersRes, appliersRes, unassignedRes, missingCapRes, contactsRes] = await Promise.all([
+  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).eq('audience_track', 'builder'),
+  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).eq('audience_track', 'applier'),
+  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).or('audience_track.is.null,audience_track.eq.'),
+  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).or('capability_stage.is.null,capability_stage.eq.'),
+  supabase.from('contacts_crm')
+    .select('id,first_name,last_name,email,audience_track,readiness_stage,capability_stage,engagement_score,last_active,signal_studio_lead,potential_partner')
+    .order('engagement_score', { ascending: false })
+    .order('last_active', { ascending: false }),
+])
+
+const builders  = buildersRes.count  ?? 0
+const appliers  = appliersRes.count  ?? 0
+const unassigned = unassignedRes.count ?? 0
+const missingCap = missingCapRes.count ?? 0
+const contacts  = contactsRes.data ?? []
+---
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Signal OS — CRM</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #F5F4F1;
+      --surface: #FFFFFF;
+      --text-primary: #2F2F2F;
+      --text-secondary: #505050;
+      --text-muted: #909090;
+      --border: rgba(47,47,47,0.08);
+      --teal: #3C8A7E;
+      --orange: #FF8A33;
+      --green: #7BBE9A;
+      --aqua: #9DDCE3;
+      --violet: #6F4BA2;
+      --red: #C0392B;
+      --dark: #111111;
+      --heading: 'DM Sans', sans-serif;
+      --body: 'Inter', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text-primary); font-family: var(--body); }
+
+    .os-shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── SIDEBAR ──────────────────────────────── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-logo {
+      padding: 20px 16px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--heading);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text-primary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-section-label {
+      font-family: var(--body);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      padding: 20px 16px 4px;
+    }
+
+    .nav-item {
+      display: block;
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      padding: 6px 16px;
+      border-radius: 6px;
+      margin: 1px 8px;
+      text-decoration: none;
+      cursor: default;
+    }
+
+    .nav-item.active {
+      background: rgba(60,138,126,0.10);
+      color: var(--teal);
+      font-weight: 500;
+    }
+
+    .nav-item.link { cursor: pointer; }
+    .nav-item.link:hover { background: rgba(47,47,47,0.04); }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 14px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--teal);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .footer-name { font-family: var(--body); font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
+    .footer-role { font-family: var(--body); font-size: 11px; color: var(--text-muted); }
+
+    /* ── CONTENT ──────────────────────────────── */
+    .content { padding: 28px 32px; overflow-x: hidden; }
+
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; gap: 16px; }
+    .page-header h1 { font-family: var(--heading); font-size: 32px; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
+    .page-header p  { font-family: var(--body); font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── STAT CARDS ───────────────────────────── */
+    .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(47,47,47,0.06);
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .stat-card:hover { border-color: rgba(60,138,126,0.30); box-shadow: 0 2px 8px rgba(47,47,47,0.10); }
+    .stat-card.active { border-color: var(--teal); box-shadow: 0 2px 8px rgba(60,138,126,0.15); }
+
+    .stat-dot { width: 8px; height: 8px; border-radius: 50%; margin-bottom: 14px; }
+    .stat-value { font-family: var(--heading); font-size: 28px; font-weight: 700; color: var(--text-primary); line-height: 1; }
+    .stat-label { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── FILTER TABS ──────────────────────────── */
+    .filter-bar { display: flex; align-items: center; gap: 4px; margin-bottom: 16px; }
+
+    .filter-tab {
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+    }
+
+    .filter-tab:hover { background: rgba(47,47,47,0.05); }
+    .filter-tab.active { background: var(--surface); border-color: var(--border); color: var(--teal); font-weight: 600; }
+
+    /* ── SEARCH ───────────────────────────────── */
+    .search-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+
+    .search-input {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-family: var(--body);
+      font-size: 13px;
+      color: var(--text-primary);
+      background: var(--surface);
+      outline: none;
+      width: 280px;
+      transition: border-color 0.15s;
+    }
+
+    .search-input:focus { border-color: var(--teal); }
+    .search-input::placeholder { color: var(--text-muted); }
+
+    .results-count { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-left: auto; }
+
+    /* ── TABLE ────────────────────────────────── */
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+
+    table { width: 100%; border-collapse: collapse; font-family: var(--body); font-size: 13px; }
+
+    thead th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    thead th.sortable { cursor: pointer; }
+    thead th.sortable:hover { color: var(--text-primary); }
+    thead th.sort-asc::after  { content: ' ↑'; color: var(--teal); }
+    thead th.sort-desc::after { content: ' ↓'; color: var(--teal); }
+
+    tbody td { padding: 10px 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(60,138,126,0.03); }
+
+    .contact-link { color: var(--text-primary); font-weight: 500; text-decoration: none; }
+    .contact-link:hover { color: var(--teal); text-decoration: underline; }
+
+    /* ── BADGES ───────────────────────────────── */
+    .badge {
+      display: inline-block;
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: var(--body);
+    }
+
+    .badge-blue   { background: rgba(157,220,227,0.20); color: #1a6b75; }
+    .badge-green  { background: rgba(123,190,154,0.18); color: #2D5A35; }
+    .badge-purple { background: rgba(111,75,162,0.12);  color: #5a3a8a; }
+    .badge-grey   { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+
+    /* ── PAGINATION ───────────────────────────── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      font-family: var(--body);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .pagination-controls { display: flex; align-items: center; gap: 6px; }
+
+    .page-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-family: var(--body);
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .page-btn:hover:not(:disabled) { border-color: var(--teal); color: var(--teal); }
+    .page-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .empty-state { padding: 40px 20px; text-align: center; color: var(--text-muted); font-family: var(--body); font-size: 13px; font-style: italic; }
+  </style>
+</head>
+<body>
+<div class="os-shell">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <span>✦</span>
+      <span>THE SIGNAL OS</span>
+    </div>
+
+    <div style="padding: 8px 0;">
+      <span class="nav-item">🏠 Snapshot</span>
+
+      <div class="nav-section-label">Relationships</div>
+      <a href="/dashboard/crm" class="nav-item active">CRM</a>
+      <span class="nav-item">Growth</span>
+      <span class="nav-item">Clients</span>
+
+      <div class="nav-section-label">Delivery</div>
+      <span class="nav-item">Projects</span>
+      <span class="nav-item">Pathways</span>
+      <span class="nav-item">Events</span>
+
+      <div class="nav-section-label">Content</div>
+      <span class="nav-item">Content</span>
+      <span class="nav-item">Campaigns</span>
+      <span class="nav-item">EDMs</span>
+
+      <div class="nav-section-label">Operations</div>
+      <span class="nav-item">Finance</span>
+      <a href="/dashboard/governance" class="nav-item link">Governance</a>
+      <span class="nav-item">Automations</span>
+      <a href="/dashboard/agents" class="nav-item link">Agents</a>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="avatar">M</div>
+      <div>
+        <div class="footer-name">Michelle</div>
+        <div class="footer-role">System Operator</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="content">
+
+    <header class="page-header">
+      <div>
+        <h1>CRM</h1>
+        <p>All contacts · sorted by engagement</p>
+      </div>
+    </header>
+
+    <!-- Stat cards -->
+    <section class="stat-cards">
+      <div class="stat-card" data-filter="builder" id="card-builder">
+        <div class="stat-dot" style="background: #9DDCE3;"></div>
+        <div class="stat-value">{builders}</div>
+        <div class="stat-label">Builders</div>
+      </div>
+      <div class="stat-card" data-filter="applier" id="card-applier">
+        <div class="stat-dot" style="background: #7BBE9A;"></div>
+        <div class="stat-value">{appliers}</div>
+        <div class="stat-label">Appliers</div>
+      </div>
+      <div class="stat-card" data-filter="unassigned" id="card-unassigned">
+        <div class="stat-dot" style="background: #C8C8C8;"></div>
+        <div class="stat-value">{unassigned}</div>
+        <div class="stat-label">Unassigned track</div>
+      </div>
+      <div class="stat-card" data-filter="missing-cap" id="card-missing-cap">
+        <div class="stat-dot" style="background: #FF8A33;"></div>
+        <div class="stat-value">{missingCap}</div>
+        <div class="stat-label">Missing capability stage</div>
+      </div>
+    </section>
+
+    <!-- Filter tabs -->
+    <div class="filter-bar">
+      <button class="filter-tab active" data-tab="all">All</button>
+      <button class="filter-tab" data-tab="builder">Builders</button>
+      <button class="filter-tab" data-tab="applier">Appliers</button>
+      <button class="filter-tab" data-tab="both">Both</button>
+      <button class="filter-tab" data-tab="unassigned">Unassigned</button>
+    </div>
+
+    <!-- Search + count -->
+    <div class="search-row">
+      <input
+        type="text"
+        id="crm-search"
+        class="search-input"
+        placeholder="Search by name or email…"
+        autocomplete="off"
+      />
+      <span id="results-count" class="results-count"></span>
+    </div>
+
+    <!-- Table -->
+    <div class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-col="name">Name</th>
+            <th>Email</th>
+            <th>Audience track</th>
+            <th>Readiness stage</th>
+            <th>Capability stage</th>
+            <th class="sortable" data-col="score">Engagement score</th>
+            <th class="sortable" data-col="active">Last active</th>
+          </tr>
+        </thead>
+        <tbody id="contacts-tbody">
+          <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
+      <div class="pagination" id="pagination">
+        <span id="pagination-info"></span>
+        <div class="pagination-controls">
+          <button class="page-btn" id="btn-prev">← Prev</button>
+          <button class="page-btn" id="btn-next">Next →</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<ChatPanel page="/dashboard/crm" />
+
+<!-- Contacts data -->
+<script is:inline type="application/json" id="contacts-data" set:html={JSON.stringify(contacts)}></script>
+
+<script>
+  // ── State ────────────────────────────────────
+  type Contact = {
+    id: string
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    audience_track: string | null
+    readiness_stage: string | null
+    capability_stage: string | null
+    engagement_score: number | null
+    last_active: string | null
+    signal_studio_lead: boolean | null
+    potential_partner: boolean | null
+  }
+
+  const contacts: Contact[] = JSON.parse(document.getElementById('contacts-data')!.textContent ?? '[]')
+
+  const PAGE_SIZE = 50
+  let currentFilter = 'all'
+  let currentSearch = ''
+  let currentSort  = { col: 'score', dir: 'desc' as 'asc' | 'desc' }
+  let currentPage  = 0
+
+  // ── Helpers ──────────────────────────────────
+  function fullName(c: Contact): string {
+    return [c.first_name, c.last_name].filter(Boolean).join(' ') || '—'
+  }
+
+  function relativeDate(ts: string | null): string {
+    if (!ts) return '—'
+    const diff = Date.now() - new Date(ts).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1)  return 'Just now'
+    if (mins < 60) return `${mins}m ago`
+    const h = Math.floor(mins / 60)
+    if (h < 24)    return `${h}h ago`
+    const d = Math.floor(h / 24)
+    if (d < 7)     return `${d}d ago`
+    if (d < 30)    return `${Math.floor(d / 7)}w ago`
+    return `${Math.floor(d / 30)}mo ago`
+  }
+
+  function trackBadge(track: string | null): string {
+    if (!track) return '<span class="badge badge-grey">Unassigned</span>'
+    const map: Record<string, [string, string]> = {
+      builder: ['badge-blue',   'Builder'],
+      applier: ['badge-green',  'Applier'],
+      both:    ['badge-purple', 'Both'],
+    }
+    const entry = map[track.toLowerCase()]
+    if (!entry) return `<span class="badge badge-grey">${track}</span>`
+    return `<span class="badge ${entry[0]}">${entry[1]}</span>`
+  }
+
+  // ── Filter + sort ────────────────────────────
+  function filteredContacts(): Contact[] {
+    let list = contacts
+
+    if (currentFilter === 'builder')     list = list.filter(c => c.audience_track === 'builder')
+    else if (currentFilter === 'applier') list = list.filter(c => c.audience_track === 'applier')
+    else if (currentFilter === 'both')    list = list.filter(c => c.audience_track === 'both')
+    else if (currentFilter === 'unassigned') list = list.filter(c => !c.audience_track)
+    else if (currentFilter === 'missing-cap') list = list.filter(c => !c.capability_stage)
+
+    if (currentSearch) {
+      const q = currentSearch.toLowerCase()
+      list = list.filter(c =>
+        fullName(c).toLowerCase().includes(q) ||
+        (c.email ?? '').toLowerCase().includes(q)
+      )
+    }
+
+    list = [...list].sort((a, b) => {
+      const dir = currentSort.dir === 'asc' ? 1 : -1
+      if (currentSort.col === 'name') {
+        return dir * fullName(a).localeCompare(fullName(b))
+      }
+      if (currentSort.col === 'score') {
+        return dir * ((a.engagement_score ?? -1) - (b.engagement_score ?? -1))
+      }
+      if (currentSort.col === 'active') {
+        const ta = a.last_active ? new Date(a.last_active).getTime() : 0
+        const tb = b.last_active ? new Date(b.last_active).getTime() : 0
+        return dir * (ta - tb)
+      }
+      return 0
+    })
+
+    return list
+  }
+
+  // ── Render ───────────────────────────────────
+  function render() {
+    const list  = filteredContacts()
+    const total = list.length
+    const start = currentPage * PAGE_SIZE
+    const page  = list.slice(start, start + PAGE_SIZE)
+
+    const tbody = document.getElementById('contacts-tbody')!
+    if (page.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No contacts match this filter</td></tr>'
+    } else {
+      tbody.innerHTML = page.map(c => `
+        <tr>
+          <td><a href="/dashboard/crm/${c.id}" class="contact-link">${fullName(c)}</a></td>
+          <td style="color:var(--text-muted)">${c.email ?? '—'}</td>
+          <td>${trackBadge(c.audience_track)}</td>
+          <td style="color:var(--text-muted)">${c.readiness_stage ?? '—'}</td>
+          <td style="color:var(--text-muted)">${c.capability_stage ?? '—'}</td>
+          <td style="font-variant-numeric:tabular-nums">${c.engagement_score ?? '—'}</td>
+          <td style="color:var(--text-muted)">${relativeDate(c.last_active)}</td>
+        </tr>
+      `).join('')
+    }
+
+    // Pagination info
+    const pageCount = Math.ceil(total / PAGE_SIZE)
+    const infoEl = document.getElementById('pagination-info')!
+    infoEl.textContent = total === 0
+      ? 'No contacts'
+      : `${start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}`
+
+    const btnPrev = document.getElementById('btn-prev') as HTMLButtonElement
+    const btnNext = document.getElementById('btn-next') as HTMLButtonElement
+    btnPrev.disabled = currentPage === 0
+    btnNext.disabled = currentPage >= pageCount - 1
+
+    document.getElementById('results-count')!.textContent =
+      `${total} contact${total !== 1 ? 's' : ''}`
+
+    // Sort headers
+    document.querySelectorAll('thead th.sortable').forEach(th => {
+      const el = th as HTMLElement
+      el.classList.remove('sort-asc', 'sort-desc')
+      if (el.dataset.col === currentSort.col) {
+        el.classList.add(currentSort.dir === 'asc' ? 'sort-asc' : 'sort-desc')
+      }
+    })
+  }
+
+  // ── Event wiring ─────────────────────────────
+
+  // Filter tabs
+  document.querySelectorAll('.filter-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = (btn as HTMLElement).dataset.tab ?? 'all'
+      currentFilter = tab
+      currentPage = 0
+      document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'))
+      render()
+    })
+  })
+
+  // Stat cards
+  document.querySelectorAll('.stat-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const filter = (card as HTMLElement).dataset.filter ?? 'all'
+      currentFilter = filter
+      currentPage = 0
+      document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'))
+      card.classList.add('active')
+      document.querySelectorAll('.filter-tab').forEach(btn => {
+        const el = btn as HTMLElement
+        btn.classList.toggle('active', el.dataset.tab === filter || (filter === 'missing-cap' && el.dataset.tab === 'all'))
+      })
+      render()
+    })
+  })
+
+  // Search
+  document.getElementById('crm-search')!.addEventListener('input', (e) => {
+    currentSearch = (e.target as HTMLInputElement).value
+    currentPage = 0
+    render()
+  })
+
+  // Sort headers
+  document.querySelectorAll('thead th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = (th as HTMLElement).dataset.col!
+      if (currentSort.col === col) {
+        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc'
+      } else {
+        currentSort = { col, dir: col === 'name' ? 'asc' : 'desc' }
+      }
+      currentPage = 0
+      render()
+    })
+  })
+
+  // Pagination
+  document.getElementById('btn-prev')!.addEventListener('click', () => { currentPage--; render() })
+  document.getElementById('btn-next')!.addEventListener('click', () => { currentPage++; render() })
+
+  // Initial render
+  render()
+</script>
+</body>
+</html>

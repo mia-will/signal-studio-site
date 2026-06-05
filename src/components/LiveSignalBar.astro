@@ -1,0 +1,108 @@
+---
+import { supabase } from '../lib/supabase';
+
+const now = new Date().toISOString();
+
+const { data, error } = await supabase
+  .from('events')
+  .select('title, start_at, suburb, state, registration_url')
+  .eq('show_on_signal_studio', true)
+  .eq('audience_track', 'appliers')
+  .eq('publish_status', 'published')
+  .gte('start_at', now)
+  .order('start_at', { ascending: true })
+  .limit(1);
+
+const event = (!error && data && data.length > 0) ? data[0] : null;
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+const location = event ? [event.suburb, event.state].filter(Boolean).join(', ') : '';
+const href = event?.registration_url || null;
+---
+
+{event ? (
+  href ? (
+    <a href={href} class="signal-bar" target="_blank" rel="noopener noreferrer" aria-label={`Next event for Appliers: ${event.title}`}>
+      <span class="signal-bar-text">
+        <span class="signal-prefix">Next for Appliers:</span>
+        <span>{event.title}</span>
+        {event.start_at && <span class="signal-sep">·</span>}
+        {event.start_at && <span>{formatDate(event.start_at)}</span>}
+        {location && <span class="signal-sep">·</span>}
+        {location && <span>{location}</span>}
+        <span class="signal-sep">·</span>
+        <span class="signal-cta">Get tickets →</span>
+      </span>
+    </a>
+  ) : (
+    <div class="signal-bar" role="status">
+      <span class="signal-bar-text">
+        <span class="signal-prefix">Next for Appliers:</span>
+        <span>{event.title}</span>
+        {event.start_at && <span class="signal-sep">·</span>}
+        {event.start_at && <span>{formatDate(event.start_at)}</span>}
+        {location && <span class="signal-sep">·</span>}
+        {location && <span>{location}</span>}
+      </span>
+    </div>
+  )
+) : null}
+
+<style>
+  .signal-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 44px;
+    background: var(--color_text_primary, #2F2F2F);
+    text-decoration: none;
+    transition: background 0.2s ease;
+    cursor: pointer;
+  }
+
+  a.signal-bar:hover {
+    background: #3D3D3D;
+  }
+
+  .signal-bar-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font_body);
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-inline: var(--gutter);
+  }
+
+  .signal-prefix {
+    font-weight: 600;
+  }
+
+  .signal-sep {
+    opacity: 0.6;
+  }
+
+  .signal-cta {
+    font-weight: 600;
+    color: var(--color_cta_primary, #FF8A33);
+  }
+
+  @media (max-width: 640px) {
+    .signal-bar-text {
+      font-size: 12px;
+      gap: 4px;
+    }
+  }
+</style>

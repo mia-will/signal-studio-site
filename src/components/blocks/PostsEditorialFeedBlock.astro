@@ -1,0 +1,158 @@
+---
+interface WritingPost {
+  id: string;
+  title: string;
+  slug: string;
+  summary: string | null;
+  published_at: string | null;
+}
+
+interface Props {
+  block: any;
+  posts: WritingPost[];
+}
+
+const { block, posts } = Astro.props;
+
+const sectionTitle = block.title ?? block.props?.title ?? null;
+const emptyText    = block.props?.empty_state_text ?? block.body ?? null;
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+---
+
+<section class="pef-section">
+  <div class="pef-inner">
+    {sectionTitle && <h2 class="pef-heading">{sectionTitle}</h2>}
+
+    {posts.length === 0 ? (
+      <p class="pef-empty">{emptyText}</p>
+    ) : (
+      <ol class="pef-list">
+        {posts.map((post) => (
+          <li class="pef-item">
+            <a href={`/latest/${post.slug}`} class="pef-link">
+              <article class="pef-article">
+                <div class="pef-meta">
+                  {post.published_at && (
+                    <time datetime={post.published_at} class="pef-date">
+                      {formatDate(post.published_at)}
+                    </time>
+                  )}
+                </div>
+                <h3 class="pef-title">{post.title}</h3>
+                {post.summary && <p class="pef-summary">{post.summary}</p>}
+              </article>
+            </a>
+          </li>
+        ))}
+      </ol>
+    )}
+  </div>
+</section>
+
+<style>
+  .pef-section {
+    padding-block: var(--layout_padding_y);
+    padding-inline: var(--layout_padding_x);
+  }
+
+  .pef-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+  }
+
+  .pef-heading {
+    font-family: var(--font_heading);
+    font-size: var(--text_2xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0 0 var(--gap_xl);
+    line-height: var(--leading_tight);
+  }
+
+  .pef-empty {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0;
+  }
+
+  .pef-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_lg);
+  }
+
+  .pef-item {
+    border-top: 1px solid var(--color_border);
+  }
+
+  .pef-item:last-child {
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .pef-link {
+    display: block;
+    padding-block: var(--gap_lg);
+    text-decoration: none;
+    color: inherit;
+    transition: opacity var(--ease);
+  }
+
+  .pef-link:hover {
+    opacity: 0.75;
+  }
+
+  .pef-article {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_xs);
+  }
+
+  .pef-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--gap_sm);
+  }
+
+  .pef-date {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    color: var(--color_text_secondary);
+  }
+
+  .pef-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0;
+    line-height: var(--leading_tight);
+  }
+
+  .pef-summary {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0;
+    max-width: 72ch;
+  }
+
+  @media (max-width: 768px) {
+    .pef-link {
+      padding-block: var(--gap_md);
+    }
+
+    .pef-title {
+      font-size: var(--text_lg);
+    }
+  }
+</style>

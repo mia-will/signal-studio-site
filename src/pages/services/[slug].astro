@@ -1,0 +1,454 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import TestimonialsBlock from '../../components/blocks/TestimonialsBlock.astro';
+
+import { getSite, getNavItems, getOfferBySlug, getTestimonials } from '../../lib/queries';
+import type { PageBlock } from '../../types/content';
+
+const SITE_SLUG = 'signal_studio';
+
+const { slug } = Astro.params;
+if (!slug) return Astro.redirect('/services');
+
+const [site, headerNav, footerNav, offer, testimonials] = await Promise.all([
+  getSite(SITE_SLUG),
+  getNavItems(SITE_SLUG, 'header'),
+  getNavItems(SITE_SLUG, 'footer'),
+  getOfferBySlug(slug, SITE_SLUG),
+  getTestimonials(3),
+]);
+
+if (!site || !offer) return Astro.redirect('/services');
+
+if (!offer.cta_label) throw new Error(`Missing: offers.cta_label for slug=${slug}`);
+
+Astro.response.headers.set('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+
+const offerTypeLabels: Record<string, string> = {
+  workshop: 'Workshop',
+  strategy: 'Strategy',
+  discovery: 'Discovery',
+  implementation: 'Implementation',
+};
+
+const seoTitle = offer.meta_title || `${offer.name} | The Signal Studio`;
+const seoDescription = offer.meta_description || offer.short_description || '';
+
+const testimonialsBlock: PageBlock = {
+  id: 'testimonials-offer',
+  site_page_id: '',
+  site_id: null,
+  block_type_key: 'testimonials',
+  sort_order: 90,
+  is_enabled: true,
+  admin_label: null, section_key: null, anchor: null, eyebrow: null,
+  title: 'What people say',
+  subtitle: null, body: null,
+  cta_primary_label: null, cta_primary_href: null,
+  cta_secondary_label: null, cta_secondary_href: null,
+  layout: null, layout_variant: null, source_table: null,
+  source_filter: null, source_key: null, limit: null,
+  form_embed_url: null, media_asset_id: null, props: {},
+};
+---
+
+<Layout
+  title={seoTitle}
+  description={seoDescription}
+  siteName={site.name}
+>
+  <Nav navItems={headerNav} site={site} />
+
+  <main id="main-content">
+
+    <!-- ── Hero ── -->
+    <section class="offer-hero animate-on-scroll" aria-labelledby="offer-heading">
+      <div class="container offer-hero-inner">
+        <a href="/services" class="offer-back">← Back to Services</a>
+        <p class="offer-eyebrow">{offerTypeLabels[offer.offer_type || ''] || offer.offer_type}</p>
+        <h1 id="offer-heading" class="offer-heading">{offer.name}</h1>
+        {offer.hero_line && (
+          <p class="offer-hero-line">{offer.hero_line}</p>
+        )}
+        {offer.price_display && (
+          <p class="offer-price">{offer.price_display}</p>
+        )}
+        <div class="offer-hero-ctas">
+          <a href="/contact" class="btn btn--primary">
+            {offer.cta_label}
+          </a>
+          <a href="/services" class="btn btn--outline">See all services</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── What this is ── -->
+    {offer.what_this_is && (
+      <section class="offer-section animate-on-scroll" aria-labelledby="what-heading">
+        <div class="container offer-section-inner">
+          <h2 id="what-heading">What this is</h2>
+          <div class="offer-section-body">
+            <p class="offer-prose">{offer.what_this_is}</p>
+            {offer.long_description && offer.long_description !== offer.what_this_is && (
+              <p class="offer-prose offer-prose--secondary">{offer.long_description}</p>
+            )}
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- ── Who it's for ── -->
+    {offer.who_its_for_situations && offer.who_its_for_situations.length > 0 && (
+      <section class="offer-section offer-section--tinted animate-on-scroll" aria-labelledby="who-heading">
+        <div class="container offer-section-inner">
+          <h2 id="who-heading">Who this is for</h2>
+          <div class="offer-section-body">
+            <p class="offer-section-preamble">This offer is right for you if:</p>
+            <ul class="offer-list">
+              {offer.who_its_for_situations.map((s) => (
+                <li class="offer-list-item">{s}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- ── How it works ── -->
+    {offer.how_it_works && offer.how_it_works.length > 0 && (
+      <section class="offer-section animate-on-scroll" aria-labelledby="how-heading">
+        <div class="container offer-section-inner">
+          <h2 id="how-heading">How it works</h2>
+          <div class="offer-section-body">
+            <ol class="offer-steps">
+              {offer.how_it_works.map((step, i) => (
+                <li class="offer-step">
+                  <span class="offer-step-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+                  <span class="offer-step-text">{step}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- ── Outcomes ── -->
+    {offer.outcomes && offer.outcomes.length > 0 && (
+      <section class="offer-section offer-section--tinted animate-on-scroll" aria-labelledby="outcomes-heading">
+        <div class="container offer-section-inner">
+          <h2 id="outcomes-heading">Outcomes</h2>
+          <div class="offer-section-body">
+            <ul class="offer-list offer-list--outcomes">
+              {offer.outcomes.map((o) => (
+                <li class="offer-list-item offer-list-item--outcome">{o}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- ── Entry requirements ── -->
+    {offer.entry_requirements && (
+      <section class="offer-section animate-on-scroll" aria-labelledby="entry-heading">
+        <div class="container offer-section-inner">
+          <h2 id="entry-heading">Entry requirements</h2>
+          <div class="offer-section-body">
+            <p class="offer-prose">{offer.entry_requirements}</p>
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- ── Testimonials ── -->
+    {testimonials.length > 0 && (
+      <TestimonialsBlock block={testimonialsBlock} testimonials={testimonials} />
+    )}
+
+    <!-- ── CTA ── -->
+    <section class="offer-cta animate-on-scroll" aria-labelledby="offer-cta-heading">
+      <div class="container offer-cta-inner">
+        <div class="offer-cta-text">
+          <h2 id="offer-cta-heading">Ready to start?</h2>
+          <p class="offer-cta-sub">
+            Book a call and we will help you figure out whether this is the right starting point.
+          </p>
+        </div>
+        <div class="offer-cta-actions">
+          <a href="/contact" class="btn btn--primary">
+            {offer.cta_label}
+          </a>
+          <a href="/services" class="btn btn--outline">Explore all services</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <Footer footerItems={footerNav} site={site} acknowledgement={site.acknowledgement} />
+</Layout>
+
+<style>
+  /* ── Hero ── */
+  .offer-hero {
+    background:
+      radial-gradient(ellipse at top right, rgba(255,138,51,0.06) 0%, transparent 60%),
+      radial-gradient(ellipse at center, #FFFCF8 30%, #F5EFE6 100%);
+    padding-block: clamp(3rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .offer-hero-inner {
+    max-width: 700px;
+  }
+
+  .offer-back {
+    display: inline-block;
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    text-decoration: none;
+    margin-bottom: 32px;
+    transition: color var(--ease);
+  }
+
+  .offer-back:hover {
+    color: var(--color_cta_primary);
+  }
+
+  .offer-eyebrow {
+    font-family: var(--font_body);
+    font-size: 12px;
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin-bottom: 16px;
+    max-width: none;
+  }
+
+  .offer-heading {
+    font-family: var(--font_heading);
+    font-size: clamp(2rem, 4vw, 3.25rem);
+    font-weight: var(--font_weight_bold);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--color_text_heading);
+    margin-bottom: 20px;
+  }
+
+  .offer-hero-line {
+    font-size: 20px;
+    font-weight: var(--font_weight_medium);
+    color: var(--color_text_secondary);
+    margin-bottom: 16px;
+    max-width: none;
+  }
+
+  .offer-price {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_secondary);
+    margin-bottom: 32px;
+    max-width: none;
+  }
+
+  .offer-hero-ctas {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 32px;
+  }
+
+  /* ── Content sections ── */
+  .offer-section {
+    padding-block: clamp(3rem, 5vw, 4.5rem);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .offer-section--tinted {
+    background: var(--color_surface);
+  }
+
+  .offer-section-inner {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: start;
+  }
+
+  .offer-section-inner h2 {
+    font-family: var(--font_heading);
+    font-size: var(--text_2xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    position: sticky;
+    top: 80px;
+  }
+
+  /* suppress global h2 underline - section uses inline heading style */
+  .offer-section-inner h2::after {
+    display: none;
+  }
+
+  .offer-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_md);
+  }
+
+  .offer-section-preamble {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    font-style: italic;
+    max-width: none;
+  }
+
+  .offer-prose {
+    font-size: var(--text_lg);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    max-width: 62ch;
+  }
+
+  .offer-prose--secondary {
+    font-size: var(--text_base);
+    opacity: 0.85;
+  }
+
+  /* ── Lists ── */
+  .offer-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .offer-list-item {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    padding-left: 20px;
+    position: relative;
+  }
+
+  .offer-list-item::before {
+    content: '–';
+    position: absolute;
+    left: 0;
+    color: var(--color_cta_primary);
+    font-weight: var(--font_weight_semibold);
+  }
+
+  .offer-list--outcomes .offer-list-item--outcome {
+    font-weight: var(--font_weight_medium);
+    color: var(--color_text_primary);
+  }
+
+  .offer-list--outcomes .offer-list-item--outcome::before {
+    content: '✓';
+  }
+
+  /* ── How it works steps ── */
+  .offer-steps {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .offer-step {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    padding-block: 16px;
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .offer-step:first-child {
+    border-top: 1px solid var(--color_border);
+  }
+
+  .offer-step-number {
+    font-family: var(--font_heading);
+    font-size: 13px;
+    font-weight: var(--font_weight_bold);
+    color: var(--color_cta_primary);
+    flex-shrink: 0;
+    min-width: 28px;
+  }
+
+  .offer-step-text {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+  }
+
+  /* ── CTA section ── */
+  .offer-cta {
+    background: var(--color_text_primary);
+    padding-block: clamp(3rem, 6vw, 5rem);
+  }
+
+  .offer-cta-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space_2xl);
+    flex-wrap: wrap;
+  }
+
+  .offer-cta h2 {
+    font-family: var(--font_heading);
+    font-size: clamp(1.75rem, 3vw, 2.5rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_white);
+    margin-bottom: 12px;
+  }
+
+  .offer-cta h2::after {
+    display: none;
+  }
+
+  .offer-cta-sub {
+    font-size: var(--text_base);
+    color: rgba(255,255,255,0.7);
+    max-width: 48ch;
+  }
+
+  .offer-cta-actions {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  .offer-cta .btn--outline {
+    border-color: rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.85);
+  }
+
+  .offer-cta .btn--outline:hover {
+    border-color: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.06);
+  }
+
+  /* ── Mobile ── */
+  @media (max-width: 768px) {
+    .offer-section-inner {
+      grid-template-columns: 1fr;
+      gap: var(--space_xl);
+    }
+
+    .offer-section-inner h2 {
+      position: static;
+    }
+
+    .offer-cta-inner {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+</style>

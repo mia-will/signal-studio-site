@@ -1,0 +1,92 @@
+---
+import type { PageBlock } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+interface EcosystemItem {
+  title?: string;
+  name?: string;
+  subtitle?: string;
+  body?: string;
+  description?: string;
+  cta_href?: string;
+  link_url?: string;
+  href?: string;
+  cta_label?: string;
+  link_label?: string;
+}
+
+const { block } = Astro.props;
+
+const title = block.props?.title ?? block.title;
+const body = block.props?.body ?? block.body;
+const items: EcosystemItem[] = block.props?.items ?? [];
+const anchor = block.anchor ?? block.props?.section_key ?? undefined;
+---
+
+<section id={anchor} style="padding-block: var(--layout_padding_y); border-top: 1px solid var(--color_border);">
+  <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+    {(title || body) && (
+      <div style="margin-bottom: var(--gap_lg); max-width: 680px;">
+        {title && (
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_3xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0 0 var(--gap_sm); line-height: var(--leading_tight);">
+            {title}
+          </h2>
+        )}
+        {body && (
+          <p style="font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0;">
+            {body}
+          </p>
+        )}
+      </div>
+    )}
+
+    {items.length > 0 && (
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--gap_md);">
+        {items.map((item) => {
+          const label = item.title ?? item.name;
+          const description = item.body ?? item.description;
+          const href = item.cta_href ?? item.link_url ?? item.href;
+          const ctaLabel = item.cta_label ?? item.link_label;
+          const isExternal = href?.startsWith('http');
+          const content = (
+            <>
+              {item.subtitle && (
+                <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0;">
+                  {item.subtitle}
+                </p>
+              )}
+              {label && (
+                <h3 style="font-family: var(--font_heading); font-size: var(--text_xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_tight);">
+                  {label}
+                </h3>
+              )}
+              {description && (
+                <p style="font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0; flex: 1;">
+                  {description}
+                </p>
+              )}
+              {ctaLabel && (
+                <span style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); margin-top: auto;">
+                  {ctaLabel} <span aria-hidden="true">&rarr;</span>
+                </span>
+              )}
+            </>
+          );
+
+          return href ? (
+            <a href={href} target={isExternal ? '_blank' : undefined} rel={isExternal ? 'noopener noreferrer' : undefined} style="display: flex; flex-direction: column; min-height: 100%; gap: var(--gap_sm); padding: var(--gap_lg); border-radius: var(--radius_lg); border: 1px solid var(--color_border); background-color: var(--color_surface); text-decoration: none; box-shadow: var(--shadow_sm);">
+              {content}
+            </a>
+          ) : (
+            <article style="display: flex; flex-direction: column; min-height: 100%; gap: var(--gap_sm); padding: var(--gap_lg); border-radius: var(--radius_lg); border: 1px solid var(--color_border); background-color: var(--color_surface); box-shadow: var(--shadow_sm);">
+              {content}
+            </article>
+          );
+        })}
+      </div>
+    )}
+  </div>
+</section>

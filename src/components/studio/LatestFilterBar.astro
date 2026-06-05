@@ -1,0 +1,80 @@
+---
+interface Props {
+  categories: string[];
+}
+
+const { categories } = Astro.props;
+
+function formatLabel(value: string): string {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+---
+
+<div class="filter-bar">
+  <div class="filter-bar-inner">
+
+    <button class="pill pill--active" data-filter="all">All</button>
+
+    {categories.map((cat) => (
+      <button class="pill" data-filter={cat}>{formatLabel(cat)}</button>
+    ))}
+
+  </div>
+</div>
+
+<style>
+  .filter-bar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .filter-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-bar-inner {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--gap_xs);
+    align-items: center;
+    padding-bottom: var(--gap_sm);
+  }
+
+  .pill {
+    flex-shrink: 0;
+    font-family: var(--font_body);
+    font-size: var(--text_sm);
+    padding: 4px 14px;
+    border-radius: 100px;
+    border: 1px solid var(--color_border);
+    background: transparent;
+    color: var(--color_text_secondary);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .pill--active {
+    background: var(--color_cta_primary);
+    border-color: var(--color_cta_primary);
+    color: #fff;
+  }
+</style>
+
+<script>
+  const pills = document.querySelectorAll<HTMLElement>('[data-filter]');
+  const posts = document.querySelectorAll<HTMLElement>('[data-feed-item]');
+
+  pills.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const value = pill.dataset.filter ?? 'all';
+
+      pills.forEach((p) => p.classList.remove('pill--active'));
+      pill.classList.add('pill--active');
+
+      posts.forEach((post) => {
+        post.style.display =
+          value === 'all' || post.dataset.category === value ? '' : 'none';
+      });
+    });
+  });
+</script>

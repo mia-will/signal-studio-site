@@ -1,0 +1,167 @@
+---
+import { supabase } from '../../lib/supabase';
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+type PathwayCard = {
+  eyebrow: string | null;
+  title: string;
+  summary: string | null;
+  steps: string[];
+  cta_label: string | null;
+  cta_href: string | null;
+  group_label?: string | null;
+  card_background?: string | null;
+};
+
+const { block } = Astro.props;
+
+let pathways = (block.props?.pathways ?? []) as PathwayCard[];
+const cardBg   = block.props?.card_background ?? 'var(--color_surface_alt)';
+
+if (block.site_slug) {
+  const { data: groups, error } = await supabase
+    .from('offer_groups')
+    .select('id, slug, title, eyebrow, tagline, cta_label, group_label, card_background, canonical_order')
+    .eq('site_slug', block.site_slug)
+    .eq('status', 'active')
+    .order('canonical_order', { ascending: true });
+
+  if (error) {
+    console.error('[OffersBlock] offer_groups query failed', { site_slug: block.site_slug, error });
+  }
+
+  const groupIds = (groups ?? []).map((group: any) => group.id).filter(Boolean);
+  const { data: steps, error: stepsError } = groupIds.length > 0
+    ? await supabase
+        .from('offer_steps')
+        .select('offer_group_id, name, short_description, canonical_order')
+        .in('offer_group_id', groupIds)
+        .eq('is_public', true)
+        .order('canonical_order', { ascending: true })
+    : { data: [], error: null };
+
+  if (stepsError) {
+    console.error('[OffersBlock] offer_steps query failed', { site_slug: block.site_slug, error: stepsError });
+  }
+
+  const stepsByGroup = new Map<string, any[]>();
+  for (const step of steps ?? []) {
+    const key = (step as any).offer_group_id;
+    stepsByGroup.set(key, [...(stepsByGroup.get(key) ?? []), step]);
+  }
+
+  pathways = (groups ?? []).map((group: any) => {
+    const groupSteps = stepsByGroup.get(group.id) ?? [];
+    return {
+      eyebrow: group.eyebrow,
+      title: group.title,
+      summary: group.tagline ?? groupSteps[0]?.short_description ?? null,
+      steps: groupSteps.map((step: any) => step.name).filter(Boolean),
+      cta_label: group.cta_label,
+      cta_href: `/offers/${group.slug}`,
+      group_label: group.group_label,
+      card_background: group.card_background,
+    };
+  });
+}
+---
+
+{pathways.length > 0 && (
+  <section
+    style="padding-block: var(--layout_padding_y); padding-inline: var(--layout_padding_x);"
+    aria-label={block.title ?? pathways[0]?.group_label ?? undefined}
+  >
+    <div style="max-width: var(--layout_max_width); margin-inline: auto;">
+
+      {(block.eyebrow || block.title || block.subtitle) && (
+        <div style="display: flex; flex-direction: column; gap: var(--gap_xs); margin-bottom: var(--gap_lg);">
+          {block.eyebrow && (
+            <p style="font-size: var(--font_size_eyebrow); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0;">
+              {block.eyebrow}
+            </p>
+          )}
+          {block.title && (
+            <h2 style="font-family: var(--font_heading); font-size: var(--font_size_3xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); line-height: var(--line_height_heading); letter-spacing: var(--letter_spacing_heading); margin: 0;">
+              {block.title}
+            </h2>
+          )}
+          {block.subtitle && (
+            <p style="font-size: var(--font_size_lg); color: var(--color_text_secondary); line-height: var(--line_height_body); margin: 0;">
+              {block.subtitle}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div class="pcb-grid">
+        {pathways.map((pathway) => (
+          <article
+            style={`display: flex; flex-direction: column; gap: var(--gap_sm); background: ${pathway.card_background ?? cardBg}; border: 1px solid var(--color_border); border-radius: var(--radius_md); padding: var(--gap_lg); box-shadow: var(--shadow_sm);`}
+          >
+            {pathway.eyebrow && (
+              <p style="font-size: var(--font_size_eyebrow); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0;">
+                {pathway.eyebrow}
+              </p>
+            )}
+
+            <h3 style="font-family: var(--font_heading); font-size: var(--font_size_xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); line-height: var(--line_height_heading); letter-spacing: var(--letter_spacing_heading); margin: 0;">
+              {pathway.title}
+            </h3>
+
+            {pathway.summary && (
+              <p style="font-size: var(--font_size_md); color: var(--color_text_secondary); line-height: var(--line_height_body); margin: 0;">
+                {pathway.summary}
+              </p>
+            )}
+
+            {pathway.steps.length > 0 && (
+              <ol style="list-style: none; margin: var(--gap_xs) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap_xs);">
+                {pathway.steps.map((step, i) => (
+                  <li style="display: flex; align-items: center; gap: var(--gap_xs); font-size: var(--font_size_sm); color: var(--color_text_secondary);">
+                    <span style="display: inline-flex; align-items: center; justify-content: center; font-size: var(--font_size_eyebrow); font-weight: var(--font_weight_bold); color: var(--color_text_secondary); background: var(--color_border); border-radius: var(--radius_sm); width: 20px; height: 20px; flex-shrink: 0;">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {pathway.cta_href && pathway.cta_label && (
+              <div style="margin-top: auto; padding-top: var(--gap_sm);">
+                <a
+                  href={pathway.cta_href}
+                  class="btn btn--primary"
+                  target={pathway.cta_href.startsWith('http') ? '_blank' : undefined}
+                  rel={pathway.cta_href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                >
+                  {pathway.cta_label}
+                </a>
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+
+    </div>
+  </section>
+)}
+
+<style>
+  .pcb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    gap: var(--gap_md);
+    align-items: stretch;
+  }
+
+  @media (max-width: 640px) {
+    .pcb-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

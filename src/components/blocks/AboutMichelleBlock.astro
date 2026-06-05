@@ -1,0 +1,156 @@
+---
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const eyebrow    = block.eyebrow  ?? block.props?.eyebrow;
+const title      = block.props?.title    ?? block.title;
+const subtitle   = block.subtitle ?? block.props?.subtitle;
+const body       = block.props?.body     ?? block.body;
+const ctaHref    = block.props?.cta_href;
+const ctaLabel   = block.props?.cta_label;
+const ctaExternal = block.props?.cta_external ?? ctaHref?.startsWith('http') ?? false;
+const imageUrl    = block.props?.image_url;
+const imageAlt    = block.props?.image_alt ?? '';
+---
+
+<section class="about-michelle">
+  <div class="about-michelle-inner">
+
+    <div class="about-michelle-meta">
+      {imageUrl && (
+        <img
+          src={imageUrl}
+          alt={imageAlt}
+          class="about-michelle-image"
+          loading="lazy"
+          decoding="async"
+        />
+      )}
+      {eyebrow && (
+        <p class="about-michelle-eyebrow">{eyebrow}</p>
+      )}
+    </div>
+
+    <div class="about-michelle-content">
+      {title && (
+        <h2 class="about-michelle-name">{title}</h2>
+      )}
+      {subtitle && (
+        <p class="about-michelle-role">{subtitle}</p>
+      )}
+      {body && (
+        <div class="about-michelle-body" set:html={body} />
+      )}
+      {ctaHref && ctaLabel && (
+        <a
+          href={ctaHref}
+          class="about-michelle-cta"
+          target={ctaExternal ? '_blank' : undefined}
+          rel={ctaExternal ? 'noopener noreferrer' : undefined}
+        >
+          {ctaLabel}
+        </a>
+      )}
+    </div>
+
+  </div>
+</section>
+
+<style>
+  .about-michelle {
+    padding-block: var(--layout_padding_y);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .about-michelle-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+    display: grid;
+    grid-template-columns: 28% 1fr;
+    gap: var(--gap_xl);
+    align-items: start;
+  }
+
+  .about-michelle-meta {
+    padding-top: 6px;
+  }
+
+  .about-michelle-image {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius_md);
+    display: block;
+    margin-bottom: var(--space_md);
+  }
+
+  .about-michelle-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin: 0;
+  }
+
+  .about-michelle-content {
+    max-width: 64ch;
+  }
+
+  .about-michelle-name {
+    font-family: var(--font_heading);
+    font-size: clamp(1.75rem, 3vw, 2.5rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--space_xs);
+  }
+
+  .about-michelle-role {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_cta_primary);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0 0 var(--space_md);
+  }
+
+  .about-michelle-body,
+  .about-michelle-body :global(p) {
+    font-size: var(--text_lg);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0 0 var(--space_md);
+  }
+
+  .about-michelle-body :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .about-michelle-cta {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_cta_primary);
+    text-decoration: none;
+    border-bottom: 1px solid currentColor;
+    padding-bottom: 1px;
+    transition: opacity 0.15s;
+  }
+
+  .about-michelle-cta:hover {
+    opacity: var(--hover_opacity, 0.7);
+  }
+
+  @media (max-width: 768px) {
+    .about-michelle-inner {
+      grid-template-columns: 1fr;
+      gap: var(--gap_sm);
+    }
+  }
+</style>

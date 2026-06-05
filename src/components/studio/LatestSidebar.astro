@@ -1,0 +1,91 @@
+---
+interface Props {
+  aiReadinessUrl: string;
+  servicesUrl: string;
+}
+
+const { aiReadinessUrl, servicesUrl } = Astro.props;
+---
+
+<aside>
+
+  <!-- Current Focus -->
+  <div style="margin-bottom: var(--gap_xl);">
+    <h2 style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_text_secondary); font-family: var(--font_body); margin: 0 0 var(--gap_md);">
+      Current Focus
+    </h2>
+    <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--gap_sm);">
+      <li style="font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_primary); line-height: var(--leading_relaxed);">
+        AI Readiness &amp; Mapping
+      </li>
+      <li style="font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_primary); line-height: var(--leading_relaxed);">
+        Workflow Design
+      </li>
+      <li style="font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_primary); line-height: var(--leading_relaxed);">
+        Practical Implementation
+      </li>
+    </ul>
+  </div>
+
+  <!-- Start Here -->
+  <div style="border-top: 1px solid var(--color_border); padding-top: var(--gap_xl); margin-bottom: var(--gap_xl);">
+    <h2 style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_text_secondary); font-family: var(--font_body); margin: 0 0 var(--gap_md);">
+      Start Here
+    </h2>
+    <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--gap_sm);">
+      <li>
+        <a
+          href={aiReadinessUrl}
+          class="sidebar-link"
+          style="font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_primary); text-decoration: none; line-height: var(--leading_relaxed);"
+        >
+          What is AI readiness? →
+        </a>
+      </li>
+      <li>
+        <a
+          href={servicesUrl}
+          class="sidebar-link"
+          style="font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_primary); text-decoration: none; line-height: var(--leading_relaxed);"
+        >
+          How we work →
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Stay in the loop -->
+  <div style="border-top: 1px solid var(--color_border); padding-top: var(--gap_xl);">
+    <h2 style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_text_secondary); font-family: var(--font_body); margin: 0 0 var(--gap_sm);">
+      Stay in the loop
+    </h2>
+    <p style="font-size: var(--text_sm); font-family: var(--font_body); color: var(--color_text_secondary); margin: 0 0 var(--gap_md); line-height: var(--leading_relaxed);">
+      Get the latest insights delivered to your inbox.
+    </p>
+    <div style="display: flex; flex-direction: column; gap: var(--gap_sm);">
+      <input
+        type="email"
+        placeholder="Your email"
+        style="font-family: var(--font_body); font-size: var(--text_sm); color: var(--color_text_primary); background: var(--color_background); border: 1px solid var(--color_border); border-radius: 4px; padding: 8px 12px; width: 100%; box-sizing: border-box;"
+      />
+      <button
+        type="button"
+        class="sidebar-subscribe"
+        style="font-family: var(--font_body); font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); background: transparent; border: 1px solid var(--color_border); border-radius: 4px; padding: 8px 16px; cursor: pointer; text-align: left;"
+      >
+        Subscribe
+      </button>
+    </div>
+  </div>
+
+</aside>
+
+<style>
+  .sidebar-link:hover {
+    color: var(--color_cta_primary);
+  }
+
+  .sidebar-subscribe:hover {
+    border-color: var(--color_text_secondary);
+  }
+</style>

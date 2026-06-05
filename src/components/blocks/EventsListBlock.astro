@@ -1,0 +1,277 @@
+---
+import type { PageBlock, Event } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+  events: Event[];
+  applierEvents?: Event[];
+}
+
+const { block, events = [], applierEvents = [] } = Astro.props;
+
+const featuredCount = Number(block.props?.featured_count ?? 1);
+const supportCount  = Number(block.props?.support_count  ?? 3);
+
+// Filter by audience_track if provided in block props.filter
+const userGroups = block.props?.filter?.audience_track as string[] | undefined;
+const filteredEvents = userGroups && userGroups.length > 0
+  ? events.filter((e: any) => userGroups.includes(e.audience_track))
+  : events;
+
+const featured = filteredEvents[0] ?? null;
+const upcoming = filteredEvents.slice(featuredCount, featuredCount + supportCount);
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Australia/Sydney' })
+    .toUpperCase().replace(/\s/g, '');
+}
+
+function dateMonth(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', { month: 'short', timeZone: 'Australia/Sydney' }).toUpperCase();
+}
+
+function dateDay(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', timeZone: 'Australia/Sydney' });
+}
+
+function formatVenue(event: any): string {
+  return [event.venue_name, event.suburb, event.state].filter(Boolean).join(', ');
+}
+
+function trackColour(track: string | null | undefined): string {
+  if (!track) return 'var(--color_cta_primary)';
+  return track.toLowerCase().startsWith('applier')
+    ? 'var(--color_track_applier)'
+    : 'var(--color_track_builder)';
+}
+
+// Solid tint tokens used for date tile backgrounds
+// color_track_applier_tint = #FEF0E6, color_track_builder_tint = #EAF5F3
+function trackTint(track: string | null | undefined): string {
+  if (!track) return 'var(--color_surface)';
+  return track.toLowerCase().startsWith('applier')
+    ? 'var(--color_track_applier_tint)'
+    : 'var(--color_track_builder_tint)';
+}
+
+function trackLabel(track: string | null | undefined): string {
+  if (!track) return '';
+  return track.toLowerCase().startsWith('applier') ? 'Appliers' : 'Builders';
+}
+
+function trackBadges(track: string | null | undefined): { label: string; colour: string; tint: string }[] {
+  if (!track) return [];
+  if (track.toLowerCase() === 'both') return [
+    { label: 'Appliers', colour: 'var(--color_track_applier)', tint: 'var(--color_track_applier_tint)' },
+    { label: 'Builders', colour: 'var(--color_track_builder)', tint: 'var(--color_track_builder_tint)' },
+  ];
+  if (track.toLowerCase().startsWith('applier')) return [
+    { label: 'Appliers', colour: 'var(--color_track_applier)', tint: 'var(--color_track_applier_tint)' },
+  ];
+  return [
+    { label: 'Builders', colour: 'var(--color_track_builder)', tint: 'var(--color_track_builder_tint)' },
+  ];
+}
+---
+
+<section style="padding: 5rem 0;">
+  <div class="ev-list-wrap" style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+    <div class="ev-list-grid" style="display: grid; grid-template-columns: 24% 36% 40%; gap: 2.5rem; align-items: start;">
+
+      <!-- ── LEFT COLUMN: intro ───────────────────────────── -->
+      <div style="padding-right: 0.5rem;">
+        {block.props?.eyebrow && (
+          <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 12px;">
+            {block.props.eyebrow}
+          </p>
+        )}
+        {(block.props?.title ?? block.title) && (
+          <h2 style="font-size: 38px; font-weight: 700; color: var(--color_text_heading); margin: 0 0 14px; line-height: 1.15;">
+            {block.props?.title ?? block.title}
+          </h2>
+        )}
+        <div style="width: 40px; height: 3px; background: var(--color_cta_primary); border-radius: 2px; margin-bottom: 18px;"></div>
+        {block.props?.intro && (
+          <p style="font-size: 14px; color: var(--color_text_secondary); margin: 0 0 32px; line-height: 1.75;">
+            {block.props.intro}
+          </p>
+        )}
+        {block.props?.cta_primary?.href && (
+          <a
+            href={block.props.cta_primary.href}
+            style="font-size: 14px; font-weight: 600; color: var(--color_cta_primary); text-decoration: none; display: inline-block; margin-top: 8px;"
+          >
+            {block.props.cta_primary.label ?? 'See all events'} →
+          </a>
+        )}
+      </div>
+
+      <!-- ── MIDDLE COLUMN: featured event ────────────────── -->
+      {featured ? (
+        <div class="ev-list-featured" style="border-left: 1px solid var(--color_border); padding-left: 2.5rem;">
+          <a href={`/events/${(featured as any).slug}`} style="display: block; text-decoration: none; color: inherit;">
+          <div style="display: flex; flex-direction: column; border-radius: 8px; overflow: hidden;">
+
+            {/* Hero image — edge to edge, 200px */}
+            {(featured as any).resolved_image_url ? (
+              <img
+                src={(featured as any).resolved_image_url}
+                alt={(featured as any).title}
+                style="width: 100%; height: 200px; object-fit: cover; display: block; flex-shrink: 0;"
+                loading="lazy"
+                decoding="async"
+              />
+            ) : (
+              <div style={`width: 100%; height: 200px; background: ${trackTint((featured as any).audience_track)}; flex-shrink: 0;`}></div>
+            )}
+
+            {/* Text area — var(--color_surface_dark) = #111111 */}
+            <div style="background: var(--color_surface_dark); padding: 1.25rem; display: flex; flex-direction: column; gap: 10px;">
+
+              {/* Date block + meta on same row */}
+              <div style="display: flex; align-items: flex-start; gap: 12px;">
+                {/* Date: month + numeral stacked */}
+                <div style="display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0;">
+                  <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.5); line-height: 1;">
+                    {dateMonth((featured as any).start_at)}
+                  </span>
+                  <span style="font-size: 2rem; font-weight: 800; line-height: 1; color: white; margin-top: 1px;">
+                    {dateDay((featured as any).start_at)}
+                  </span>
+                </div>
+                {/* Track pill + location to the right of date */}
+                <div style="display: flex; flex-direction: column; gap: 5px; padding-top: 2px;">
+                  {(featured as any).audience_track && (
+                    <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                      {trackBadges((featured as any).audience_track).map((badge) => (
+                        <span style={`display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: white; background: ${badge.colour}; padding: 3px 10px; border-radius: 100px;`}>
+                          {badge.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {formatVenue(featured) && (
+                    <span style="font-size: 11px; color: rgba(255,255,255,0.5); display: flex; align-items: center; gap: 4px;">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+                        <circle cx="12" cy="10" r="3"/>
+                      </svg>
+                      {formatVenue(featured)}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Title */}
+              <h3 style="font-family: var(--font_heading); font-size: 1.3rem; font-weight: 700; color: white; margin: 0; line-height: 1.25;">
+                {(featured as any).title}
+              </h3>
+
+              {/* Summary */}
+              {(featured as any).summary && (
+                <p style="font-size: 13px; color: rgba(255,255,255,0.6); margin: 0; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                  {(featured as any).summary}
+                </p>
+              )}
+
+              {/* Register link */}
+              {(featured as any).registration_url && (
+                <a
+                  href={(featured as any).registration_url}
+                  style="font-size: 13px; font-weight: 700; color: var(--color_cta_primary); text-decoration: none; margin-top: 2px; align-self: flex-start;"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >Register →</a>
+              )}
+            </div>
+          </div>
+          </a>
+        </div>
+      ) : null}
+
+      <!-- ── RIGHT COLUMN: upcoming list ──────────────────── -->
+      <div class="ev-list-upcoming" style="border-left: 1px solid var(--color_border); padding-left: 2.5rem;">
+        <p style="font-size: 0.85rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 16px;">
+          Upcoming
+        </p>
+        {upcoming.map((event: any, i: number) => (
+          <div>
+            <a href={`/events/${event.slug}`} style="display: block; text-decoration: none; color: inherit;">
+            <div style="display: flex; align-items: flex-start; gap: 14px; padding: 1rem 0;">
+
+              {/* Date tile — 72px wide, track tint background */}
+              <div style={`width: 72px; flex-shrink: 0; background: ${trackTint(event.audience_track)}; border-radius: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 4px; text-align: center;`}>
+                <span style={`font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: ${trackColour(event.audience_track)}; line-height: 1;`}>
+                  {dateMonth(event.start_at)}
+                </span>
+                <span style={`font-size: 1.8rem; font-weight: 800; line-height: 1; color: ${trackColour(event.audience_track)}; margin-top: 1px;`}>
+                  {dateDay(event.start_at)}
+                </span>
+              </div>
+
+              {/* Event text */}
+              <div style="flex: 1; min-width: 0;">
+                <h4 style="font-size: 1rem; font-weight: 600; color: var(--color_text_heading); margin: 0 0 5px; line-height: 1.35;">
+                  {event.title}
+                </h4>
+                <p style="font-size: 0.85rem; color: var(--color_text_secondary); margin: 0 0 4px; line-height: 1.4;">
+                  {[formatVenue(event), formatTime(event.start_at)].filter(Boolean).join(' · ')}
+                </p>
+                {event.summary && (
+                  <p style="font-size: 0.8rem; color: var(--color_text_secondary); margin: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.75;">
+                    {event.summary}
+                  </p>
+                )}
+                {event.audience_track && (
+                  <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px;">
+                    {trackBadges(event.audience_track).map((badge) => (
+                      <span style={`display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: ${badge.colour}; background: ${badge.tint}; padding: 2px 8px; border-radius: 100px;`}>
+                        {badge.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            </a>
+
+            {/* Divider between items */}
+            {i < upcoming.length - 1 && (
+              <div style="height: 1px; background: var(--color_border);"></div>
+            )}
+          </div>
+        ))}
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<style>
+  @media (max-width: 768px) {
+    .ev-list-wrap {
+      padding-inline: var(--layout_padding_x) !important;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .ev-list-grid {
+      grid-template-columns: 1fr !important;
+      width: 100%;
+      max-width: 100%;
+    }
+    .ev-list-featured,
+    .ev-list-upcoming {
+      border-left: none !important;
+      padding-left: 0 !important;
+      border-top: 1px solid var(--color_border);
+      padding-top: 1.5rem;
+      margin-top: 0.5rem;
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
+</style>

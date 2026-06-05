@@ -1,0 +1,49 @@
+---
+import MichelleLayout from '../Layout.astro';
+import MichelleHeader from '../Header.astro';
+import MichelleFooter from '../Footer.astro';
+import BlockRenderer  from '../components/BlockRenderer.astro';
+import { loadMichellePage } from '../pageData';
+
+const { isPreview } = Astro.locals;
+
+const {
+  site,
+  page,
+  blocks,
+  seo,
+  navHeader,
+  navFooter,
+  tokens,
+  mediaAssets,
+  rawTokenCSS,
+  canonicalUrl,
+  robots,
+  jsonld,
+} = await loadMichellePage('home', 'Home page', isPreview);
+
+const seoTitle       = seo?.seo_title_override ?? page?.title ?? site.name;
+const seoDescription = seo?.seo_description_override ?? site?.meta_description ?? null;
+const aeoSummary     = seo?.aeo_summary ?? undefined;
+---
+
+<MichelleLayout
+  title={seoTitle}
+  siteName={site.name}
+  description={seoDescription}
+  canonical={canonicalUrl}
+  robots={robots}
+  jsonld={jsonld}
+  aeoSummary={aeoSummary}
+  rawTokenCSS={rawTokenCSS}
+>
+  <MichelleHeader site={site} navItems={navHeader} />
+
+  <main id="main-content">
+    {blocks.map((block) => (
+      <BlockRenderer block={block} mediaAssets={mediaAssets} />
+    ))}
+  </main>
+
+  <MichelleFooter site={site} footerItems={navFooter} tokens={tokens} />
+</MichelleLayout>

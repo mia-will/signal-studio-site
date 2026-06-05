@@ -1,0 +1,9 @@
+---
+import MichelleSpeaking from '../sites/michelle/pages/speaking.astro';
+import { isMichelleRequest } from '../sites/michelle/routing';
+
+const SITE_SLUG = process.env.SITE_SLUG;
+if (!(await isMichelleRequest(Astro.request, Astro.url, SITE_SLUG))) return Astro.redirect('/404');
+---
+
+<MichelleSpeaking />

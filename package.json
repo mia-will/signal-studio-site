@@ -1,0 +1,19 @@
+{
+  "name": "signal-studio-site",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/netlify": "^7.0.6",
+    "@astrojs/node": "^10.0.1",
+    "@astrojs/sitemap": "^3.7.2",
+    "@supabase/supabase-js": "^2.99.1",
+    "astro": "^6.0.4",
+    "marked": "^18.0.2"
+  }
+}

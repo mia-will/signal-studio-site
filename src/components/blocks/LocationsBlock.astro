@@ -1,0 +1,107 @@
+---
+import type { PageBlock } from '../../types/content';
+import { supabase } from '../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const { data: locations = [] } = await supabase
+  .from('remix_locations')
+  .select('id, name, slug, status, is_active, sort_order, circle_fill, circle_border, circle_text_colour, circle_icon')
+  .eq('is_active', true)
+  .order('sort_order', { ascending: true });
+---
+
+<section class="locations-block" style="padding: 64px 0;">
+  <div class="locations-inner" style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+    <div style="margin-bottom: 0;">
+      {block.props?.eyebrow && (
+        <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 8px;">{block.props.eyebrow}</p>
+      )}
+      <h2 style="font-size: 32px; font-weight: 700; color: var(--color_text_heading); margin: 0 0 8px; line-height: 1.1;">{block.props?.title ?? block.title}</h2>
+      <div style="width: 40px; height: 3px; background: var(--color_cta_primary); border-radius: 2px; margin-bottom: 16px;"></div>
+      {(block.props?.subtitle ?? block.props?.intro) && (
+        <p style="font-size: 15px; color: var(--color_text_secondary); margin: 0; max-width: 560px; line-height: 1.6;">{block.props?.subtitle ?? block.props?.intro}</p>
+      )}
+    </div>
+
+    <div style="display: flex; justify-content: center; width: 100%; padding-top: 48px; padding-bottom: 48px;">
+    <div class="locations-tiles" style={`display: flex; gap: ${block.props?.circle_gap}; align-items: center; flex-wrap: wrap; justify-content: center;`}>
+
+        {(locations ?? []).map((loc: any) => {
+          const isMoreComing = loc.circle_fill === 'transparent';
+          const border       = isMoreComing && loc.circle_border
+            ? `2px dashed ${loc.circle_border}`
+            : 'none';
+          const opacity      = loc.status === 'coming_soon' ? '0.5' : '1';
+
+          return (
+            <a
+              href={loc.status === 'active' ? `/events?location=${loc.slug}` : undefined}
+              class="locations-tile"
+              style={`text-decoration: none; width: ${block.props?.tile_width}; min-height: ${block.props?.tile_height}; flex-shrink: 0; border-radius: 8px; background: ${loc.circle_fill ?? 'transparent'}; border: ${border}; color: ${loc.circle_text_colour}; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px 12px; box-sizing: border-box; gap: 8px; cursor: ${loc.status === 'active' ? 'pointer' : 'default'}; opacity: ${opacity};`}
+            >
+              {loc.circle_icon === 'map-pin' && (
+                <svg width={block.props?.tile_icon_size ?? '20'} height={block.props?.tile_icon_size ?? '20'} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+                  <circle cx="12" cy="10" r="3"/>
+                </svg>
+              )}
+              {loc.circle_icon === 'laptop' && (
+                <svg width={block.props?.tile_icon_size ?? '20'} height={block.props?.tile_icon_size ?? '20'} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <path d="M0 21h24"/>
+                </svg>
+              )}
+              {loc.circle_icon === 'plus' && (
+                <svg width={block.props?.tile_icon_size ?? '20'} height={block.props?.tile_icon_size ?? '20'} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              )}
+              <span style={`font-size: ${block.props?.tile_font_size ?? '11px'}; font-weight: 700; text-transform: uppercase; text-align: center; line-height: 1.25; letter-spacing: 0.06em;`}>
+                {loc.name}
+              </span>
+            </a>
+          );
+        })}
+
+    </div>
+    </div>
+
+  </div>
+</section>
+
+<style>
+  @media (max-width: 768px) {
+    .locations-block,
+    .locations-inner,
+    .locations-tiles,
+    .locations-tile {
+      box-sizing: border-box;
+    }
+
+    .locations-block {
+      overflow: hidden;
+    }
+
+    .locations-inner {
+      width: 100%;
+      max-width: 100%;
+      padding-inline: var(--layout_padding_x) !important;
+    }
+
+    .locations-tiles {
+      width: 100%;
+    }
+
+    .locations-tile {
+      width: 100% !important;
+      max-width: var(--layout_content_width);
+    }
+  }
+</style>

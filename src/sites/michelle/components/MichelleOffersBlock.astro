@@ -1,0 +1,136 @@
+---
+import type { PageBlock } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+interface Offer {
+  title: string;
+  body: string;
+  price?: string;
+  cta_href?: string;
+  cta_label?: string;
+}
+
+const { block } = Astro.props;
+
+const sectionTitle = block.props?.title ?? block.title ?? null;
+const sectionBody  = block.props?.body  ?? block.body  ?? null;
+const offers: Offer[] = block.props?.offers ?? [];
+const ctaPrimary   = block.props?.cta_primary ?? null;
+const ctaSecondary = block.props?.cta_secondary ?? null;
+const anchor       = block.anchor ?? block.props?.section_key ?? undefined;
+const showPrice    = block.props?.show_price !== false;
+
+---
+
+<section
+  id={anchor}
+  style="padding-block: var(--layout_padding_y); background: var(--color_surface_alt);"
+>
+  <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+
+    {(sectionTitle || sectionBody) && (
+      <div style="margin-bottom: var(--gap_xl); max-width: 640px;">
+        {sectionTitle && (
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_3xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0 0 var(--gap_sm); line-height: var(--leading_tight);">
+            {sectionTitle}
+          </h2>
+        )}
+        {sectionBody && (
+          <p style="font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0;">
+            {sectionBody}
+          </p>
+        )}
+      </div>
+    )}
+
+    {offers.length > 0 && (
+      <div class="mo-grid" style={`display: grid; grid-template-columns: repeat(${Math.min(offers.length, 3)}, 1fr); gap: var(--gap_md);`}>
+        {offers.map((offer) => (
+          <div style="display: flex; flex-direction: column; background: var(--color_surface); border: 1px solid var(--color_border); border-radius: var(--radius_lg); padding: var(--gap_lg); gap: var(--gap_sm);">
+            <h3 style="font-family: var(--font_heading); font-size: var(--text_xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_tight);">
+              {offer.title}
+            </h3>
+            {showPrice && offer.price && (
+              <p style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); margin: 0;">
+                {offer.price}
+              </p>
+            )}
+            {offer.body && (
+              <p style="font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0; flex: 1;">
+                {offer.body}
+              </p>
+            )}
+            {offer.cta_href && offer.cta_label && (
+              <a
+                href={offer.cta_href}
+                class={`mo-card-btn ${(offer.cta_href ?? '').includes('#apply') ? 'mo-card-btn--primary' : 'mo-card-btn--secondary'}`}
+                target={offer.cta_href.startsWith('http') ? '_blank' : undefined}
+                rel={offer.cta_href.startsWith('http') ? 'noopener noreferrer' : undefined}
+              >
+                {offer.cta_label}
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
+
+    {(ctaPrimary || ctaSecondary) && (
+      <div style="display: flex; gap: var(--gap_sm); flex-wrap: wrap; margin-top: var(--space_2xl);">
+        {ctaPrimary && (
+          <a
+            href={ctaPrimary.href}
+            style="display: inline-flex; align-items: center; padding: 0.75rem 1.5rem; background: var(--button_primary_background); color: var(--button_primary_text); font-family: var(--font_body); font-size: var(--text_base); font-weight: var(--font_weight_semibold); text-decoration: none; border-radius: var(--radius_pill); transition: opacity 0.15s ease;"
+          >
+            {ctaPrimary.label}
+          </a>
+        )}
+        {ctaSecondary && (
+          <a
+            href={ctaSecondary.href}
+            style="display: inline-flex; align-items: center; padding: 0.75rem 1.5rem; background: transparent; color: var(--color_text_primary); font-family: var(--font_body); font-size: var(--text_base); font-weight: var(--font_weight_semibold); text-decoration: none; border: 2px solid var(--color_border); border-radius: var(--radius_pill); transition: opacity 0.15s ease;"
+          >
+            {ctaSecondary.label}
+          </a>
+        )}
+      </div>
+    )}
+
+  </div>
+</section>
+
+<style>
+  .mo-card-btn {
+    display: inline-flex;
+    align-items: center;
+    margin-top: var(--gap_md);
+    padding: var(--gap_sm) var(--gap_md);
+    font-family: var(--font_body);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    text-decoration: none;
+    border-radius: var(--radius_pill);
+    align-self: flex-start;
+    transition: opacity var(--ease);
+    box-sizing: border-box;
+  }
+  .mo-card-btn--primary {
+    background: var(--button_primary_background);
+    color: var(--button_primary_text);
+    border: none;
+  }
+  .mo-card-btn--secondary {
+    background: transparent;
+    color: var(--color_text_primary);
+    border: 2px solid var(--color_border);
+  }
+  @media (max-width: 900px) {
+    .mo-grid { grid-template-columns: 1fr !important; }
+  }
+  @media (max-width: 640px) {
+    .mo-grid { grid-template-columns: 1fr !important; }
+  }
+</style>

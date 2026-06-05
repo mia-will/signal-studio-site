@@ -1,0 +1,79 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import GovernancePrinciples from '../components/GovernancePrinciples.astro';
+
+import { getSite, getNavItems } from '../lib/queries';
+
+const SITE_SLUG = 'signal_studio';
+
+const [site, headerNav, footerNav] = await Promise.all([
+  getSite(SITE_SLUG),
+  getNavItems(SITE_SLUG, 'header'),
+  getNavItems(SITE_SLUG, 'footer'),
+]);
+
+if (!site) return Astro.redirect('/500');
+
+Astro.response.headers.set('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout
+  title="Governance | The Signal Studio"
+  description="The principles that guide how The Signal ecosystem is built and run."
+  siteName={site.name}
+>
+  <Nav navItems={headerNav} site={site} />
+
+  <main id="main-content">
+    <div class="page-hero section">
+      <div class="container">
+        <p class="page-eyebrow">How we operate</p>
+        <h1>Governance</h1>
+        <p class="page-intro">
+          The principles that guide how The Signal ecosystem is built and run.
+        </p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="container">
+        <GovernancePrinciples />
+      </div>
+    </div>
+  </main>
+
+  <Footer footerItems={footerNav} site={site} acknowledgement={site.acknowledgement} />
+</Layout>
+
+<style>
+  .page-hero {
+    background:
+      radial-gradient(ellipse at top right, rgba(255,138,51,0.05) 0%, transparent 60%),
+      radial-gradient(ellipse at center, #FFFCF8 30%, #F5EFE6 100%);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .page-eyebrow {
+    font-family: var(--font_body);
+    font-size: 12px;
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_cta_primary);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: var(--space_md);
+    max-width: none;
+  }
+
+  h1 {
+    margin-bottom: var(--space_md);
+  }
+
+  .page-intro {
+    font-size: var(--text_xl);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    max-width: 52ch;
+  }
+</style>

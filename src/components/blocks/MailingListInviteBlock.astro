@@ -1,0 +1,408 @@
+---
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+// ── Top-level columns are the primary source of truth ───────
+const eyebrow  = block.eyebrow   ?? block.props?.eyebrow  ?? '';
+const title    = block.title     ?? block.props?.title    ?? '';
+const subtitle = block.subtitle  ?? block.props?.subtitle ?? '';
+const body     = block.body      ?? block.props?.body     ?? '';
+const ctaText  = block.cta_primary_label ?? (block.props?.cta_primary as any)?.label ?? '';
+const ctaLink  = block.cta_primary_href  ?? (block.props?.cta_primary as any)?.href  ?? '';
+
+// ── Layout — layout_variant is a top-level column ───────────
+const layoutVariant = block.layout_variant || block.props?.layout_variant || '';
+const isSplit       = layoutVariant.startsWith('split');
+
+// ── Style / emphasis ─────────────────────────────────────────
+const styleVariant  = block.props?.style_variant  as string | undefined;
+const panelEmphasis = block.props?.panel_emphasis as string | undefined;
+const cardBg        = block.props?.background     as string | undefined;
+const panelFill     = block.props?.panel_fill     as string | undefined;
+const cardBorderProp = block.props?.card_border   as string | undefined;
+
+// panel_fill → card container background
+const panelFillBg = panelFill === 'warm_contained' ? 'var(--color_surface_panel_soft)'
+                  : panelFill === 'warm_tint'       ? 'var(--color_track_applier_tint)'
+                  : cardBg ?? '';
+const effectiveBg = panelFillBg;
+const noBorder    = cardBorderProp === 'none';
+
+// background_color overrides panel_fill; absent → transparent
+const backgroundColor = block.props?.background_color as string | undefined;
+const resolvedBg      = backgroundColor ?? effectiveBg;
+
+// button_gap for audience pill container; absent → var(--gap_xs)
+const buttonGap = (block.props?.button_gap as string | undefined) ?? 'var(--gap_xs)';
+
+// ── Editorial CTA — on by default, off only when explicitly false ──
+const showEditorialCta = block.props?.show_editorial_cta !== false;
+
+// ── Form labels — from form_labels object, individual props as fallback ──
+const formLabels     = (block.props?.form_labels ?? {}) as Record<string, string>;
+const firstNameLabel = formLabels.first_name ?? block.props?.first_name_label ?? '';
+const emailLabel     = formLabels.email      ?? block.props?.email_label      ?? '';
+const audienceLabel  = formLabels.audience   ?? block.props?.audience_label   ?? '';
+const submitLabel    = formLabels.submit     ?? block.props?.submit_label     ?? '';
+const loadingLabel   = formLabels.loading    ?? block.props?.loading_label    ?? '';
+const successMsg     = formLabels.success    ?? block.props?.success_message  ?? '';
+
+// ── Audience options — array from Supabase, not hardcoded ────
+// Each option: { value, label, description?, active_color? }
+// When audience = 'both', the raw value is passed to the API as-is — no interpretation here.
+const audienceOptions = (block.props?.audience_options ?? []) as Array<{
+  value: string;
+  label: string;
+  description?: string;
+  active_color?: string;
+}>;
+
+// ── Microcopy — from microcopy object, individual props as fallback ──
+const microcopy   = (block.props?.microcopy ?? {}) as Record<string, string>;
+const privacyNote = microcopy.privacy_note ?? block.props?.privacy_note  ?? '';
+const supportLine = microcopy.support_line ?? block.props?.support_line  ?? '';
+const proofStat   = microcopy.proof_stat   ?? block.props?.proof_stat    ?? '';
+const errorMsg    = microcopy.error        ?? block.props?.error_message ?? '';
+
+const bodyItems          = Array.isArray(block.props?.body_items) ? block.props.body_items as string[] : [];
+
+// ── Site slug ────────────────────────────────────────────────
+const siteSlug = (block as any).site_slug ?? block.props?.site_slug ?? import.meta.env.SITE_SLUG;
+---
+
+<section
+  id={block.anchor ?? (block.props?.anchor as string | undefined)}
+  style="padding-block: 48px;"
+  data-style-variant={styleVariant ?? undefined}
+>
+  <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+
+    <div
+      class:list={["ml-grid", { "ml-grid--split": isSplit }]}
+      style={`${resolvedBg ? `background: ${resolvedBg};` : 'background: transparent;'} border-radius: 20px; box-shadow: 0 8px 22px rgba(17,17,17,0.08); align-items: start; border: none;`}
+    >
+
+      <!-- ── Left: editorial ── -->
+      <div style="display: flex; flex-direction: column; gap: var(--gap_md);">
+
+        {eyebrow && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_bold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0;">
+            {eyebrow}
+          </p>
+        )}
+
+        {title && (
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_4xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); line-height: var(--leading_tight); letter-spacing: -0.02em; margin: 0; padding-bottom: var(--gap_sm); border-bottom: 3px solid var(--color_cta_primary); display: inline-block;">
+            {title}
+          </h2>
+        )}
+
+        {subtitle && (
+          <p style="font-size: var(--text_lg); font-weight: var(--font_weight_medium); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0;">
+            {subtitle}
+          </p>
+        )}
+
+        {body && (
+          <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0; max-width: 42ch;">
+            {body}
+          </p>
+        )}
+
+        {bodyItems.length > 0 && (
+          <ul style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: inherit; margin: 0; padding-left: var(--space_lg); display: flex; flex-direction: column; gap: var(--gap_xs);">
+            {bodyItems.map((item) => (
+              <li style="color: inherit;">{item}</li>
+            ))}
+          </ul>
+        )}
+
+        {proofStat && (
+          <p style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); margin: 0;">
+            {proofStat}
+          </p>
+        )}
+
+        {(showEditorialCta && ctaLink && ctaText) && (
+          <a
+            href={ctaLink}
+            style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); text-decoration: none; display: inline-flex; align-items: center; gap: var(--gap_xs);"
+          >
+            {ctaText} <span aria-hidden="true">→</span>
+          </a>
+        )}
+
+        {supportLine && (
+          <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; opacity: 0.75;">
+            {supportLine}
+          </p>
+        )}
+
+      </div>
+
+      <!-- ── Right: form ── -->
+      <div
+        class="ml-form-col"
+        style={`display: flex; flex-direction: column;${panelEmphasis ? ` background: ${panelEmphasis}; border-radius: var(--radius_md); padding: var(--gap_md);` : ''}`}
+      >
+
+        <form
+          id="ml-form"
+          novalidate
+          data-site-slug={siteSlug}
+          data-loading-label={loadingLabel}
+          data-error-msg={errorMsg}
+          style="display: flex; flex-direction: column; gap: var(--gap_sm);"
+        >
+
+          {firstNameLabel && (
+            <label for="ml-first-name" style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); display: block;">
+              {firstNameLabel}
+            </label>
+          )}
+          <input
+            type="text"
+            id="ml-first-name"
+            name="first_name"
+            autocomplete="given-name"
+            class="ml-input"
+            style="width: 100%; padding: var(--gap_sm) var(--gap_md); border: 1.5px solid var(--color_border); border-radius: var(--radius_md); background: var(--color_background); font-family: var(--font_body); font-size: var(--text_base); color: var(--color_text_primary); outline: none; box-sizing: border-box;"
+          />
+
+          {emailLabel && (
+            <label for="ml-email" style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); display: block; margin-top: var(--gap_xs);">
+              {emailLabel}
+            </label>
+          )}
+          <input
+            type="email"
+            id="ml-email"
+            name="email"
+            required
+            autocomplete="email"
+            class="ml-input"
+            style="width: 100%; padding: var(--gap_sm) var(--gap_md); border: 1.5px solid var(--color_border); border-radius: var(--radius_md); background: var(--color_background); font-family: var(--font_body); font-size: var(--text_base); color: var(--color_text_primary); outline: none; box-sizing: border-box;"
+          />
+
+          {audienceOptions.length > 0 && (
+            <>
+              {audienceLabel && (
+                <p id="ml-audience-label" style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_secondary); margin: var(--gap_xs) 0 0;">
+                  {audienceLabel}
+                </p>
+              )}
+              <div
+                role="group"
+                aria-labelledby={audienceLabel ? 'ml-audience-label' : undefined}
+                class="ml-pills"
+                style={`display: flex; flex-wrap: wrap; gap: ${buttonGap};`}
+              >
+                {audienceOptions.map((opt) => (
+                  <button
+                    type="button"
+                    class="ml-pill"
+                    data-value={opt.value}
+                    data-active-color={opt.active_color ?? ''}
+                    aria-pressed="false"
+                    style="padding: var(--gap_sm) var(--gap_md); border-radius: var(--radius_md); border: 1.5px solid var(--color_border); background: var(--color_surface); font-family: var(--font_body); cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: var(--gap_xs); transition: background 0.15s, border-color 0.15s;"
+                  >
+                    <span style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); line-height: var(--leading_tight); color: var(--color_text_heading);">{opt.label}</span>
+                    {opt.description && (
+                      <span style="font-size: var(--text_xs); line-height: var(--leading_relaxed); color: var(--color_text_secondary); opacity: 0.7;">{opt.description}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <input type="hidden" id="ml-audience-val" name="audience_track" value="" />
+            </>
+          )}
+
+          <div id="ml-error" hidden style="padding: var(--gap_sm) var(--gap_md); border-radius: var(--radius_md); border: 1px solid var(--color_error); font-size: var(--text_sm); color: var(--color_error); margin-top: var(--gap_xs);">
+            <span id="ml-error-msg"></span>
+          </div>
+
+          <button
+            type="submit"
+            id="ml-submit"
+            data-label={submitLabel}
+            style="width: 100%; margin-top: var(--gap_xs); padding: var(--gap_sm) var(--gap_md); background: var(--color_cta_primary); color: var(--color_text_on_dark); font-family: var(--font_body); font-size: var(--text_base); font-weight: var(--font_weight_semibold); border: none; border-radius: 100px; cursor: pointer; transition: opacity 0.15s;"
+          >
+            {submitLabel}
+          </button>
+
+          {privacyNote && (
+            <p style="font-size: var(--text_xs); color: var(--color_text_secondary); opacity: 0.55; text-align: center; margin: 0;">
+              {privacyNote}
+            </p>
+          )}
+
+        </form>
+
+        <div id="ml-success" hidden style="text-align: center; padding: var(--gap_md) 0; flex-direction: column; align-items: center; gap: var(--gap_sm);">
+          <p style="font-size: var(--text_3xl); color: var(--color_success); margin: 0;" aria-hidden="true">✓</p>
+          <p style="font-family: var(--font_heading); font-size: var(--text_xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0;">
+            {successMsg}
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<style>
+  .ml-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--gap_lg);
+    padding: var(--gap_lg);
+  }
+
+  .ml-grid--split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ml-input::placeholder {
+    color: var(--color_text_secondary);
+    opacity: 0.45;
+  }
+
+  .ml-input:focus {
+    border-color: var(--color_cta_primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color_cta_primary) 12%, transparent);
+  }
+
+  .ml-pills {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .ml-pill {
+    flex: 1 1 calc(50% - var(--gap_xs));
+    min-width: 0;
+  }
+
+  #ml-submit:hover:not(:disabled) {
+    opacity: var(--hover_opacity, 0.85);
+  }
+
+  #ml-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  @media (max-width: 768px) {
+    .ml-grid,
+    .ml-grid--split {
+      grid-template-columns: 1fr;
+      padding: var(--gap_md);
+    }
+  }
+
+  @media (max-width: 480px) {
+    .ml-pill {
+      flex: 1 1 100%;
+    }
+  }
+</style>
+
+<script is:inline>
+  document.addEventListener('DOMContentLoaded', () => {
+  const form        = document.getElementById('ml-form');
+  const submitBtn   = document.getElementById('ml-submit');
+  const successEl   = document.getElementById('ml-success');
+  const errorEl     = document.getElementById('ml-error');
+  const errorMsgEl  = document.getElementById('ml-error-msg');
+  const audienceVal = document.getElementById('ml-audience-val');
+  const pills       = document.querySelectorAll('.ml-pill');
+
+  const siteSlug           = form?.dataset.siteSlug    ?? '';
+  const loadingLabel       = form?.dataset.loadingLabel ?? '';
+  const defaultError       = form?.dataset.errorMsg    ?? '';
+  const newsletterEndpoint = '/api/subscribe';
+
+  // ── Pill toggle ────────────────────────────────────────────
+  // Active colour comes from data-active-color on each pill (set from Supabase).
+  // Falls back to --color_cta_primary if not set.
+  // The raw value is passed to the API unchanged — 'both', 'applier', 'builder', etc.
+  pills.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const val      = pill.dataset.value ?? '';
+      const isPressed = pill.getAttribute('aria-pressed') === 'true';
+
+      pills.forEach((p) => {
+        p.setAttribute('aria-pressed', 'false');
+        p.style.background  = 'var(--color_surface)';
+        p.style.borderColor = 'var(--color_border)';
+      });
+
+      if (!isPressed) {
+        pill.setAttribute('aria-pressed', 'true');
+        const activeColor = pill.dataset.activeColor || 'var(--color_cta_primary)';
+        pill.style.background  = activeColor;
+        pill.style.borderColor = activeColor;
+        if (audienceVal) audienceVal.value = val;
+      } else {
+        if (audienceVal) audienceVal.value = '';
+      }
+    });
+  });
+
+  // ── Form submission ────────────────────────────────────────
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!form || !submitBtn) return;
+
+    submitBtn.disabled = true;
+    if (loadingLabel) submitBtn.textContent = loadingLabel;
+    if (errorEl) errorEl.hidden = true;
+
+    const email     = form.elements.namedItem('email')?.value?.trim();
+    const firstName = form.elements.namedItem('first_name')?.value?.trim();
+    const audience  = audienceVal?.value || null;
+
+    try {
+      const res = await fetch(newsletterEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          first_name: firstName,
+          audience,
+          site_slug: siteSlug,
+          source: 'newsletter',
+          page_path: window.location.pathname,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (res.ok && json.success === true) {
+        form.hidden = true;
+        if (successEl) {
+          successEl.hidden        = false;
+          successEl.style.display = 'flex';
+        }
+      } else {
+        const msg = json.error ?? defaultError;
+        if (errorMsgEl) errorMsgEl.textContent = msg;
+        if (errorEl)    errorEl.hidden = false;
+        submitBtn.disabled    = false;
+        submitBtn.textContent = submitBtn.dataset.label ?? '';
+      }
+    } catch {
+      if (errorMsgEl) errorMsgEl.textContent = defaultError;
+      if (errorEl)    errorEl.hidden = false;
+      submitBtn.disabled    = false;
+      submitBtn.textContent = submitBtn.dataset.label ?? '';
+    }
+  });
+  });
+</script>

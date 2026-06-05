@@ -1,0 +1,160 @@
+---
+import type { PageBlock, Event } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+  events: Event[];
+}
+
+const { block, events } = Astro.props;
+
+const eyebrow  = block.props?.eyebrow  ?? block.eyebrow;
+const title    = block.props?.title    ?? block.title;
+const subtitle = block.props?.subtitle ?? block.subtitle;
+const body     = (block.props?.body    ?? null) as string | null;
+const ctaLabel = (block.props?.cta_label ?? 'View event') as string;
+
+const eventRows = events as any[];
+const featured = eventRows.find((event) => event.featured === true) ?? eventRows[0] ?? null;
+
+function fmtDatetime(iso: string): string {
+  const d    = new Date(iso);
+  const date = d.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Australia/Sydney' });
+  const time = d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Australia/Sydney' });
+  return `${date} · ${time}`;
+}
+
+function trackColour(track: string | null | undefined): string {
+  if (!track || track.toLowerCase() === 'both') return 'var(--color_text_secondary)';
+  if (track.toLowerCase().startsWith('applier')) return 'var(--color_track_applier)';
+  return 'var(--color_track_builder)';
+}
+
+function trackLabel(track: string | null | undefined): string {
+  if (!track) return '';
+  if (track.toLowerCase() === 'both') return 'Appliers + Builders';
+  if (track.toLowerCase().startsWith('applier')) return 'Appliers';
+  return 'Builders';
+}
+---
+
+<section class="ehb-section" style="padding: var(--ehb_padding_block_start, var(--space_xl)) 0 0 0;">
+  <div class="ehb-shell" style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--ehb_padding_inline, var(--layout_padding_x));">
+    <div class="ehb-layout" style="display: flex; flex-wrap: wrap; gap: var(--gap_xl); align-items: center;">
+
+      <!-- Left column (~1/3): page introduction, vertically centred -->
+      <div class="ehb-intro" style="flex: 1 1 260px; min-width: 0;">
+        {eyebrow && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--space_sm);">
+            {eyebrow}
+          </p>
+        )}
+        {title && (
+          <h1 style="font-family: var(--font_heading); font-size: clamp(var(--text_3xl), 5vw, var(--text_5xl)); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0 0 var(--space_lg); line-height: var(--leading_tight); letter-spacing: -0.02em;">
+            {title}
+          </h1>
+        )}
+        {subtitle && (
+          <p style="font-size: var(--text_lg); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed);">
+            {subtitle}
+          </p>
+        )}
+        {body && (
+          <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: var(--text_gap_sm) 0 0; line-height: var(--leading_relaxed);">
+            {body}
+          </p>
+        )}
+      </div>
+
+      <!-- Right column (~2/3): image panel + details panel as one connected unit -->
+      {featured && (
+        <div class="ehb-featured" style="flex: 2 1 480px; min-width: 0; display: flex; flex-wrap: wrap; overflow: hidden; border: var(--card_border); box-shadow: var(--shadow_md);">
+
+          <!-- Left panel of right column: hero image, fills full height -->
+          <div class="ehb-featured-media" style="flex: 1 1 220px; min-width: 0; overflow: hidden;">
+            {featured.image_url ? (
+              <img
+                src={`${featured.image_url}?width=800&quality=80`}
+                alt={featured.title ?? ''}
+                style={`width: 100%; height: 100%; object-fit: cover; object-position: ${featured.image_position ?? 'center center'}; display: block;`}
+                loading="eager"
+                decoding="async"
+              />
+            ) : (
+              <div style={`width: 100%; height: 100%; background: ${trackColour(featured.audience_track)};`} aria-hidden="true"></div>
+            )}
+          </div>
+
+          <!-- Right panel of right column: event details, no border/shadow/radius -->
+          <div class="ehb-featured-content" style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: var(--text_gap_sm); padding: var(--card_padding_lg); background: var(--card_bg);">
+
+            {featured.audience_track && (
+              <span style={`display: inline-block; align-self: flex-start; font-size: var(--badge_font_size); font-weight: var(--badge_font_weight); letter-spacing: var(--badge_letter_spacing); text-transform: uppercase; color: ${trackColour(featured.audience_track)}; background: var(--color_surface); padding: var(--badge_padding); border-radius: var(--badge_radius);`}>
+                {trackLabel(featured.audience_track)}
+              </span>
+            )}
+
+            <h2 style={`font-family: var(--font_heading); font-size: var(--text_xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_snug);${!featured.audience_track ? ' margin-top: var(--text_gap_sm);' : ''}`}>
+              {featured.title}
+            </h2>
+
+            {featured.start_at && (
+              <p style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); margin: 0;">
+                {fmtDatetime(featured.start_at)}
+              </p>
+            )}
+
+            {(featured.venue_name || featured.location_name) && (
+              <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0;">
+                {featured.venue_name ?? featured.location_name}
+              </p>
+            )}
+
+            {featured.summary && (
+              <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                {featured.summary}
+              </p>
+            )}
+
+            <a
+              href={`/events/${featured.event_slug}`}
+              style="display: block; width: 100%; text-align: center; margin-top: auto; padding: var(--btn_padding); background: var(--color_cta_primary); color: var(--color_text_on_dark); font-size: var(--btn_font_size); font-weight: var(--btn_font_weight); font-family: var(--font_body); text-decoration: none; border-radius: var(--btn_radius_pill); box-sizing: border-box;"
+            >
+              {ctaLabel} →
+            </a>
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  </div>
+</section>
+
+<style>
+  @media (max-width: 768px) {
+    .ehb-section {
+      --ehb_padding_block_start: var(--space_lg);
+    }
+
+    .ehb-shell {
+      --ehb_padding_inline: var(--space_sm);
+    }
+
+    .ehb-layout,
+    .ehb-featured {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .ehb-intro,
+    .ehb-featured,
+    .ehb-featured-media,
+    .ehb-featured-content {
+      flex-basis: auto !important;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+  }
+</style>

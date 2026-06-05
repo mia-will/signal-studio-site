@@ -1,0 +1,244 @@
+---
+import type { PageBlock, MediaAsset, Offer, OfferGroup, Post, Event, Testimonial, FaqItem, RemixLocation, Pathway } from '../../types/content';
+
+import HeroBlock from './HeroBlock.astro';
+import PageIntroBlock from './PageIntroBlock.astro';
+import AudienceSegmentsBlock from './AudienceSegmentsBlock.astro';
+import OffersGridBlock from './OffersGridBlock.astro';
+import EventsListBlock from './EventsListBlock.astro';
+import LatestPostsBlock from './LatestPostsBlock.astro';
+import TestimonialsBlock from './TestimonialsBlock.astro';
+import SharedFaqBlock from './FaqBlock.astro';
+import MailingListInviteBlock from './MailingListInviteBlock.astro';
+import WhyNowBlock from './WhyNowBlock.astro';
+import AboutMichelleBlock from './AboutMichelleBlock.astro';
+import CtaPrimaryBlock from './CtaPrimaryBlock.astro';
+import PrinciplesBlock from './PrinciplesBlock.astro';
+import HowItWorksBlock from './HowItWorksBlock.astro';
+import AIReadinessFormBlock from './AIReadinessFormBlock.astro';
+import LocationsBlock from './LocationsBlock.astro';
+import EcosystemBlock from './EcosystemBlock.astro';
+import CaseStudiesBlock from './CaseStudiesBlock.astro';
+import OfferGroupBlock from './OfferGroup.astro';
+import OffersBlock from '../signal-studio/OffersBlock.astro';
+
+// Remix track-page blocks
+import TrackHeroBlock from '../remix/blocks/TrackHeroBlock.astro';
+import FeaturedPromoBlock from '../remix/blocks/FeaturedPromoBlock.astro';
+import RightRailLatestBlock from '../remix/blocks/RightRailLatestBlock.astro';
+import KeyInsightsBlock from '../remix/blocks/KeyInsightsBlock.astro';
+import PathwaysBlock from '../remix/blocks/PathwaysBlock.astro';
+import OpportunitySignalsBlock from '../remix/blocks/OpportunitySignalsBlock.astro';
+import TrackEventsBlock from '../remix/blocks/TrackEventsBlock.astro';
+import CurrentFocusBlock from '../remix/blocks/CurrentFocusBlock.astro';
+import SignalStudioFeatureBlock from '../remix/blocks/SignalStudioFeatureBlock.astro';
+import NewsletterSignupBlock from '../remix/blocks/NewsletterSignupBlock.astro';
+import RemixFaqBlock from '../remix/blocks/FaqBlock.astro';
+import CommunityOfPractice from '../remix/blocks/CommunityOfPractice.astro';
+import EventsHeroBlock from '../remix/blocks/EventsHeroBlock.astro';
+import EventsUpcomingBlock from '../remix/blocks/EventsUpcomingBlock.astro';
+import LatestIntroBlock from '../remix/blocks/LatestIntroBlock.astro';
+import LatestFeaturedSplitBlock from '../remix/blocks/LatestFeaturedSplitBlock.astro';
+import LatestLivePanelTopBlock from '../remix/blocks/LatestLivePanelTopBlock.astro';
+import SimpleLatestListBlock from '../remix/blocks/SimpleLatestListBlock.astro';
+
+interface Props {
+  block: PageBlock;
+  mediaAssets: Record<string, MediaAsset>;
+  offers: Offer[];
+  offerGroups?: OfferGroup[];
+  posts: Post[];
+  events: Event[];
+  pastEvents?: Event[];
+  builderEvents?: Event[];
+  applierEvents?: Event[];
+  testimonials: Testimonial[];
+  faqItems: FaqItem[];
+  locations?: RemixLocation[];
+  railPosts?: any[];
+  railEvents?: any[];
+  pathways?: Pathway[];
+}
+
+const { block, mediaAssets, offers, offerGroups = [], posts, events, pastEvents = [], builderEvents, applierEvents, testimonials, faqItems, locations = [], railPosts = [], railEvents = [], pathways = [] } = Astro.props;
+
+const imageAsset = block.media_asset_id ? mediaAssets[block.media_asset_id] : undefined;
+
+// Handle background — may be a string token/colour or an object {base, accent_colour, ...}
+const bgValue = block.props?.background;
+const bg      = typeof bgValue === 'string' ? bgValue : ((bgValue as any)?.base ?? 'var(--color_background)');
+const isDark  = block.props?.text_theme === 'dark';
+const shouldRender = block.is_enabled !== false;
+---
+
+{shouldRender && (
+<div class="block-section" id={block.anchor || undefined} style={`background:${bg};`} data-theme={isDark ? 'dark' : 'light'}>
+
+{block.block_type_key === 'hero' && (
+  <HeroBlock block={block} imageAsset={imageAsset} railPosts={railPosts} railEvents={railEvents} />
+)}
+
+{block.block_type_key === 'page_intro' && (
+  <PageIntroBlock block={block} imageAsset={imageAsset} />
+)}
+
+{block.block_type_key === 'audience_segments' && (
+  <AudienceSegmentsBlock block={block} />
+)}
+
+{block.block_type_key === 'offers_grid' && (
+  <OffersGridBlock block={block} offers={offers} offerGroups={offerGroups} />
+)}
+
+
+{block.block_type_key === 'pathway_cards' && (
+  <OffersBlock block={block} />
+)}
+
+{block.block_type_key === 'events_list' && (
+  <EventsListBlock block={block} events={events} />
+)}
+
+{block.block_type_key === 'latest_posts' && (
+  <LatestPostsBlock block={block} posts={posts} />
+)}
+
+{block.block_type_key === 'testimonials' && (
+  <TestimonialsBlock block={block} testimonials={testimonials} />
+)}
+
+{block.block_type_key === 'faq' && block.site_slug !== 'remix' && (
+  <SharedFaqBlock block={block} faqItems={faqItems} />
+)}
+
+{block.block_type_key === 'faq' && block.site_slug === 'remix' && (
+  <RemixFaqBlock block={block} />
+)}
+
+{block.block_type_key === 'why_now' && (
+  <WhyNowBlock block={block} />
+)}
+
+{block.block_type_key === 'about_michelle' && (
+  <AboutMichelleBlock block={block} />
+)}
+
+{block.block_type_key === 'mailing_list_invite' && (
+  <MailingListInviteBlock block={block} />
+)}
+
+{block.block_type_key === 'cta_primary' && (
+  <CtaPrimaryBlock block={block} />
+)}
+
+{block.block_type_key === 'principles' && (
+  <PrinciplesBlock block={block} />
+)}
+
+{block.block_type_key === 'how_it_works' && (
+  <HowItWorksBlock block={block} />
+)}
+
+{block.block_type_key === 'ai_readiness_form' && (
+  <AIReadinessFormBlock block={block} />
+)}
+
+{block.block_type_key === 'locations' && (
+  <LocationsBlock block={block} locations={locations} />
+)}
+
+{block.block_type_key === 'ecosystem' && (
+  <EcosystemBlock block={block} />
+)}
+
+{block.block_type_key === 'case_studies' && (
+  <CaseStudiesBlock block={block} />
+)}
+
+{block.block_type_key === 'track_hero' && (
+  <TrackHeroBlock block={block} />
+)}
+
+{block.block_type_key === 'featured_promo' && (
+  <FeaturedPromoBlock block={block} />
+)}
+
+{block.block_type_key === 'right_rail_latest' && (
+  <RightRailLatestBlock block={block} />
+)}
+
+{block.block_type_key === 'key_insights' && (
+  <KeyInsightsBlock block={block} />
+)}
+
+{block.block_type_key === 'pathways' && (
+  <PathwaysBlock block={block} pathways={pathways} />
+)}
+
+{block.block_type_key === 'opportunity_signals' && (
+  <OpportunitySignalsBlock block={block} />
+)}
+
+{block.block_type_key === 'track_events' && (
+  <TrackEventsBlock block={block} />
+)}
+
+{block.block_type_key === 'current_focus' && (
+  <CurrentFocusBlock block={block} />
+)}
+
+{block.block_type_key === 'signal_studio_feature' && (
+  <SignalStudioFeatureBlock block={block} />
+)}
+
+{block.block_type_key === 'newsletter_signup' && (
+  <NewsletterSignupBlock block={block} />
+)}
+
+{block.block_type_key === 'community_of_practice' && (
+  <CommunityOfPractice block={block} />
+)}
+
+{block.block_type_key === 'events_hero' && (
+  <EventsHeroBlock block={block} events={events} />
+)}
+
+{block.block_type_key === 'events_upcoming' && (
+  <EventsUpcomingBlock block={block} events={events} pastEvents={pastEvents} />
+)}
+
+{block.block_type_key === 'latest_intro' && (
+  <LatestIntroBlock block={block} />
+)}
+
+{block.block_type_key === 'latest_featured_split' && (
+  <LatestFeaturedSplitBlock block={block} posts={posts} />
+)}
+
+{block.block_type_key === 'latest_live_panel_top' && (
+  <LatestLivePanelTopBlock block={block} />
+)}
+
+{block.block_type_key === 'simple_latest_list' && (
+  <SimpleLatestListBlock block={block} posts={posts} />
+)}
+
+</div>
+)}
+
+<!-- Unrecognised block types render nothing — implement as needed -->
+
+<style>
+  .block-section {
+    /* background set via inline style from props.background */
+  }
+
+  :global([data-theme="dark"]) h1,
+  :global([data-theme="dark"]) h2,
+  :global([data-theme="dark"]) h3,
+  :global([data-theme="dark"]) p,
+  :global([data-theme="dark"]) li,
+  :global([data-theme="dark"]) span {
+    color: var(--color_text_on_dark);
+  }
+</style>

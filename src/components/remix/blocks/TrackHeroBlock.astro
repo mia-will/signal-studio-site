@@ -1,0 +1,308 @@
+---
+import type { PageBlock } from '../../../types/content';
+import { supabase } from '../../../lib/supabase';
+import { cleanRemixUrl } from '../../../lib/cleanRemixUrl';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const eyebrow      = block.eyebrow       ?? block.props?.eyebrow;
+const title        = block.props?.title   ?? block.title;
+const subtitle     = block.props?.subtitle ?? block.subtitle;
+const _ctaPrimary   = block.props?.cta_primary   as { href?: string; label?: string } | undefined;
+const _ctaSecondary = block.props?.cta_secondary as { href?: string; label?: string } | undefined;
+const ctaPrimary   = _ctaPrimary   ? { ..._ctaPrimary,   href: cleanRemixUrl(_ctaPrimary.href)   } : undefined;
+const ctaSecondary = _ctaSecondary ? { ..._ctaSecondary, href: cleanRemixUrl(_ctaSecondary.href) } : undefined;
+const switcher     = block.props?.track_switcher;
+const showRail     = block.props?.show_rail === true || block.props?.variant === 'split_hero_with_activity_panel' || block.props?.variant === 'split_hero_with_panel';
+
+// Panel layout — all sizing from props.hero_layout
+const heroLayout    = (block.props?.hero_layout ?? {}) as Record<string, string>;
+const rightWidth    = heroLayout.right_width ?? '380px';
+const leftFlex      = heroLayout.left_flex   ?? '1';
+const heroGap       = heroLayout.gap         ?? 'var(--gap_xl)';
+const heroPadding   = heroLayout.padding     ?? '72px 48px';
+const heroMaxWidth  = heroLayout.max_width   ?? '1400px';
+
+// Panel style — warm_tint uses applier colour family; default is dark
+const panelStyle   = (block.props?.panel_style ?? 'dark') as string;
+const isWarmTint   = panelStyle === 'warm_tint';
+
+// Rail config — read everything from props.rail
+const rail         = (block.props?.rail ?? {}) as Record<string, any>;
+const railTitle    = rail.title      ?? "What's Happening";
+const railCtaLabel = rail.cta_label  ?? 'See all →';
+const railCtaHref  = rail.cta_href   ?? '/events';
+const eventsLimit  = Number(rail.events_limit ?? 4);
+const postsLimit   = Number(rail.posts_limit  ?? 2);
+const eventsFilter = Array.isArray(rail?.events_filter) ? rail.events_filter : ['applier', 'both'];
+const postsFilter  = Array.isArray(rail?.posts_filter)  ? rail.posts_filter  : ['applier', 'appliers', 'both'];
+
+let railEvents: any[] = [];
+let railPosts:  any[] = [];
+
+if (showRail) {
+  const now = new Date().toISOString();
+  const [eventsRes, postsRes] = await Promise.all([
+
+    supabase
+      .from('events')
+      .select(`
+        id, title, summary, start_at, registration_url, audience_track, suburb, state,
+        media_assets!events_featured_image_asset_id_fkey ( image_url, alt_text )
+      `)
+      .eq('show_on_remix', true)
+      .eq('publish_status', 'published')
+      .in('audience_track', eventsFilter)
+      .gt('start_at', now)
+      .order('start_at', { ascending: true })
+      .limit(eventsLimit),
+
+    supabase
+      .from('posts')
+      .select('id, title, slug, published_at, category')
+      .contains('site_show', ['remix'])
+      .eq('status', 'published')
+      .or(`audience_primary.in.(${postsFilter.join(',')}),audience_primary.is.null`)
+      .order('published_at', { ascending: false })
+      .limit(postsLimit),
+  ]);
+
+  railEvents = eventsRes.data ?? [];
+  railPosts  = postsRes.data  ?? [];
+}
+
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Sydney' });
+}
+
+function timeAgo(iso: string) {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff < 7)   return `${diff}d ago`;
+  if (diff < 30)  return `${Math.floor(diff / 7)}w ago`;
+  return `${Math.floor(diff / 30)}mo ago`;
+}
+
+function fmtVenueShort(ev: any): string {
+  return [ev.suburb, ev.state].filter(Boolean).join(', ');
+}
+---
+
+{showRail ? (
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- TWO-COLUMN: hero left + What's Happening rail right -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div style="background: var(--color_surface_hero);">
+    <div style={`max-width: ${heroMaxWidth}; margin-inline: auto; padding: ${heroPadding}; display: grid; grid-template-columns: ${leftFlex}fr ${rightWidth}; gap: ${heroGap}; align-items: start;`}>
+
+      <!-- LEFT: eyebrow, title, subtitle, CTAs, switcher -->
+      <div style="max-width: 640px;">
+
+        {eyebrow && (
+          <p style="font-size: var(--font_size_eyebrow); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_track_applier); margin: 0 0 14px;">
+            {eyebrow}
+          </p>
+        )}
+
+        {title && (
+          <h1 style="font-family: var(--font_heading); font-size: var(--font_size_hero); font-weight: var(--font_weight_bold); line-height: var(--line_height_heading); letter-spacing: var(--letter_spacing_heading); color: var(--color_text_heading); margin: 0 0 20px; max-width: 22ch;">
+            {title}
+          </h1>
+        )}
+
+        {subtitle && (
+          <p style="font-size: var(--font_size_hero_subtitle); line-height: var(--line_height_body); color: var(--color_text_secondary); margin: 0 0 36px; max-width: 58ch;">
+            {subtitle}
+          </p>
+        )}
+
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+
+          {ctaPrimary?.href && (
+            <a
+              href={ctaPrimary.href}
+              style="display: inline-flex; align-items: center; padding: 12px 28px; background: var(--color_track_applier); color: var(--color_surface_alt); font-family: var(--font_body); font-size: var(--btn_font_size); font-weight: var(--font_weight_semibold); border-radius: var(--btn_radius_pill); text-decoration: none; white-space: nowrap;"
+            >
+              {ctaPrimary.label}
+            </a>
+          )}
+
+          {ctaSecondary?.href && (
+            <a
+              href={ctaSecondary.href}
+              style="display: inline-flex; align-items: center; padding: 12px 28px; background: transparent; color: var(--color_text_primary); font-family: var(--font_body); font-size: var(--btn_font_size); font-weight: var(--font_weight_semibold); border-radius: var(--btn_radius_pill); border: 1px solid var(--color_border); text-decoration: none; white-space: nowrap;"
+            >
+              {ctaSecondary.label}
+            </a>
+          )}
+
+          {switcher?.show && switcher.other_href && (
+            <a
+              href={switcher.other_href}
+              style="font-size: var(--btn_font_size); color: var(--color_text_secondary); text-decoration: none; margin-left: 8px;"
+            >
+              {switcher.other_label}
+            </a>
+          )}
+
+        </div>
+      </div>
+
+      <!-- RIGHT: What's Happening rail -->
+      <aside style="align-self: flex-start;">
+        <div style={`background: ${isWarmTint ? 'var(--color_surface_panel_soft)' : 'var(--color_surface_dark)'}; border-radius: 20px; padding: 28px; ${isWarmTint ? '' : 'border: 1px solid rgba(255,255,255,0.08);'} box-shadow: ${isWarmTint ? '0 10px 28px rgba(17,17,17,0.10)' : '0 2px 12px rgba(17,17,17,0.1)'};`}>
+
+          <!-- Rail header -->
+          <div style={`display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid ${isWarmTint ? 'rgba(31,26,23,0.08)' : 'rgba(255,255,255,0.1)'}; padding-bottom: 10px; margin-bottom: 4px;`}>
+            <span style={`font-size: var(--font_size_eyebrow); font-weight: var(--font_weight_bold); text-transform: uppercase; letter-spacing: var(--letter_spacing_eyebrow); color: ${isWarmTint ? 'var(--color_text_heading)' : 'white'};`}>{railTitle}</span>
+            <a href={railCtaHref} style="font-size: var(--font_size_eyebrow); font-weight: var(--font_weight_medium); color: var(--color_track_applier); text-decoration: none;">{railCtaLabel}</a>
+          </div>
+
+          <!-- Events -->
+          {railEvents.map((ev: any, i: number) => (
+            <div style={`padding: 12px 0; border-bottom: 1px solid ${(i === railEvents.length - 1 && railPosts.length === 0) ? 'transparent' : (isWarmTint ? 'rgba(31,26,23,0.08)' : 'rgba(255,255,255,0.1)')};`}>
+
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                <span style={`font-size: var(--badge_font_size); font-weight: var(--badge_font_weight); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; white-space: nowrap; background: ${isWarmTint ? 'var(--color_surface)' : 'rgba(255,255,255,0.1)'}; color: ${isWarmTint ? 'var(--color_text_secondary)' : 'rgba(255,255,255,0.7)'}; border: 1px solid ${isWarmTint ? 'var(--color_border)' : 'rgba(255,255,255,0.15)'};`}>
+                  Event
+                </span>
+                {ev.audience_track && (
+                  <span style="font-size: var(--badge_font_size); font-weight: var(--badge_font_weight); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; white-space: nowrap; background: var(--card_bg_applier); color: var(--color_track_applier);">
+                    {ev.audience_track}
+                  </span>
+                )}
+                {fmtVenueShort(ev) && (
+                  <span style={`font-size: var(--font_size_xs); color: ${isWarmTint ? 'var(--color_text_secondary)' : 'rgba(255,255,255,0.5)'};`}>· {fmtVenueShort(ev)}</span>
+                )}
+                <span style={`margin-left: auto; font-size: var(--font_size_xs); color: ${isWarmTint ? 'var(--color_text_secondary)' : 'rgba(255,255,255,0.5)'};`}>
+                  {ev.start_at ? fmtDate(ev.start_at) : ''}
+                </span>
+              </div>
+
+              <p style={`font-family: var(--font_heading); font-size: var(--font_size_sm); font-weight: var(--font_weight_bold); color: ${isWarmTint ? 'var(--color_text_heading)' : 'white'}; margin: 0 0 4px; line-height: var(--line_height_tight);`}>
+                {ev.title}
+              </p>
+
+              {ev.summary && (
+                <p style={`font-size: var(--font_size_xs); color: ${isWarmTint ? 'var(--color_text_secondary)' : 'rgba(255,255,255,0.65)'}; margin: 4px 0 0; line-height: var(--line_height_tight); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;`}>
+                  {ev.summary}
+                </p>
+              )}
+
+              {ev.registration_url && (
+                <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
+                  <a
+                    href={ev.registration_url}
+                    style="font-size: var(--font_size_xs); color: var(--color_track_applier); text-decoration: none; font-weight: var(--font_weight_semibold);"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >Register →</a>
+                </div>
+              )}
+
+            </div>
+          ))}
+
+          {(railEvents.length > 0 && railPosts.length > 0) && (
+            <div style={`border-top: 1px solid ${isWarmTint ? 'rgba(31,26,23,0.08)' : 'rgba(255,255,255,0.1)'}; margin: 2px 0;`} aria-hidden="true"></div>
+          )}
+
+          <!-- Posts -->
+          {railPosts.map((post: any, i: number) => (
+            <div style={`padding: 12px 0; border-bottom: 1px solid ${i === railPosts.length - 1 ? 'transparent' : (isWarmTint ? 'rgba(31,26,23,0.08)' : 'rgba(255,255,255,0.1)')};`}>
+
+              <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 5px;">
+                <span style={`font-size: var(--badge_font_size); font-weight: var(--badge_font_weight); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; white-space: nowrap; background: ${isWarmTint ? 'var(--color_surface)' : 'rgba(255,255,255,0.1)'}; color: ${isWarmTint ? 'var(--color_text_secondary)' : 'rgba(255,255,255,0.7)'}; border: 1px solid ${isWarmTint ? 'var(--color_border)' : 'rgba(255,255,255,0.15)'};`}>
+                  {post.category ?? 'Post'}
+                </span>
+                <span style={`font-size: var(--font_size_xs); color: ${isWarmTint ? 'var(--color_text_secondary)' : 'rgba(255,255,255,0.5)'}; margin-left: auto;`}>
+                  {post.published_at ? timeAgo(post.published_at) : ''}
+                </span>
+              </div>
+
+              <p style={`font-family: var(--font_heading); font-size: var(--font_size_sm); font-weight: var(--font_weight_bold); color: ${isWarmTint ? 'var(--color_text_heading)' : 'white'}; margin: 0 0 6px; line-height: var(--line_height_tight);`}>
+                {post.title}
+              </p>
+
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style={`font-size: var(--font_size_xs); color: ${isWarmTint ? 'var(--color_text_secondary)' : 'rgba(255,255,255,0.5)'};`}>{post.category ?? ''}</span>
+                <a
+                  href={`/posts/${post.slug}`}
+                  style="font-size: var(--font_size_xs); color: var(--color_track_applier); text-decoration: none; font-weight: var(--font_weight_semibold);"
+                >Read →</a>
+              </div>
+
+            </div>
+          ))}
+
+        </div>
+      </aside>
+
+    </div>
+  </div>
+
+) : (
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SINGLE COLUMN — full-width hero                     -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <div style="padding: 64px 0 56px;">
+    <div style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+      {eyebrow && (
+        <p style="font-size: var(--font_size_eyebrow); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_track_applier); margin: 0 0 14px;">
+          {eyebrow}
+        </p>
+      )}
+
+      {title && (
+        <h1 style="font-family: var(--font_heading); font-size: var(--font_size_hero); font-weight: var(--font_weight_bold); line-height: var(--line_height_heading); letter-spacing: var(--letter_spacing_heading); color: var(--color_text_heading); margin: 0 0 20px; max-width: 22ch;">
+          {title}
+        </h1>
+      )}
+
+      {subtitle && (
+        <p style="font-size: var(--font_size_hero_subtitle); line-height: var(--line_height_body); color: var(--color_text_secondary); margin: 0 0 36px; max-width: 58ch;">
+          {subtitle}
+        </p>
+      )}
+
+      <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+
+        {ctaPrimary?.href && (
+          <a
+            href={ctaPrimary.href}
+            style="display: inline-flex; align-items: center; padding: 12px 28px; background: var(--color_track_applier); color: var(--color_surface_alt); font-family: var(--font_body); font-size: var(--btn_font_size); font-weight: var(--font_weight_semibold); border-radius: var(--btn_radius_pill); text-decoration: none; white-space: nowrap;"
+          >
+            {ctaPrimary.label}
+          </a>
+        )}
+
+        {ctaSecondary?.href && (
+          <a
+            href={ctaSecondary.href}
+            style="display: inline-flex; align-items: center; padding: 12px 28px; background: transparent; color: var(--color_text_primary); font-family: var(--font_body); font-size: var(--btn_font_size); font-weight: var(--font_weight_semibold); border-radius: var(--btn_radius_pill); border: 1px solid var(--color_border); text-decoration: none; white-space: nowrap;"
+          >
+            {ctaSecondary.label}
+          </a>
+        )}
+
+        {switcher?.show && switcher.other_href && (
+          <a
+            href={switcher.other_href}
+            style="font-size: var(--btn_font_size); color: var(--color_text_secondary); text-decoration: none; margin-left: 8px;"
+          >
+            {switcher.other_label}
+          </a>
+        )}
+
+      </div>
+    </div>
+  </div>
+
+)}

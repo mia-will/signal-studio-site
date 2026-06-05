@@ -1,0 +1,355 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import { supabase } from '../../lib/supabase';
+import { getSite, getNavItems } from '../../lib/queries';
+import { SITE_CONFIG } from '../../config/sites';
+
+const { groupSlug: slug } = Astro.params;
+
+const [site, headerNav, footerNav, groupRes, robotsTokenResult] = await Promise.all([
+  getSite(SITE_CONFIG.site_slug),
+  getNavItems(SITE_CONFIG.site_slug, 'header'),
+  getNavItems(SITE_CONFIG.site_slug, 'footer'),
+  supabase
+    .from('offer_groups')
+    .select('id, slug, title, eyebrow, tagline, card_features, cta_label, cta_secondary_label, cta_secondary_href, cta_tertiary_label, cta_tertiary_href, canonical_order')
+    .eq('slug', slug)
+    .eq('site_slug', SITE_CONFIG.site_slug)
+    .eq('status', 'active')
+    .maybeSingle(),
+  supabase
+    .from('brand_tokens')
+    .select('token_value')
+    .eq('brand_key', SITE_CONFIG.brand_key)
+    .eq('token_key', 'robots_default')
+    .maybeSingle(),
+]);
+
+const group = groupRes.data;
+if (!site || !group) return Astro.redirect('/404');
+
+if (!site.primary_domain) throw new Error(`Missing: sites.primary_domain for slug=${SITE_CONFIG.site_slug}`);
+if (!site.brand_key) throw new Error(`Missing: sites.brand_key for slug=${SITE_CONFIG.site_slug}`);
+if (!robotsTokenResult.data?.token_value) throw new Error(`Missing: brand_token robots_default for brand_key=${SITE_CONFIG.brand_key}`);
+
+const robotsDefault = robotsTokenResult.data.token_value;
+
+const [stepsRes, relatedRes] = await Promise.all([
+  supabase
+    .from('offer_steps')
+    .select('id, name, short_description, what_this_is, primary_problem, primary_outcome, who_its_for_situations, outcomes, how_it_works, canonical_order')
+    .eq('offer_group_id', group.id)
+    .eq('is_public', true)
+    .order('canonical_order', { ascending: true }),
+  supabase
+    .from('offer_groups')
+    .select('slug, title, eyebrow, tagline')
+    .eq('site_slug', SITE_CONFIG.site_slug)
+    .eq('status', 'active')
+    .neq('slug', slug)
+    .order('canonical_order', { ascending: true }),
+]);
+
+const steps = stepsRes.data ?? [];
+const step1 = steps[0] ?? null;
+const related = relatedRes.data ?? [];
+
+const primaryCtaLabel = group.cta_label;
+const primaryCtaHref = group.cta_secondary_href;
+const secondaryCtaLabel = group.cta_secondary_label;
+const secondaryCtaHref = group.cta_tertiary_href;
+const hasPrimaryCta = Boolean(primaryCtaLabel && primaryCtaHref);
+const hasSecondaryCta = Boolean(secondaryCtaLabel && secondaryCtaHref);
+
+const cardFeatures = (Array.isArray(group.card_features) ? group.card_features : []) as { label?: string; description?: string }[];
+
+const canonicalUrl = `https://${site.primary_domain}/offers/${slug}`;
+const seoTitle = `${group.title} — ${site.name}`;
+const seoDescription = group.tagline ?? '';
+---
+
+<Layout
+  title={seoTitle}
+  description={seoDescription}
+  canonical={canonicalUrl}
+  robots={robotsDefault}
+  siteName={site.name}
+  brandKey={site.brand_key}
+>
+  <Nav navItems={headerNav} site={site} />
+
+  <main id="main-content">
+
+    <!-- 1. Hero -->
+    <section style="padding-block: clamp(5rem, 10vw, 8rem); padding-inline: var(--layout_padding_x); border-top: 3px solid var(--color_text_secondary); background: var(--color_surface_alt);">
+      <div style="max-width: var(--layout_max_width); margin-inline: auto; display: flex; flex-direction: column; gap: var(--gap_lg);">
+        {group.eyebrow && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0;">
+            {group.eyebrow}
+          </p>
+        )}
+        <h1 style="font-family: var(--font_heading); font-size: clamp(2.5rem, 5vw, 4rem); font-weight: var(--font_weight_bold); color: var(--color_text_heading); line-height: var(--leading_tight); letter-spacing: -0.02em; margin: 0; max-width: 18ch;">
+          {group.title}
+        </h1>
+        {group.tagline && (
+          <p style="font-size: clamp(var(--text_lg), 2vw, var(--text_2xl)); line-height: var(--leading_relaxed); color: var(--color_text_primary); max-width: 62ch; margin: 0;">
+            {group.tagline}
+          </p>
+        )}
+        {step1?.what_this_is && (
+          <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); max-width: 60ch; margin: 0;">
+            {step1.what_this_is}
+          </p>
+        )}
+        {cardFeatures.length > 0 && (
+          <ul style="display: flex; flex-wrap: wrap; gap: var(--gap_sm); list-style: none; margin: 0; padding: 0;">
+            {cardFeatures.map((f) => f.label && (
+              <li style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); background: var(--color_background); border: 1px solid var(--color_border); border-radius: var(--radius_full); padding: 0.3em var(--gap_md);">
+                {f.label}
+              </li>
+            ))}
+          </ul>
+        )}
+        {hasPrimaryCta && (
+          <div style="display: flex; flex-wrap: wrap; gap: var(--gap_sm); align-items: center;">
+            <a href={primaryCtaHref} class="btn btn--primary">{primaryCtaLabel}</a>
+            {hasSecondaryCta && (
+              <a
+                href={secondaryCtaHref}
+                class="btn btn--outline"
+                target={secondaryCtaHref!.startsWith('http') ? '_blank' : undefined}
+                rel={secondaryCtaHref!.startsWith('http') ? 'noopener noreferrer' : undefined}
+              >
+                {secondaryCtaLabel}
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+
+    <!-- 2. Why this matters -->
+    {step1?.primary_problem && (
+      <section style="padding-block: var(--space_2xl); padding-inline: var(--layout_padding_x); border-bottom: 1px solid var(--color_border);">
+        <div class="od-split" style="max-width: var(--layout_max_width); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 0.35fr) minmax(0, 0.65fr); gap: var(--space_2xl); align-items: start;">
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0;">
+            Why this matters
+          </p>
+          <p style="font-size: clamp(var(--text_lg), 2.5vw, var(--text_2xl)); line-height: var(--leading_relaxed); color: var(--color_text_heading); font-weight: var(--font_weight_medium); margin: 0; max-width: 68ch;">
+            {step1.primary_problem}
+          </p>
+        </div>
+      </section>
+    )}
+
+    <!-- 3. Who this is for -->
+    {Array.isArray(step1?.who_its_for_situations) && (step1!.who_its_for_situations as string[]).length > 0 && (
+      <section style="padding-block: var(--space_2xl); padding-inline: var(--layout_padding_x); border-bottom: 1px solid var(--color_border);">
+        <div class="od-split" style="max-width: var(--layout_max_width); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 0.35fr) minmax(0, 0.65fr); gap: var(--space_2xl); align-items: start;">
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0;">
+            Who this is for
+          </p>
+          <ul style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--gap_md);">
+            {(step1!.who_its_for_situations as string[]).map((situation) => (
+              <li style="display: flex; gap: var(--gap_sm); align-items: flex-start; font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_primary); background: var(--color_surface_alt); border: 1px solid var(--color_border); border-radius: var(--radius_md); padding: var(--gap_md);">
+                <span style="color: var(--color_text_secondary); flex-shrink: 0; margin-top: 0.2em;" aria-hidden="true">→</span>
+                <span>{situation}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+    )}
+
+    <!-- 4. What you'll leave with -->
+    {(step1?.primary_outcome || (Array.isArray(step1?.outcomes) && (step1!.outcomes as string[]).length > 0)) && (
+      <section style="padding-block: var(--space_2xl); padding-inline: var(--layout_padding_x); border-bottom: 1px solid var(--color_border); background: var(--color_surface);">
+        <div class="od-split" style="max-width: var(--layout_max_width); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 0.35fr) minmax(0, 0.65fr); gap: var(--space_2xl); align-items: start;">
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0;">
+            What you'll leave with
+          </p>
+          <div style="display: flex; flex-direction: column; gap: var(--gap_lg);">
+            {step1?.primary_outcome && (
+              <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_heading); max-width: 64ch; margin: 0; font-weight: var(--font_weight_medium);">
+                {step1.primary_outcome}
+              </p>
+            )}
+            {Array.isArray(step1?.outcomes) && (step1!.outcomes as string[]).length > 0 && (
+              <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap_sm);">
+                {(step1!.outcomes as string[]).map((outcome) => (
+                  <li style="display: flex; gap: var(--gap_sm); align-items: flex-start; font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_primary);">
+                    <span style="color: var(--color_text_secondary); flex-shrink: 0; margin-top: 0.15em;" aria-hidden="true">✓</span>
+                    <span>{outcome}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- 5. Mid-page CTA banner -->
+    {hasPrimaryCta && step1?.what_this_is && (
+      <section style="padding-block: var(--space_2xl); padding-inline: var(--layout_padding_x); border-bottom: 1px solid var(--color_border);">
+        <div class="od-cta-band" style="max-width: var(--layout_max_width); margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space_2xl); align-items: center; background: var(--color_surface_alt); border: 1px solid var(--color_border); border-radius: var(--radius_lg); padding: var(--space_xl);">
+          <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_heading); margin: 0; max-width: 58ch;">
+            {step1.what_this_is}
+          </p>
+          <div style="display: flex; gap: var(--gap_sm); align-items: center; flex-shrink: 0; flex-wrap: wrap;">
+            <a href={primaryCtaHref} class="btn btn--primary">{primaryCtaLabel}</a>
+            {hasSecondaryCta && (
+              <a
+                href={secondaryCtaHref}
+                class="btn btn--outline"
+                target={secondaryCtaHref!.startsWith('http') ? '_blank' : undefined}
+                rel={secondaryCtaHref!.startsWith('http') ? 'noopener noreferrer' : undefined}
+              >
+                {secondaryCtaLabel}
+              </a>
+            )}
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- 6. How it works (vertical steps) -->
+    {steps.length > 0 && (
+      <section style="padding-block: var(--space_2xl); padding-inline: var(--layout_padding_x); border-bottom: 1px solid var(--color_border); background: var(--color_surface_alt);">
+        <div style="max-width: var(--layout_max_width); margin-inline: auto;">
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 var(--gap_lg);">
+            How it works
+          </p>
+          <div style="display: flex; flex-direction: column; gap: var(--gap_md);">
+            {steps.map((step, i) => (
+              <article class="od-step" style="display: grid; grid-template-columns: 3ch minmax(0, 1fr); gap: var(--gap_lg); align-items: start; background: var(--color_background); border: 1px solid var(--color_border); border-left: 3px solid var(--color_text_secondary); border-radius: var(--radius_md); padding: var(--space_xl);">
+                <p style="font-family: var(--font_heading); font-size: clamp(2rem, 4vw, 3rem); font-weight: var(--font_weight_bold); color: var(--color_text_secondary); line-height: 1; margin: 0; padding-top: 0.1em;">
+                  {String(i + 1).padStart(2, '0')}
+                </p>
+                <div style="display: flex; flex-direction: column; gap: var(--gap_sm);">
+                  <h2 style="font-family: var(--font_heading); font-size: var(--text_2xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_tight);">
+                    {step.name}
+                  </h2>
+                  {step.short_description && (
+                    <p style="font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_primary); margin: 0;">
+                      {step.short_description}
+                    </p>
+                  )}
+                  {Array.isArray(step.how_it_works) && (step.how_it_works as string[]).length > 0 && (
+                    <ul style="list-style: none; margin: var(--gap_sm) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap_xs);">
+                      {(step.how_it_works as string[]).map((item) => (
+                        <li style="font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_primary); padding-left: var(--gap_md); position: relative;">
+                          <span style="position: absolute; left: 0; color: var(--color_text_secondary);" aria-hidden="true">–</span>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- 7. Related offers -->
+    {related.length > 0 && (
+      <section style="padding-block: var(--space_3xl); padding-inline: var(--layout_padding_x); border-bottom: 1px solid var(--color_border);">
+        <div style="max-width: var(--layout_max_width); margin-inline: auto;">
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 var(--gap_lg);">
+            Other ways to work together
+          </p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--gap_lg);">
+            {related.map((og) => (
+              <article class="od-related-card" style="display: flex; flex-direction: column; gap: var(--gap_md); background: var(--color_surface_alt); border: 1px solid var(--color_border); border-radius: var(--radius_md); padding: var(--space_xl); box-shadow: var(--shadow_md); transition: box-shadow 0.15s ease;">
+                {og.eyebrow && (
+                  <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_text_secondary); margin: 0;">
+                    {og.eyebrow}
+                  </p>
+                )}
+                <h2 style="font-family: var(--font_heading); font-size: var(--text_2xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_tight);">
+                  {og.title}
+                </h2>
+                {og.tagline && (
+                  <p style="font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_primary); margin: 0;">
+                    {og.tagline}
+                  </p>
+                )}
+                <a href={`/offers/${og.slug}`} style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_secondary); text-decoration: underline; text-underline-offset: 0.2em; margin-top: auto;">
+                  Learn more →
+                </a>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- 8. Bottom CTA -->
+    <section class="od-cta" style="padding-block: var(--space_3xl); padding-inline: var(--layout_padding_x); background: var(--color_surface_alt);" aria-labelledby="offer-cta-heading">
+      <div class="od-cta-inner" style="max-width: var(--layout_max_width); margin-inline: auto; background: var(--color_text_heading); border: none; border-radius: var(--radius_lg); padding: var(--space_xl);">
+        <div>
+          <h2 id="offer-cta-heading" style="font-family: var(--font_heading); font-weight: var(--font_weight_bold); color: var(--color_surface_alt); font-size: clamp(2rem, 3.5vw, 2.5rem); margin: 0 0 var(--space_md); letter-spacing: -0.02em;">
+            Ready to get started?
+          </h2>
+          {step1?.what_this_is && (
+            <p style="font-size: var(--text_lg); color: rgba(255,255,255,0.7); line-height: var(--leading_relaxed); max-width: 52ch; margin: 0;">
+              {step1.what_this_is}
+            </p>
+          )}
+        </div>
+        {hasPrimaryCta && (
+          <div style="display: flex; gap: var(--gap_sm); align-items: center; flex-shrink: 0; flex-wrap: wrap;">
+            <a href={primaryCtaHref} class="btn btn--primary">{primaryCtaLabel}</a>
+            {hasSecondaryCta && (
+              <a
+                href={secondaryCtaHref}
+                class="btn btn--outline"
+                target={secondaryCtaHref!.startsWith('http') ? '_blank' : undefined}
+                rel={secondaryCtaHref!.startsWith('http') ? 'noopener noreferrer' : undefined}
+              >
+                {secondaryCtaLabel}
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+
+  </main>
+
+  <Footer footerItems={footerNav} site={site} acknowledgement={site.acknowledgement} />
+</Layout>
+
+<style>
+  .od-cta-inner {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: clamp(var(--space_lg), 6vw, var(--space_3xl));
+    align-items: center;
+  }
+
+  .od-related-card:hover {
+    box-shadow: var(--shadow_lg);
+  }
+
+  @media (max-width: 768px) {
+    .od-split,
+    .od-cta-band {
+      grid-template-columns: 1fr !important;
+      gap: var(--space_xl) !important;
+    }
+
+    .od-cta-inner {
+      grid-template-columns: 1fr !important;
+      gap: var(--space_xl) !important;
+    }
+
+    .od-step {
+      grid-template-columns: 3ch 1fr !important;
+    }
+  }
+</style>

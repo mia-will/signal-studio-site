@@ -1,0 +1,119 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import BlockRenderer from '../components/blocks/BlockRenderer.astro';
+import OfferGroup from '../components/blocks/OfferGroup.astro';
+
+import {
+  getSite,
+  getHomepagePage,
+  getEnabledBlocks,
+  getPageSEO,
+  getNavItems,
+  getMediaAssets,
+  getOffers,
+  getPosts,
+  getEvents,
+  getBuilderEvents,
+  getTestimonials,
+  getFaqItems,
+} from '../lib/queries';
+
+const SITE_SLUG = 'signal_studio';
+const { isPreview } = Astro.locals;
+
+// ── Fetch core structure ──────────────────────────────────────
+const [site, page, headerNav, footerNav] = await Promise.all([
+  getSite(SITE_SLUG),
+  getHomepagePage(SITE_SLUG, 'services', isPreview),
+  getNavItems(SITE_SLUG, 'header'),
+  getNavItems(SITE_SLUG, 'footer'),
+]);
+
+if (!site || !page) {
+  return Astro.redirect('/500');
+}
+
+if (!site.primary_domain) throw new Error('Missing: sites.primary_domain for slug=signal_studio');
+if (!site.brand_key)      throw new Error('Missing: sites.brand_key for slug=signal_studio');
+if (!page.robots)         throw new Error('Missing: site_pages.robots for page=services');
+
+// ── Fetch blocks and SEO ──────────────────────────────────────
+const [blocks, seo] = await Promise.all([
+  getEnabledBlocks(page.id, isPreview),
+  getPageSEO(page.id),
+]);
+
+// ── Batch fetch media assets referenced in blocks ─────────────
+const mediaIds = blocks
+  .map((b) => b.media_asset_id)
+  .filter((id): id is string => Boolean(id));
+
+// ── Identify which block types are on this page ───────────────
+const blockKeys = new Set(blocks.map((b) => b.block_type_key));
+
+const offersBlock = blocks.find((b) => b.block_type_key === 'offers_grid');
+const postsBlock  = blocks.find((b) => b.block_type_key === 'latest_posts');
+const eventsBlock = blocks.find((b) => b.block_type_key === 'events_list');
+
+// ── Fetch content data + media in parallel ────────────────────
+const [
+  mediaAssets,
+  offers,
+  posts,
+  events,
+  builderEvents,
+  testimonials,
+  faqItems,
+] = await Promise.all([
+  getMediaAssets(mediaIds),
+  blockKeys.has('offers_grid')  ? getOffers(SITE_SLUG, offersBlock?.limit ?? 4) : Promise.resolve([]),
+  blockKeys.has('latest_posts') ? getPosts(SITE_SLUG, postsBlock?.limit ?? 3)   : Promise.resolve([]),
+  blockKeys.has('events_list')  ? getEvents(SITE_SLUG, eventsBlock?.limit ?? 3) : Promise.resolve([]),
+  blockKeys.has('events_list')  ? getBuilderEvents(8)                           : Promise.resolve([]),
+  blockKeys.has('testimonials') ? getTestimonials(3)                            : Promise.resolve([]),
+  blockKeys.has('faq')          ? getFaqItems(page.id)                          : Promise.resolve([]),
+]);
+
+// ── SEO values ────────────────────────────────────────────────
+const seoTitle       = seo?.seo_title_override || page.title || site.name;
+const seoDescription = seo?.seo_description_override || site.tagline || '';
+const canonicalUrl   = page.url_path
+  ? `https://${site.primary_domain}${page.url_path}`
+  : `https://${site.primary_domain}/services`;
+const robots     = page.robots;
+const jsonld     = seo?.jsonld || [];
+const aeoSummary = seo?.aeo_summary || undefined;
+---
+
+<Layout
+  title={seoTitle}
+  description={seoDescription}
+  canonical={canonicalUrl}
+  robots={robots}
+  jsonld={jsonld}
+  aeoSummary={aeoSummary}
+  siteName={site.name}
+  brandKey={site.brand_key}
+>
+  <Nav navItems={headerNav} site={site} />
+
+  <main id="main-content">
+    {blocks.map((block) => (
+      <BlockRenderer
+        block={block}
+        mediaAssets={mediaAssets}
+        offers={offers}
+        posts={posts}
+        events={events}
+        builderEvents={builderEvents}
+        testimonials={testimonials}
+        faqItems={faqItems}
+      />
+    ))}
+    <OfferGroup />
+  </main>
+
+  <Footer footerItems={footerNav} site={site} />
+</Layout>

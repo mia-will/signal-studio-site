@@ -1,0 +1,290 @@
+---
+type CardFeature = {
+  label: string;
+  description: string;
+};
+
+type OfferStep = {
+  step_number: number;
+  name: string;
+  short_description: string;
+};
+
+type OfferGroupRow = {
+  id: string;
+  slug: string;
+  title: string | null;
+  eyebrow: string | null;
+  tagline: string | null;
+  card_features: CardFeature[] | null;
+  cta_label: string | null;
+  cta_secondary_label: string | null;
+  cta_secondary_href: string | null;
+  cta_tertiary_label: string | null;
+  cta_tertiary_href: string | null;
+  scope_tag: string | null;
+  steps?: OfferStep[];
+};
+
+interface Props {
+  offerGroups: OfferGroupRow[];
+}
+
+const { offerGroups } = Astro.props;
+---
+
+<section class="og-section">
+  <div class="og-container">
+    <div class="og-stack">
+      {offerGroups.map((group) => (
+        <article class="og-card">
+          <div class="og-card__left">
+            {group.eyebrow && (
+              <p class="og-eyebrow">{group.eyebrow}</p>
+            )}
+            {group.title && (
+              <h2 class="og-title">{group.title}</h2>
+            )}
+            {group.tagline && (
+              <p class="og-tagline">{group.tagline}</p>
+            )}
+            <div class="og-divider" />
+            {group.card_features && group.card_features.length > 0 && (
+              <ul class="og-features">
+                {group.card_features.map((f) => (
+                  <li class="og-feature">
+                    <span class="og-feature__dot" />
+                    <span class="og-feature__text">
+                      <strong class="og-feature__label">{f.label}</strong>
+                      <span class="og-feature__desc">{f.description}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div class="og-ctas">
+              {group.cta_label && (
+                <a href={`/offers/${group.slug}`} class="og-btn og-btn--primary">
+                  {group.cta_label}
+                </a>
+              )}
+              {group.cta_secondary_label && group.cta_secondary_href && (
+                <a href={group.cta_secondary_href} class="og-link">
+                  {group.cta_secondary_label}
+                </a>
+              )}
+              {group.cta_tertiary_label && group.cta_tertiary_href && (
+                <a href={group.cta_tertiary_href} class="og-link">
+                  {group.cta_tertiary_label}
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div class="og-card__right">
+            {group.steps && group.steps.map((step, i) => (
+              <div class="og-step">
+                <div class="og-step__header">
+                  <span class="og-step__number">{String(i + 1).padStart(2, '0')}</span>
+                  <span class="og-step__name">{step.name}</span>
+                  <a href={`/offers/${group.slug}`} class="og-step__link">See what's included ›</a>
+                </div>
+                {step.short_description && i === 0 && (
+                  <p class="og-step__desc">{step.short_description}</p>
+                )}
+              </div>
+            ))}
+            {group.scope_tag && (
+              <p class="og-scope">{group.scope_tag}</p>
+            )}
+          </div>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .og-section {
+    padding-block: var(--layout_padding_y);
+    padding-inline: var(--layout_padding_x);
+  }
+  .og-container {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+  }
+  .og-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_lg);
+  }
+  .og-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: white;
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_lg);
+    overflow: hidden;
+  }
+  .og-card__left {
+    padding: var(--gap_xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+  }
+  .og-card__right {
+    padding: var(--gap_xl);
+    border-left: 1px solid var(--color_border);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .og-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    color: var(--color_accent);
+    margin: 0;
+  }
+  .og-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_2xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    margin: 0;
+  }
+  .og-tagline {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0;
+  }
+  .og-divider {
+    height: 1px;
+    background: var(--color_border);
+    margin-block: var(--gap_xs);
+  }
+  .og-features {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+    flex: 1;
+  }
+  .og-feature {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--gap_sm);
+  }
+  .og-feature__dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--color_accent);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .og-feature__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .og-feature__label {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading);
+  }
+  .og-feature__desc {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+  }
+  .og-ctas {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+    margin-top: var(--gap_md);
+  }
+  .og-btn {
+    display: block;
+    text-align: center;
+    padding: var(--gap_sm) var(--gap_md);
+    border-radius: var(--radius_md);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    text-decoration: none;
+    box-sizing: border-box;
+  }
+  .og-btn--primary {
+    background: var(--color_accent);
+    color: white;
+  }
+  .og-link {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    text-decoration: none;
+    text-align: center;
+  }
+  .og-step {
+    padding-block: var(--gap_md);
+    border-bottom: 1px solid var(--color_border);
+  }
+  .og-step:last-of-type {
+    border-bottom: none;
+  }
+  .og-step__header {
+    display: flex;
+    align-items: center;
+    gap: var(--gap_sm);
+  }
+  .og-step__number {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_bold);
+    background: var(--color_accent);
+    color: white;
+    border-radius: var(--radius_sm);
+    padding: 2px 7px;
+    flex-shrink: 0;
+  }
+  .og-step__name {
+    font-size: var(--text_base);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading);
+    flex: 1;
+  }
+  .og-step__link {
+    font-size: var(--text_xs);
+    color: var(--color_accent);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .og-step__desc {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: var(--gap_xs) 0 0 0;
+  }
+  .og-scope {
+    display: inline-block;
+    font-size: var(--text_xs);
+    color: var(--color_text_secondary);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_full);
+    padding: var(--gap_xs) var(--gap_sm);
+    margin-top: var(--gap_md);
+    align-self: flex-start;
+  }
+  @media (max-width: 768px) {
+    .og-card {
+      grid-template-columns: 1fr;
+    }
+    .og-card__right {
+      border-left: none;
+      border-top: 1px solid var(--color_border);
+    }
+  }
+</style>

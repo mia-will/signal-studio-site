@@ -1,0 +1,130 @@
+---
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+const isDark     = block.props?.text_theme === 'dark';
+const variant    = block.props?.variant ?? '';
+const isCentered = variant === 'centered';
+
+// Support both top-level columns and props.cta_* (Remix blocks store CTAs in props)
+const ctaPrimary   = block.props?.cta_primary;
+const ctaSecondary = block.props?.cta_secondary;
+const blockTitle    = block.props?.title    ?? block.title;
+const blockSubtitle = block.props?.subtitle ?? block.subtitle;
+const blockBody     = block.props?.body     ?? block.body;
+---
+
+<section class="cta-primary section animate-on-scroll" style="padding-block: 3rem;" aria-labelledby="cta-primary-heading">
+  <div class:list={['container', 'cta-inner', { 'cta-inner--centered': isCentered }]}>
+    <div class="cta-text">
+      <h2 id="cta-primary-heading" style="font-family: var(--font_heading, 'Plus Jakarta Sans', sans-serif); font-weight: var(--font_weight_bold, 800);">{blockTitle}</h2>
+      {blockSubtitle && (
+        <p class="cta-subtitle">{blockSubtitle}</p>
+      )}
+      {blockBody && (
+        <p class="cta-subtitle">{blockBody}</p>
+      )}
+    </div>
+    <div class="cta-actions">
+      {ctaPrimary && (
+        <a
+          href={ctaPrimary.href}
+          class="btn btn--primary"
+          target={ctaPrimary.href.startsWith('http') ? '_blank' : undefined}
+          rel={ctaPrimary.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+        >
+          {ctaPrimary.label}
+        </a>
+      )}
+      {ctaSecondary && (
+        <a
+          href={ctaSecondary.href}
+          class={isDark ? 'btn btn--outline-light' : 'btn btn--outline'}
+        >
+          {ctaSecondary.label}
+        </a>
+      )}
+    </div>
+  </div>
+</section>
+
+<style>
+  .cta-primary {
+    color: var(--block-body, var(--color_text_secondary));
+  }
+
+  .cta-inner {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: clamp(var(--space_lg), 6vw, var(--space_3xl));
+    align-items: center;
+  }
+
+  .cta-text h2 {
+    font-family: var(--font_heading);
+    font-weight: var(--font_weight_bold);
+    color: var(--block-heading, var(--color_text_heading));
+    font-size: clamp(2rem, 3.5vw, 2.5rem);
+    margin-bottom: var(--space_md);
+    letter-spacing: -0.02em;
+  }
+
+  /* suppress global orange underline */
+  .cta-text h2::after {
+    display: none;
+  }
+
+  .cta-subtitle {
+    font-size: var(--text_lg);
+    color: var(--block-body, var(--color_text_secondary));
+    line-height: var(--leading_relaxed);
+    max-width: 52ch;
+  }
+
+  [data-theme="dark"] .cta-text h2 {
+    color: var(--block-heading, var(--color_white));
+  }
+
+  [data-theme="dark"] .cta-subtitle {
+    color: var(--block-body, rgba(255, 255, 255, 0.75));
+  }
+
+  .cta-actions {
+    display: flex;
+    flex-direction: row;
+    gap: var(--space_sm);
+    align-items: center;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  /* ── Centered variant ── */
+  .cta-inner--centered {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .cta-inner--centered .cta-subtitle {
+    margin-inline: auto;
+  }
+
+  .cta-inner--centered .cta-actions {
+    justify-content: center;
+    width: 100%;
+  }
+
+  @media (max-width: 768px) {
+    .cta-inner {
+      grid-template-columns: 1fr;
+      gap: var(--space_xl);
+    }
+
+    .cta-actions {
+      flex-wrap: wrap;
+    }
+  }
+</style>

@@ -1,0 +1,251 @@
+---
+export interface CircleNode {
+  slug: string;
+  name: string;
+  tagline: string | null;
+  brand_color: string | null;
+  href: string;
+  is_external: boolean;
+}
+
+interface Props {
+  nodes: CircleNode[];
+  michelle: CircleNode | null;
+}
+
+const { nodes, michelle } = Astro.props;
+
+for (const node of nodes) {
+  if (!node.brand_color) throw new Error(`Missing: sites.brand_color for slug=${node.slug}`);
+}
+if (michelle && !michelle.brand_color) throw new Error(`Missing: sites.brand_color for slug=${michelle.slug}`);
+
+// Card dimensions
+const W  = 160;
+const H  = 100;
+const HW = W / 2; // 80
+const HH = H / 2; // 50
+
+// Anchor positions for each slug (cx, cy = card centre)
+const POS: Record<string, { cx: number; cy: number }> = {
+  remix:           { cx: 300, cy: 80  },
+  signal_studio:   { cx: 520, cy: 300 },
+  signal_summit:   { cx: 300, cy: 520 },
+  signal_retreats: { cx: 80,  cy: 300 },
+};
+
+// Michelle sits top-right, outside the cardinal ring
+const M_CX = 520;
+const M_CY = 100;
+---
+
+<div class="fwc-wrap">
+  <svg
+    viewBox="0 0 600 600"
+    xmlns="http://www.w3.org/2000/svg"
+    class="fwc-svg"
+    aria-label="The Signal Ecosystem"
+    role="img"
+  >
+    <!-- ── Dashed connecting lines (drawn first, sit behind cards) ── -->
+    {nodes.map(node => {
+      const pos = POS[node.slug];
+      if (!pos) return null;
+      return (
+        <line
+          x1="300" y1="300"
+          x2={pos.cx} y2={pos.cy}
+          stroke="rgba(47,47,47,0.12)"
+          stroke-width="1"
+          stroke-dasharray="4,4"
+        />
+      );
+    })}
+
+    {michelle && (
+      <line
+        x1="300" y1="300"
+        x2={M_CX} y2={M_CY}
+        stroke="rgba(47,47,47,0.12)"
+        stroke-width="1"
+        stroke-dasharray="4,4"
+      />
+    )}
+
+    <!-- ── Centre hub ── -->
+    <circle cx="300" cy="300" r="70" fill="#2B2B2B" />
+    <text
+      x="300" y="295"
+      text-anchor="middle"
+      dominant-baseline="middle"
+      fill="white"
+      font-size="13"
+      font-weight="700"
+      font-family="'DM Sans', system-ui, sans-serif"
+    >The Signal</text>
+    <text
+      x="300" y="314"
+      text-anchor="middle"
+      dominant-baseline="middle"
+      fill="rgba(255,255,255,0.45)"
+      font-size="10"
+      font-family="'Inter', system-ui, sans-serif"
+    >Ecosystem</text>
+
+    <!-- ── 4 cardinal orbit cards ── -->
+    {nodes.map(node => {
+      const pos = POS[node.slug];
+      if (!pos) return null;
+      const { cx, cy } = pos;
+      const brand = node.brand_color;
+      return (
+        <g
+          class="fwc-node"
+          style={`transform-origin: ${cx}px ${cy}px;`}
+        >
+          <foreignObject
+            x={cx - HW}
+            y={cy - HH}
+            width={W}
+            height={H}
+          >
+            <a
+              href={node.href}
+              class="fwc-card-link"
+              target={node.is_external ? '_blank' : undefined}
+              rel={node.is_external ? 'noopener noreferrer' : undefined}
+            >
+              <div
+                class="fwc-card"
+                style={`border-top: 4px solid ${brand};`}
+              >
+                <p class="fwc-card-name">{node.name}</p>
+                {node.tagline && (
+                  <p class="fwc-card-tagline">{node.tagline}</p>
+                )}
+              </div>
+            </a>
+          </foreignObject>
+        </g>
+      );
+    })}
+
+    <!-- ── Michelle Williams — founder card (top-right) ── -->
+    {michelle && (
+      <g
+        class="fwc-node fwc-node--founder"
+        style={`transform-origin: ${M_CX}px ${M_CY}px;`}
+      >
+        <foreignObject
+          x={M_CX - HW}
+          y={M_CY - HH}
+          width={W}
+          height={H}
+        >
+          <a
+            href={michelle.href}
+            class="fwc-card-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div
+              class="fwc-card fwc-card--founder"
+              style={`border-top: 4px solid ${michelle.brand_color};`}
+            >
+              <p class="fwc-founder-label">FOUNDER</p>
+              <p class="fwc-card-name">{michelle.name}</p>
+              {michelle.tagline && (
+                <p class="fwc-card-tagline">{michelle.tagline}</p>
+              )}
+            </div>
+          </a>
+        </foreignObject>
+      </g>
+    )}
+
+  </svg>
+</div>
+
+<style is:global>
+  .fwc-wrap {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding: 1rem 0;
+  }
+
+  .fwc-svg {
+    width: 100%;
+    max-width: 600px;
+    overflow: visible;
+  }
+
+  /* ── Card groups: hover scale around their own centre ── */
+  .fwc-node {
+    transition: transform 0.3s ease;
+  }
+  .fwc-node:hover {
+    transform: scale(1.05);
+  }
+
+  /* ── Card link fills the foreignObject ── */
+  .fwc-card-link {
+    display: block;
+    height: 100%;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  /* ── Card base ── */
+  .fwc-card {
+    height: 100%;
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid rgba(17, 17, 17, 0.10);
+    padding: 12px 14px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    transition: box-shadow 0.3s ease;
+  }
+  .fwc-node:hover .fwc-card {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+
+  .fwc-card-name {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: #111111;
+    line-height: 1.2;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .fwc-card-tagline {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11px;
+    color: #555555;
+    line-height: 1.35;
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* ── Founder label ── */
+  .fwc-founder-label {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #FF8A33;
+    margin: 0 0 1px 0;
+  }
+</style>

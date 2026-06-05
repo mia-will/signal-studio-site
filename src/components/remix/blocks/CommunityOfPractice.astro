@@ -1,0 +1,115 @@
+---
+import type { PageBlock } from '../../../types/content';
+import { cleanRemixUrl } from '../../../lib/cleanRemixUrl';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const eyebrow     = block.eyebrow      ?? block.props?.eyebrow;
+const title       = block.title        ?? block.props?.title;
+const body        = block.body         ?? block.props?.body;
+const closingLine = block.props?.closing_line  as string | undefined;
+const showNumbers = block.props?.show_numbers  as boolean | undefined;
+const _ctaPrimary = block.props?.cta_primary   as { label?: string; href?: string } | undefined;
+const ctaPrimary  = _ctaPrimary ? { ..._ctaPrimary, href: cleanRemixUrl(_ctaPrimary.href) } : undefined;
+const items       = (block.props?.items ?? []) as { title?: string; body?: string }[];
+
+const layoutValues  = (block.props?.layout_values ?? {}) as Record<string, string>;
+const sectionPadding = layoutValues.section_padding ?? '72px 0';
+const colGap         = layoutValues.col_gap         ?? '64px';
+const itemGap        = layoutValues.item_gap        ?? '32px';
+---
+
+<section style={`padding: ${sectionPadding};`}>
+  <div style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+    <div class="cop-grid" style={`gap: ${colGap};`}>
+
+      <!-- Left: eyebrow, title, intro body -->
+      <div class="cop-left">
+
+        {eyebrow && (
+          <p style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_track_builder); margin: 0 0 14px;">
+            {eyebrow}
+          </p>
+        )}
+
+        {title && (
+          <h2 style="font-family: var(--font_heading); font-size: clamp(1.8rem, 3vw, 2.6rem); font-weight: 800; line-height: 1.08; letter-spacing: -0.02em; color: var(--color_text_heading); margin: 0 0 20px;">
+            {title}
+          </h2>
+        )}
+
+        {body && (
+          <p style="font-size: 17px; line-height: 1.7; color: var(--color_text_secondary); margin: 0; max-width: 42ch;">
+            {body}
+          </p>
+        )}
+
+      </div>
+
+      <!-- Right: items list, closing line, CTA -->
+      <div class="cop-right">
+
+        {items.length > 0 && (
+          <div style="margin-bottom: 32px;">
+            {items.map((item, i) => (
+              <div style={`padding: ${itemGap} 0; border-top: 1px solid var(--color_border);${i === items.length - 1 ? ' border-bottom: 1px solid var(--color_border);' : ''}`}>
+                {item.title && (
+                  <p style="font-size: 15px; font-weight: 600; color: var(--color_text_primary); margin: 0 0 6px; line-height: 1.35;">
+                    {showNumbers && (
+                      <span style="color: var(--color_track_builder); margin-right: 10px; font-variant-numeric: tabular-nums;">
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                    )}
+                    {item.title}
+                  </p>
+                )}
+                {item.body && (
+                  <p style="font-size: 14px; line-height: 1.65; color: var(--color_text_secondary); margin: 0;">
+                    {item.body}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {closingLine && (
+          <p style="font-size: 14px; line-height: 1.6; color: var(--color_text_secondary); font-style: italic; margin: 0 0 28px;">
+            {closingLine}
+          </p>
+        )}
+
+        {ctaPrimary?.href && ctaPrimary?.label && (
+          <a
+            href={ctaPrimary.href}
+            style="display: inline-flex; align-items: center; font-size: 14px; font-weight: 600; color: var(--color_track_builder); text-decoration: none; gap: 6px;"
+          >
+            {ctaPrimary.label} →
+          </a>
+        )}
+
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<style>
+  .cop-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+
+  @media (max-width: 768px) {
+    .cop-grid {
+      grid-template-columns: 1fr;
+      gap: 40px;
+    }
+  }
+</style>

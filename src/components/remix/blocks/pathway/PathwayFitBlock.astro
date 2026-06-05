@@ -1,0 +1,78 @@
+---
+interface Props {
+  block?: any;
+  pathway: any;
+}
+
+const { pathway } = Astro.props;
+
+type FitSection = { heading: string | null; body: string };
+
+const sections: FitSection[] = [
+  { heading: pathway.section_label_fit,     body: pathway.who_its_for },
+  { heading: pathway.section_label_not_for, body: pathway.not_for },
+].filter((s): s is FitSection => !!s.body);
+
+function toParas(text: string): string[] {
+  return text.split('\n\n').map((p) => p.trim()).filter(Boolean);
+}
+---
+
+{sections.length > 0 && (
+  <section class="pf">
+    <div class="pf-inner">
+      {sections.map((s) => (
+        <div class="pf-section">
+          {s.heading && <h2 class="pf-heading">{s.heading}</h2>}
+          <div class="pf-body">
+            {toParas(s.body).map((para) => (
+              <p>{para}</p>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+)}
+
+<style>
+  .pf {
+    padding-block: var(--layout_padding_y_md);
+  }
+
+  .pf-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_xl, 48px);
+  }
+
+  .pf-section {
+    max-width: 760px;
+  }
+
+  .pf-heading {
+    font-family: var(--font_heading);
+    font-size: clamp(1.4rem, 2.5vw, 1.875rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--text_gap_lg);
+  }
+
+  .pf-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_lg);
+  }
+
+  .pf-body p {
+    font-size: var(--text_base);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+</style>

@@ -1,0 +1,76 @@
+---
+import MichelleLayout from '../Layout.astro';
+import MichelleHeader from '../Header.astro';
+import MichelleFooter from '../Footer.astro';
+import BlockRenderer from '../components/BlockRenderer.astro';
+import { supabase } from '../../../lib/supabase';
+import { loadMichellePage } from '../pageData';
+import type { FaqItem } from '../../../types/content';
+
+const PAGE_SLUG = 'work-with-me';
+
+const { isPreview } = Astro.locals;
+
+const {
+  site,
+  page,
+  blocks,
+  seo,
+  navHeader,
+  navFooter,
+  tokens,
+  mediaAssets,
+  rawTokenCSS,
+  canonicalUrl,
+  robots,
+  jsonld,
+} = await loadMichellePage(PAGE_SLUG, 'Work With Me page', isPreview);
+
+const faqResult = await supabase
+  .from('__page_faq')
+  .select('id, faq_item_id, sort_order, faq_items(id, question, answer)')
+  .eq('site_page_id', page.id)
+  .order('sort_order', { ascending: true });
+
+if (faqResult.error) throw new Error(`Work With Me page: failed to load FAQ items: ${faqResult.error.message}`);
+
+if (!seo?.seo_title_override) throw new Error('Work With Me page: missing page_seo.seo_title_override');
+if (!seo.seo_description_override) throw new Error('Work With Me page: missing page_seo.seo_description_override');
+if (!seo.jsonld) throw new Error('Work With Me page: missing page_seo.jsonld');
+
+const faqBlock = blocks.find((block) => block.block_type_key === 'faq');
+const faqItems = (faqResult.data ?? [])
+  .filter((row: any) => row.faq_items)
+  .map((row: any) => ({
+    id: row.faq_items.id,
+    faq_item_id: row.faq_item_id,
+    question: row.faq_items.question,
+    answer: row.faq_items.answer,
+    sort_order: row.sort_order,
+  })) as FaqItem[];
+
+if (faqBlock && faqItems.length === 0) {
+  throw new Error('Work With Me page: enabled FAQ block has no linked FAQ items');
+}
+---
+
+<MichelleLayout
+  title={seo.seo_title_override}
+  siteName={site.name}
+  description={seo.seo_description_override}
+  canonical={canonicalUrl}
+  robots={robots}
+  jsonld={jsonld}
+  aeoSummary={seo.aeo_summary ?? undefined}
+  rawTokenCSS={rawTokenCSS}
+>
+  <MichelleHeader site={site} navItems={navHeader} />
+
+  <main id="main-content">
+    {blocks.map((block) => (
+      <BlockRenderer block={block} mediaAssets={mediaAssets} faqItems={faqItems} />
+    ))}
+  </main>
+
+  <MichelleFooter site={site} footerItems={navFooter} tokens={tokens} />
+</MichelleLayout>

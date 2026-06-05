@@ -1,0 +1,663 @@
+---
+import type { PageBlock, Pathway } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+  pathways?: Pathway[];
+}
+
+const { block, pathways = [] } = Astro.props;
+
+const eyebrow  = block.props?.eyebrow  ?? block.eyebrow;
+const title    = block.props?.title    ?? block.title;
+const subtitle = block.props?.subtitle ?? block.subtitle;
+const intro    = block.props?.intro    as string | undefined;
+
+const layout           = (block.props?.layout ?? block.layout) as string | undefined;
+const isFilterableTabs = layout === 'filterable_tabs';
+const tabs             = (block.props?.tabs ?? []) as string[];
+const filterField      = (block.props?.tab_filter_field ?? 'topic') as keyof Pathway;
+
+function fieldValue(pathway: Pathway): string {
+  const values = new Set<string>();
+  const primary = pathway[filterField];
+
+  if (typeof primary === 'string') values.add(primary);
+  if (typeof pathway.topic === 'string') values.add(pathway.topic);
+  if (typeof pathway.audience === 'string') values.add(pathway.audience);
+
+  return [...values].join(' ');
+}
+
+function accentBg(pathway: Pathway): string {
+  return pathway.accent_colour ?? 'var(--color_cta_primary)';
+}
+
+function formatDate(isoDate: string): string {
+  const d = new Date(isoDate);
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long' });
+}
+
+function formatStartMonth(pathway: Pathway): string {
+  if (pathway.start_date) {
+    return new Date(pathway.start_date).toLocaleDateString('en-AU', { month: 'long' });
+  }
+  return pathway.start_label ?? 'TBA';
+}
+
+function pathwayHref(pathway: Pathway): string {
+  return `/pathways/${pathway.slug}`;
+}
+---
+
+<section
+  data-pathways-block
+  data-filter-field={filterField}
+  class="pwb"
+>
+  <div class="pwb-inner">
+
+    {(eyebrow || title || subtitle || intro) && (
+      <header class="pwb-header">
+        {eyebrow && (
+          <p class="pwb-eyebrow">
+            {eyebrow}
+          </p>
+        )}
+
+        {title && (
+          <h2 class="pwb-title">
+            {title}
+          </h2>
+        )}
+
+        {(subtitle || intro) && (
+          <p class="pwb-intro">
+            {subtitle ?? intro}
+          </p>
+        )}
+      </header>
+    )}
+
+    {isFilterableTabs && tabs.length > 0 && (
+      <div class="pwb-tabs-shell">
+      <div role="tablist" aria-label="Filter pathways" class="pwb-tabs">
+        {tabs.map((tab, index) => (
+          <button
+            type="button"
+            role="tab"
+            data-pathway-tab={tab}
+            aria-selected={index === 0 ? 'true' : 'false'}
+            class="pwb-tab"
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+      <div class="pwb-sort" aria-hidden="true">
+        <span>Sort by</span>
+        <span class="pwb-sort-control">Start date</span>
+      </div>
+      </div>
+    )}
+
+    <div
+      class="pwb-grid"
+      data-pathways-grid
+    >
+      {pathways.map((pathway, index) => (
+        <article
+          data-pathway-card
+          data-filter-value={fieldValue(pathway)}
+          class={`pwb-card${pathway.pathway_status === 'complete' ? ' pwb-card--complete' : ''}`}
+          style={`--pathway-accent: ${accentBg(pathway)};`}
+        >
+          <a
+            href={pathwayHref(pathway)}
+            class="pwb-card-body"
+          >
+            <div class="pwb-card-kicker">
+              <span class="pwb-number">
+                {String(pathway.sort_order ?? (index + 1)).padStart(2, '0')}
+              </span>
+
+              {pathway.label && (
+                <span class="pwb-label">
+                  {pathway.label}
+                </span>
+              )}
+            </div>
+
+            {pathway.title && (
+              <h3 class="pwb-card-title">
+                {pathway.title}
+              </h3>
+            )}
+
+            {(pathway as Pathway & { angle_line?: string | null }).angle_line && (
+              <p class="pwb-card-copy">
+                {(pathway as Pathway & { angle_line?: string | null }).angle_line}
+              </p>
+            )}
+
+            {Array.isArray(pathway.bullet_points) && pathway.bullet_points.length > 0 && (
+              <ul class="pwb-bullets">
+                {pathway.bullet_points.map((point) => (
+                  <li>{point}</li>
+                ))}
+              </ul>
+            )}
+
+            <div class="pwb-meta">
+              {pathway.time_commitment_label && (
+                <p>
+                  {pathway.time_commitment_label}
+                </p>
+              )}
+
+              {pathway.location_label && (
+                <p>
+                  {pathway.location_label}
+                </p>
+              )}
+            </div>
+          </a>
+
+          {pathway.pathway_status === 'complete' ? (
+            <div class="pwb-card-footer pwb-card-footer--complete">
+              <span class="pwb-complete-badge">Complete</span>
+              {pathway.cta_secondary_label && pathway.cta_secondary_link && (
+                <a href={pathway.cta_secondary_link} class="pwb-action">{pathway.cta_secondary_label} →</a>
+              )}
+            </div>
+          ) : (
+            <div class="pwb-card-footer">
+              <div class="pwb-start">
+                <span>{pathway.pathway_status === 'open' ? 'Starts' : 'Starts in'}</span>
+                <strong>
+                  {pathway.pathway_status === 'open' && pathway.start_date
+                    ? formatDate(pathway.start_date)
+                    : formatStartMonth(pathway)}
+                </strong>
+              </div>
+
+              {pathway.cta_link && (
+                <div class="pwb-actions">
+                  <a href={pathway.cta_link} class="pwb-action">{pathway.cta_label}</a>
+                </div>
+              )}
+            </div>
+          )}
+        </article>
+      ))}
+
+      <article class="pwb-card pwb-card-soon" data-pathway-card data-filter-value="all coming soon">
+        <div class="pwb-soon-body">
+          <div class="pwb-card-kicker">
+            <span class="pwb-number">+</span>
+            <span class="pwb-label">Coming soon</span>
+          </div>
+          <h3 class="pwb-card-title">More Pathways on the way</h3>
+          <p class="pwb-card-copy">We're designing more pathways for more kinds of work and roles.</p>
+          <p class="pwb-soon-note">Register your interest to be the first to know.</p>
+          <div class="pwb-soon-icon" aria-hidden="true">✉</div>
+          <a href="#rmf-nl-form" class="pwb-soon-cta">Register interest →</a>
+        </div>
+      </article>
+    </div>
+
+    {block.props?.show_all_link && (
+      <div class="pwb-see-all-row">
+        <a href={block.props.show_all_link as string} class="pwb-see-all">{block.props.show_all_label as string}</a>
+      </div>
+    )}
+  </div>
+</section>
+
+<style>
+  .pwb {
+    padding: var(--layout_padding_y_sm) 0 var(--layout_padding_y_md);
+    background: var(--color_surface_page);
+  }
+
+  .pwb-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+  }
+
+  .pwb-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_lg);
+    max-width: 56ch;
+    margin-bottom: var(--gap_md);
+  }
+
+  .pwb-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--badge_letter_spacing);
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin: 0;
+  }
+
+  .pwb-title {
+    font-family: var(--font_heading);
+    font-size: clamp(2.25rem, 4vw, 3.25rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0;
+    line-height: 1.04;
+  }
+
+  .pwb-intro {
+    font-size: var(--text_base);
+    color: var(--color_text_primary);
+    margin: 0;
+    line-height: var(--leading_relaxed);
+  }
+
+  .pwb-tabs-shell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--gap_md);
+    margin-bottom: var(--gap_md);
+    padding: var(--space_sm);
+    background: var(--color_surface_alt, var(--color_surface));
+    border: var(--card_border);
+    border-radius: var(--radius_md);
+  }
+
+  .pwb-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap_xs);
+  }
+
+  .pwb-tab {
+    font-family: var(--font_body);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_primary);
+    background: transparent;
+    border: 0;
+    padding: 10px 16px;
+    border-radius: var(--radius_sm);
+    cursor: pointer;
+  }
+
+  .pwb-tab[aria-selected="true"] {
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+  }
+
+  .pwb-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--gap_xs);
+    color: var(--color_text_secondary);
+    font-size: var(--text_xs);
+    opacity: 0.62;
+    white-space: nowrap;
+  }
+
+  .pwb-sort-control {
+    color: var(--color_text_secondary);
+    border: var(--card_border);
+    border-radius: var(--radius_sm);
+    padding: 7px 11px;
+    background: var(--color_surface);
+  }
+
+  .pwb-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--gap_md);
+  }
+
+  .pwb-card {
+    border: var(--card_border);
+    border-radius: var(--radius_md);
+    background: var(--card_bg);
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow_md);
+    overflow: hidden;
+    min-height: 100%;
+  }
+
+  .pwb-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+    padding: var(--space_lg);
+    color: inherit;
+    text-decoration: none;
+    flex: 1;
+  }
+
+  .pwb-card-kicker {
+    display: flex;
+    align-items: center;
+    gap: var(--gap_sm);
+  }
+
+  .pwb-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    background: var(--pathway-accent, var(--color_cta_primary));
+    color: var(--color_text_on_dark);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_bold);
+    line-height: 1;
+    border-radius: var(--radius_sm);
+  }
+
+  .pwb-label {
+    display: inline-block;
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_bold);
+    letter-spacing: var(--badge_letter_spacing);
+    text-transform: uppercase;
+    color: var(--pathway-accent, var(--color_cta_primary));
+  }
+
+  .pwb-card-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: var(--text_gap_xs) 0 0;
+    line-height: var(--leading_snug);
+  }
+
+  .pwb-card-copy {
+    font-size: var(--text_sm);
+    color: var(--color_text_primary);
+    margin: 0;
+    line-height: var(--leading_relaxed);
+  }
+
+  .pwb-bullets {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--color_text_primary);
+    font-size: var(--text_sm);
+    line-height: var(--leading_relaxed);
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_sm);
+  }
+
+  .pwb-bullets li {
+    position: relative;
+    padding-left: var(--text_gap_lg);
+  }
+
+  .pwb-bullets li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--pathway-accent, var(--color_cta_primary));
+    font-weight: var(--font_weight_bold);
+  }
+
+  .pwb-meta {
+    border-top: var(--card_border);
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_sm);
+    margin-top: auto;
+    padding-top: var(--gap_sm);
+  }
+
+  .pwb-meta p {
+    display: flex;
+    align-items: center;
+    font-size: var(--text_sm);
+    color: var(--color_text_primary);
+    margin: 0;
+  }
+
+  .pwb-card-footer {
+    margin-top: auto;
+    padding: var(--space_sm) var(--space_lg);
+    background: var(--pathway-accent, var(--color_cta_primary));
+    color: var(--color_text_on_dark);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--gap_md);
+  }
+
+  .pwb-start {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .pwb-start span {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--badge_letter_spacing);
+    text-transform: uppercase;
+    opacity: 0.74;
+  }
+
+  .pwb-start strong {
+    font-family: var(--font_heading);
+    font-size: var(--text_xl);
+    font-weight: var(--font_weight_bold);
+    line-height: var(--leading_tight);
+    text-transform: uppercase;
+  }
+
+  .pwb-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: var(--gap_xs);
+  }
+
+  .pwb-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 7px 13px;
+    color: var(--color_text_on_dark);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--color_text_on_dark) 68%, transparent);
+    border-radius: var(--btn_radius_pill);
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    font-family: var(--font_body);
+    text-decoration: none;
+    box-sizing: border-box;
+  }
+
+  .pwb-action:hover {
+    background: color-mix(in srgb, var(--color_text_on_dark) 14%, transparent);
+  }
+
+  .pwb-card--complete {
+    opacity: 0.7;
+  }
+
+  .pwb-card-footer--complete {
+    background: var(--color_surface_alt, var(--color_surface));
+    color: var(--color_text_secondary);
+  }
+
+  .pwb-complete-badge {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--badge_letter_spacing);
+    text-transform: uppercase;
+    color: var(--color_text_secondary);
+  }
+
+  .pwb-card-soon {
+    --pathway-accent: color-mix(in srgb, var(--color_cta_primary) 40%, var(--color_surface));
+    background: color-mix(in srgb, var(--color_surface_alt, var(--color_surface)) 84%, var(--color_cta_primary));
+    border-style: dashed;
+  }
+
+  .pwb-soon-body {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+    padding: var(--space_lg);
+  }
+
+  .pwb-soon-note {
+    color: var(--color_text_secondary);
+    font-size: var(--text_sm);
+    font-style: italic;
+    margin: var(--space_xs) 0 var(--space_md);
+    line-height: var(--leading_relaxed);
+  }
+
+  .pwb-soon-icon {
+    width: 74px;
+    height: 74px;
+    display: grid;
+    place-items: center;
+    align-self: center;
+    margin: var(--space_lg) 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--pathway-accent) 25%, var(--color_surface));
+    color: var(--color_text_heading);
+    font-size: 32px;
+  }
+
+  .pwb-soon-cta {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 10px 20px;
+    border: var(--card_border);
+    border-radius: var(--btn_radius_pill);
+    color: var(--color_text_heading);
+    text-decoration: none;
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    background: var(--color_surface);
+  }
+
+  .pwb-see-all-row {
+    display: flex;
+    justify-content: center;
+    margin-top: var(--gap_md);
+  }
+
+  .pwb-see-all {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 10px 24px;
+    border: var(--card_border);
+    border-radius: var(--btn_radius_pill);
+    color: var(--color_text_heading);
+    text-decoration: none;
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    background: var(--color_surface);
+    transition: opacity 0.15s;
+  }
+
+  .pwb-see-all:hover {
+    opacity: var(--hover_opacity);
+  }
+
+  @media (max-width: 1024px) {
+    .pwb-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .pwb {
+      padding: var(--space_xl) 0;
+    }
+
+    .pwb-title {
+      font-size: var(--text_3xl);
+    }
+
+    .pwb-tabs-shell {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .pwb-sort {
+      display: none;
+    }
+
+    .pwb-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .pwb-card-footer {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .pwb-actions {
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+  }
+</style>
+
+{isFilterableTabs && tabs.length > 0 && (
+  <script>
+    document.querySelectorAll<HTMLElement>('[data-pathways-block]').forEach((root) => {
+      const tabs = root.querySelectorAll<HTMLButtonElement>('[data-pathway-tab]');
+      const cards = root.querySelectorAll<HTMLElement>('[data-pathway-card]');
+
+      function applyFilter(label: string, keepDefaultVisible = false) {
+        const filter = label.toLowerCase().trim();
+        const showAll = filter === 'all';
+        let visibleCount = 0;
+
+        cards.forEach((card) => {
+          const value = (card.dataset.filterValue ?? '').toLowerCase().trim();
+          const visible = showAll || (value.length > 0 && (value.includes(filter) || filter.includes(value)));
+          card.style.display = visible ? '' : 'none';
+          if (visible) visibleCount += 1;
+        });
+
+        if (keepDefaultVisible && visibleCount === 0) {
+          cards.forEach((card) => {
+            card.style.display = '';
+          });
+        }
+      }
+
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          tabs.forEach((item) => item.setAttribute('aria-selected', 'false'));
+          tab.setAttribute('aria-selected', 'true');
+          applyFilter(tab.dataset.pathwayTab ?? '');
+        });
+      });
+
+      const selectedTab = root.querySelector<HTMLButtonElement>('[data-pathway-tab][aria-selected="true"]') ?? tabs[0];
+      applyFilter(selectedTab?.dataset.pathwayTab ?? '', true);
+    });
+  </script>
+)}

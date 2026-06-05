@@ -1,0 +1,311 @@
+/* ============================================================
+   Signal Studio — Structural Reset + Shared Utilities
+   Design tokens (colours, radius, etc.) live in Supabase brand_tokens.
+   Only structural/reset CSS belongs here.
+   ============================================================ */
+
+:root {
+  /* ── Surface aqua (not in Supabase brand_tokens) ── */
+  --color_surface_aqua:      rgba(127,208,218,0.08);
+
+  /* ── Bold section colours (not in Supabase brand_tokens) ── */
+  --color_section_orange:    #FF8A33;
+  --color_section_teal:      #3C8A7E;
+  --color_section_green:     #2D5A35;
+
+  /* ── Radius (radius_full only — sm/md/lg are in Supabase) ── */
+  --radius_full: 9999px;
+
+  /* ── Shadow ── */
+  --shadow_sm:   0 1px 3px rgba(47,47,47,0.08), 0 1px 2px rgba(47,47,47,0.06);
+  --shadow_lg:   0 10px 30px rgba(47,47,47,0.12), 0 4px 10px rgba(47,47,47,0.08);
+  --shadow_none: none;
+
+  /* ── Spacing ── */
+  --space_xs:      0.5rem;
+  --space_sm:      1rem;
+  --space_md:      1.5rem;
+  --space_lg:      2rem;
+  --space_xl:      3rem;
+  --space_2xl:     4rem;
+  --space_3xl:     6rem;
+  --space_section: 8rem;
+
+  /* ── Typography ── */
+  --font_heading:         'DM Sans', system-ui, sans-serif;
+  --font_body:            'Inter', system-ui, sans-serif;
+  --text_xs:              0.75rem;
+  --text_sm:              0.875rem;
+  --text_base:            1rem;
+  --text_lg:              1.125rem;
+  --text_xl:              1.25rem;
+  --text_2xl:             1.5rem;
+  --text_3xl:             1.875rem;
+  --text_4xl:             2.25rem;
+  --text_5xl:             3rem;
+  --font_weight_normal:   400;
+  --font_weight_medium:   500;
+  --font_weight_semibold: 600;
+  --font_weight_bold:     700;
+  --leading_tight:        1.2;
+  --leading_normal:       1.5;
+  --leading_relaxed:      1.7;
+
+  /* ── Layout ── */
+  --max-w:      1200px;
+  --max-w-text: 680px;
+  --gutter:     clamp(1.5rem, 6.5vw, 5rem);
+
+  /* ── Transitions ── */
+  --ease: 0.25s ease;
+}
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  background: var(--color_background);
+}
+
+body {
+  font-family: var(--font_body);
+  font-size: var(--text_lg);
+  line-height: var(--leading_relaxed);
+  color: var(--color_text_primary);
+  background: var(--color_background);
+  -webkit-font-smoothing: antialiased;
+}
+
+img, video { max-width: 100%; display: block; }
+
+a {
+  color: var(--color_text_primary);
+  text-decoration: none;
+  transition: color var(--ease);
+}
+
+ul, ol { list-style: none; }
+button { cursor: pointer; font: inherit; border: none; background: none; }
+
+/* ── Typography ── */
+h1, h2, h3, h4 {
+  font-family: var(--font_heading);
+  font-weight: var(--font_weight_bold);
+  line-height: var(--leading_tight);
+  color: var(--color_text_heading);
+  letter-spacing: -0.02em;
+}
+
+h5, h6 {
+  font-family: var(--font_body);
+  font-weight: var(--font_weight_semibold);
+  color: var(--color_text_heading);
+}
+
+h1 { font-size: clamp(3.5rem, 5vw, 4rem); }
+h2 { font-size: clamp(var(--text_2xl), 3.5vw, var(--text_4xl)); }
+h3 { font-size: clamp(var(--text_xl), 2.5vw, var(--text_2xl)); }
+h4 { font-size: var(--text_lg); }
+
+p { max-width: var(--max-w-text); }
+
+/* ── Layout helpers ── */
+.container {
+  max-width: var(--max-w);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.section {
+  padding-block: clamp(6.25rem, 8vw, var(--space_section));
+}
+
+.section--tight {
+  padding-block: clamp(6.25rem, 6vw, 7rem);
+}
+
+/* Section alternation */
+.section--surface {
+  background: var(--color_surface);
+}
+
+/* ── Bold colour sections (SXSW-style) ── */
+.section--orange {
+  background: var(--color_section_orange, #FF8A33);
+  color: #fff;
+}
+.section--orange h1,
+.section--orange h2,
+.section--orange h3,
+.section--orange h4,
+.section--orange p,
+.section--orange li {
+  color: #fff;
+}
+.section--orange .btn--outline {
+  border-color: rgba(255,255,255,0.6);
+  color: #fff;
+}
+.section--orange .btn--outline:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: #fff;
+}
+
+.section--teal {
+  background: var(--color_section_teal, #3C8A7E);
+  color: #fff;
+}
+.section--teal h1,
+.section--teal h2,
+.section--teal h3,
+.section--teal h4,
+.section--teal p,
+.section--teal li {
+  color: #fff;
+}
+
+.section--green {
+  background: var(--color_section_green, #2D5A35);
+  color: #fff;
+}
+.section--green h1,
+.section--green h2,
+.section--green h3,
+.section--green h4,
+.section--green p,
+.section--green li {
+  color: #fff;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space_xs);
+  padding: 0.75em 1.6em;
+  font-size: var(--text_base);
+  font-family: var(--font_body);
+  font-weight: var(--font_weight_medium);
+  white-space: nowrap;
+  border-radius: 100px;
+  transition: background var(--ease), color var(--ease), border-color var(--ease), box-shadow var(--ease);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn--primary {
+  background: var(--color_cta_primary);
+  color: var(--color_white);
+  box-shadow: var(--shadow_none);
+}
+
+.btn--primary:hover {
+  background: var(--color_cta_hover);
+  color: var(--color_white);
+  box-shadow: var(--shadow_sm);
+}
+
+.btn--outline {
+  background: transparent;
+  color: var(--color_text_primary);
+  border: 1.5px solid var(--color_text_primary);
+}
+
+.btn--outline:hover {
+  background: var(--color_hover_tint);
+}
+
+.btn--outline-light {
+  background: transparent;
+  color: var(--color_white);
+  border: 1.5px solid rgba(255,255,255,0.5);
+}
+
+.btn--outline-light:hover {
+  border-color: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.08);
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--color_surface_alt);
+  border-radius: var(--radius_lg);
+  border: 1px solid var(--color_border);
+  box-shadow: var(--shadow_sm);
+  cursor: pointer;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px rgba(47,47,47,0.12);
+  border-color: rgba(255,138,51,0.3);
+}
+
+/* ── Eyebrow ── */
+.eyebrow {
+  font-family: var(--font_body);
+  font-size: var(--text_sm);
+  font-weight: var(--font_weight_semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color_cta_primary);
+}
+
+/* ── Section label ── */
+.section-label {
+  font-family: var(--font_body);
+  font-size: var(--text_sm);
+  font-weight: var(--font_weight_medium);
+  color: var(--color_text_secondary);
+  margin-bottom: var(--space_sm);
+}
+
+/* ── Divider ── */
+.divider {
+  width: 3rem;
+  height: 2px;
+  background: var(--color_cta_primary);
+  margin-block: var(--space_md);
+}
+
+/* ── Section h2 accent underline ── */
+.section h2::after,
+.section--tight h2::after {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 2px;
+  background: var(--color_cta_primary);
+  margin-top: 16px;
+}
+
+/* ── Scroll animations ── */
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.animate-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Link arrow ── */
+.link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: var(--text_sm);
+  font-weight: var(--font_weight_medium);
+  color: var(--color_cta_primary);
+  transition: gap var(--ease);
+}
+
+.link-arrow span { transition: transform var(--ease); }
+.link-arrow:hover span { transform: translateX(4px); }
+.link-arrow:hover { gap: 0.5em; }

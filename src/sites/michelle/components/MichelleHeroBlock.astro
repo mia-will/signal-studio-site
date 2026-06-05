@@ -1,0 +1,94 @@
+---
+import type { PageBlock, MediaAsset } from '../../../types/content';
+import { supabase } from '../../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+  imageAsset?: MediaAsset;
+}
+
+const { block } = Astro.props;
+
+const title = block.props?.title ?? block.title;
+const subtitle = block.props?.subtitle ?? block.subtitle;
+const body = block.props?.body ?? block.body;
+const eyebrow = block.props?.eyebrow ?? block.eyebrow;
+const supportingText = block.props?.supporting_text;
+const ctaPrimary = block.props?.cta_primary;
+const ctaSecondary = block.props?.cta_secondary;
+const heroMediaAssetId = typeof block.props?.media_asset_id === 'string' ? block.props.media_asset_id : null;
+
+let heroImageAsset: Pick<MediaAsset, 'image_url' | 'alt_text'> | null = null;
+if (heroMediaAssetId) {
+  const { data } = await supabase
+    .from('media_assets')
+    .select('image_url, alt_text')
+    .eq('id', heroMediaAssetId)
+    .maybeSingle();
+
+  heroImageAsset = (data as Pick<MediaAsset, 'image_url' | 'alt_text'> | null) ?? null;
+}
+
+const heroImageUrl = heroImageAsset ? heroImageAsset.image_url : null;
+const heroImageAlt = heroImageAsset ? heroImageAsset.alt_text : null;
+---
+
+<section style="padding-block: var(--layout_padding_y);">
+  <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--gap_lg); align-items: center;">
+      <div style="display: flex; flex-direction: column; gap: 0; align-self: center;">
+        {eyebrow && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--gap_sm);">
+            {eyebrow}
+          </p>
+        )}
+        {title && (
+          <h1 style="font-family: var(--font_heading); font-size: var(--font_size_hero); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--gap_md);">
+            {title}
+          </h1>
+        )}
+        {subtitle && (
+          <p style="font-size: var(--text_lg); font-weight: var(--font_weight_medium); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm); max-width: 52ch;">
+            {subtitle}
+          </p>
+        )}
+        {body && (
+          <p style="font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_md); max-width: 52ch;">
+            {body}
+          </p>
+        )}
+        {(ctaPrimary?.href || ctaSecondary?.href) && (
+          <div style="display: flex; gap: var(--gap_sm); flex-wrap: wrap; margin-bottom: var(--gap_md);">
+            {ctaPrimary?.href && (
+              <a href={ctaPrimary.href} style="display: inline-flex; align-items: center; padding: 0.75rem 1.5rem; background: var(--button_primary_background); color: var(--button_primary_text); font-family: var(--font_body); font-size: var(--text_base); font-weight: var(--font_weight_semibold); text-decoration: none; border-radius: var(--radius_pill);">
+                {ctaPrimary.label}
+              </a>
+            )}
+            {ctaSecondary?.href && (
+              <a href={ctaSecondary.href} style="display: inline-flex; align-items: center; padding: 0.75rem 1.5rem; background: transparent; color: var(--color_text_primary); font-family: var(--font_body); font-size: var(--text_base); font-weight: var(--font_weight_semibold); text-decoration: none; border: 2px solid var(--color_border); border-radius: var(--radius_pill);">
+                {ctaSecondary.label}
+              </a>
+            )}
+          </div>
+        )}
+        {supportingText && (
+          <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed);">
+            {supportingText}
+          </p>
+        )}
+      </div>
+
+      {heroImageUrl && (
+        <div>
+          <img
+            src={heroImageUrl}
+            alt={heroImageAlt}
+            loading="eager"
+            decoding="async"
+            style="width: 100%; height: auto; max-height: 560px; object-fit: cover; border-radius: var(--radius_lg); display: block;"
+          />
+        </div>
+      )}
+    </div>
+  </div>
+</section>

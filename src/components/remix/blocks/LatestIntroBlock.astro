@@ -1,0 +1,22 @@
+---
+interface Props {
+  block: any;
+}
+
+const { block } = Astro.props;
+---
+
+<section style="padding-block: var(--space_2xl) var(--space_xl); border-bottom: 1px solid var(--color_border);">
+  <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+    {block.title && (
+      <h1 style="font-family: var(--font_heading); font-size: clamp(var(--text_3xl), 4vw, var(--text_5xl)); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); letter-spacing: -0.02em; color: var(--color_text_heading); margin: 0 0 var(--space_md);">
+        {block.title}
+      </h1>
+    )}
+    {block.body && (
+      <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0; max-width: var(--layout_content_width);">
+        {block.body}
+      </p>
+    )}
+  </div>
+</section>

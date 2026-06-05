@@ -1,0 +1,115 @@
+---
+import type { PageBlock } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const eyebrow  = block.eyebrow  ?? block.props?.eyebrow;
+const title    = block.title    ?? block.props?.title;
+const body     = block.body     ?? block.props?.body;
+const ctaLabel = block.cta_primary_label;
+const ctaHref  = block.cta_primary_href;
+
+const intro    = block.props?.intro as string | undefined;
+const items    = (block.props?.items ?? []) as Array<{tag?: string; title?: string; description?: string; body?: string}>;
+
+// Section background
+const sectionBg = block.props?.section_bg as string | undefined;
+const isDark    = sectionBg === 'muted_dark_band';
+const bgStyle      = isDark ? 'var(--color_surface_focus_dark)' : '';
+const headingColor = isDark ? 'var(--color_text_on_dark)'       : 'var(--color_text_heading)';
+const bodyColor    = isDark ? 'var(--color_text_on_dark_muted)' : 'var(--color_text_secondary)';
+const accentColor  = isDark ? 'var(--color_track_applier)' : 'var(--color_track_applier)';
+const borderStyle  = isDark ? '' : 'border-top: 1px solid var(--color_border);';
+---
+
+<section style={`padding: 64px 0;${bgStyle ? ` background: ${bgStyle};` : ''} ${borderStyle}`}>
+  <div style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+    <!-- Header row: label left, body right -->
+    <div style="display: grid; grid-template-columns: 28% 1fr; gap: 64px; align-items: start;">
+
+      <div>
+        {eyebrow && (
+          <p style={`font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: ${accentColor}; margin: 0 0 8px;`}>
+            {eyebrow}
+          </p>
+        )}
+        {title && (
+          <h2 style={`font-family: var(--font_heading); font-size: 24px; font-weight: 800; color: ${headingColor}; margin: 0 0 8px; line-height: 1.2;`}>
+            {title}
+          </h2>
+        )}
+        <div style={`width: 32px; height: 3px; background: ${accentColor}; border-radius: 2px; margin-top: 4px;`}></div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 20px; padding-top: 4px;">
+        {(body ?? intro) && (
+          <p style={`font-size: 17px; line-height: 1.75; color: ${bodyColor}; margin: 0; max-width: 64ch;`}>
+            {body ?? intro}
+          </p>
+        )}
+        {ctaHref && ctaLabel && (
+          <div>
+            <a
+              href={ctaHref}
+              style={`display: inline-flex; align-items: center; padding: 11px 24px; background: transparent; color: ${headingColor}; font-family: var(--font_body); font-size: 14px; font-weight: var(--font_weight_semibold); border-radius: var(--btn_radius_pill); border: 1px solid ${isDark ? 'rgba(255,255,255,0.25)' : 'var(--color_border)'}; text-decoration: none; white-space: nowrap;`}
+            >
+              {ctaLabel}
+            </a>
+          </div>
+        )}
+      </div>
+
+    </div>
+
+    <!-- Items: 2×2 text grid -->
+    {items.length > 0 && (
+      <div class="cf-items-grid" style="margin-top: 56px;">
+        {items.map((item) => (
+          <div class="cf-item">
+            {item.tag && (
+              <span style={`font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color_track_applier); background: var(--card_bg_applier); padding: 3px 10px; border-radius: 100px; display: inline-block; margin-bottom: 12px;`}>
+                {item.tag}
+              </span>
+            )}
+            {item.title && (
+              <h3 style={`font-family: var(--font_heading); font-size: 18px; font-weight: 700; color: ${headingColor}; margin: 0 0 8px; line-height: 1.3;`}>
+                {item.title}
+              </h3>
+            )}
+            {(item.description ?? item.body) && (
+              <p style={`font-size: 14px; line-height: 1.7; color: ${bodyColor}; margin: 0;`}>
+                {item.description ?? item.body}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
+
+  </div>
+</section>
+
+<style>
+  .cf-items-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px 64px;
+  }
+
+  .cf-item {
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (max-width: 768px) {
+    .cf-items-grid {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+  }
+</style>

@@ -1,0 +1,143 @@
+---
+import type { PageBlock, Testimonial } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+  testimonials: Testimonial[];
+}
+
+const { block, testimonials } = Astro.props;
+---
+
+{testimonials.length > 0 && (
+  <section class="testimonials section animate-on-scroll" aria-labelledby="testimonials-heading">
+    <div class="container">
+      <h2 id="testimonials-heading" class="testimonials-heading">What people say</h2>
+
+      <div class="testimonials-inner">
+        {testimonials.map((t) => {
+          const quote = t.short_quote || t.quote;
+          if (!quote) return null;
+
+          const displayName = t.person_name ?? t.company_name ?? null;
+          const displayRole = t.person_name
+            ? [t.person_role, t.company_name].filter(Boolean).join(', ')
+            : null;
+
+          return (
+            <blockquote class="testimonial">
+              <div class="testimonial-mark" aria-hidden="true">&ldquo;</div>
+              <p class="testimonial-quote">{quote}</p>
+              {displayName && (
+                <footer class="testimonial-attribution">
+                  <cite class="testimonial-name">{displayName}</cite>
+                  {displayRole && (
+                    <span class="testimonial-role">{displayRole}</span>
+                  )}
+                </footer>
+              )}
+            </blockquote>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+)}
+
+<style>
+  .testimonials {
+    border-top: 1px solid var(--color_border);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .testimonials-heading {
+    font-family: var(--font_heading);
+    margin-bottom: var(--space_2xl);
+  }
+
+  .testimonials-inner {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space_xl);
+  }
+
+  .testimonial {
+    padding: var(--space_xl);
+    background: var(--color_surface_alt);
+    border-radius: var(--radius_lg);
+    border: 1px solid var(--color_border);
+    box-shadow: var(--shadow_sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_md);
+    transition: transform var(--ease), box-shadow var(--ease);
+  }
+
+  .testimonial:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow_lg);
+  }
+
+  .testimonial-mark {
+    font-family: var(--font_heading);
+    font-size: 5rem;
+    line-height: 0.8;
+    color: var(--color_cta_primary);
+    font-weight: var(--font_weight_bold);
+    user-select: none;
+    pointer-events: none;
+  }
+
+  .testimonial-quote {
+    font-family: var(--font_body);
+    font-size: var(--text_xl);
+    line-height: var(--leading_relaxed);
+    color: var(--block-body, var(--color_text_primary));
+    flex: 1;
+    max-width: none;
+  }
+
+  .testimonial-attribution {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding-top: var(--space_sm);
+    border-top: 1px solid var(--color_border);
+    margin-top: auto;
+  }
+
+  .testimonial-name {
+    font-style: normal;
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--block-heading, var(--color_text_heading));
+  }
+
+  .testimonial-role {
+    font-size: var(--text_xs);
+    color: var(--block-body, var(--color_text_secondary));
+    line-height: var(--leading_normal);
+  }
+
+  @media (max-width: 900px) {
+    .testimonials-inner {
+      display: flex;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      gap: var(--space_md);
+      padding-bottom: var(--space_sm);
+      /* hide scrollbar on webkit */
+      scrollbar-width: none;
+    }
+
+    .testimonials-inner::-webkit-scrollbar {
+      display: none;
+    }
+
+    .testimonial {
+      flex: 0 0 min(85vw, 340px);
+      scroll-snap-align: start;
+    }
+  }
+</style>

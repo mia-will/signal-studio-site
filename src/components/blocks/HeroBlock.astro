@@ -1,0 +1,526 @@
+---
+import type { PageBlock, MediaAsset } from '../../types/content';
+import { supabase } from '../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+  imageAsset?: MediaAsset;
+  railEvents?: any[];
+  railPosts?: any[];
+}
+
+const { block, imageAsset, railEvents = [], railPosts = [] } = Astro.props;
+const heroImageUrl = imageAsset?.image_url;
+const heroImageAlt = imageAsset?.alt_text || (block.props?.title ?? '');
+
+// Layout detection — Remix has path_cards, Signal Studio does not
+const isRemix = Array.isArray(block.props?.path_cards) && block.props.path_cards.length > 0;
+const isSplit = !isRemix;
+
+// Remix-only props
+const pathCards = (block.props?.path_cards ?? []) as { track: string; title: string; subtitle?: string; href: string }[];
+const heroBg    = block.props?.background ?? 'var(--color_surface_hero)';
+
+// Rail config — all from props
+const railHeading      = block.props?.rail?.heading      as string | undefined;
+const railSeeAllLabel  = block.props?.rail?.see_all_label as string | undefined;
+const railSeeAllHref   = block.props?.rail?.see_all_href  as string | undefined;
+const railEventsLimit  = Number(block.props?.rail?.events?.limit ?? 4);
+const railPostsLimit   = Number(block.props?.rail?.posts?.limit  ?? 2);
+const railBg           = block.props?.hero_background?.rail_background as string | undefined;
+const railBorder       = block.props?.hero_background?.rail_border     as string | undefined;
+const railShadow       = block.props?.hero_background?.rail_shadow     as string | undefined;
+const contentOrder     = block.props?.rail?.content_order as string | undefined;
+const typeLabels       = (block.props?.rail?.type_labels    ?? {}) as Record<string, string>;
+const audienceLabels   = (block.props?.rail?.audience_labels ?? {}) as Record<string, string>;
+const trackColours     = (block.props?.track_colours         ?? {}) as Record<string, any>;
+const railItemsLimit      = Number(block.props?.hero_layout?.rail_items_limit ?? 5);
+const railEventTimezone      = block.props?.rail?.events?.display_timezone       as string | undefined;
+const railEventsBasePath     = block.props?.rail?.events?.event_detail_base_path  as string | undefined;
+const railBadgeGap        = (block.props?.rail?.badge_gap as string | undefined) ?? 'var(--gap_xs)';
+const eventsShown         = Math.min(railEventsLimit, railEvents.length);
+const postsToShow         = Math.max(0, railItemsLimit - eventsShown);
+const railColWidth        = block.props?.hero_layout?.right_width      as string | undefined;
+const heroGap             = block.props?.hero_layout?.gap             as string | undefined;
+const heroPadding         = block.props?.hero_layout?.padding         as string | undefined;
+const heroSectionGap      = block.props?.hero_layout?.section_gap     as string | undefined;
+const heroCardPadding     = block.props?.hero_layout?.card_padding    as string | undefined;
+const heroCardGap         = block.props?.hero_layout?.card_gap        as string | undefined;
+const heroCardTitleSize   = block.props?.hero_layout?.card_title_size as string | undefined;
+const heroCardSubtitleSize = block.props?.hero_layout?.card_subtitle_size as string | undefined;
+const showRail         = !!(railHeading || railEvents.length > 0 || railPosts.length > 0);
+
+// New here? card — from props
+const newHereHeading    = block.props?.new_here_heading    as string | undefined;
+const newHereBody       = block.props?.new_here_body       as string | undefined;
+const howItWorksAnchor  = block.props?.how_it_works_anchor as string | undefined;
+
+// Helpers
+function fmtDate(iso: string | null | undefined, tz?: string): string {
+  if (!iso) return '';
+  const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+  if (tz) opts.timeZone = tz;
+  return new Date(iso).toLocaleDateString('en-AU', opts);
+}
+
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(diff / 36e5);
+  if (h < 1) return 'just now';
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return fmtDate(iso);
+}
+
+// Signal Studio — fetch latest published posts (suppressed when show_latest_posts is explicitly false)
+const showPosts = block.props?.show_latest_posts !== false;
+let latestPosts: any[] = [];
+if (isSplit && showPosts) {
+  const { data } = await supabase
+    .from('posts')
+    .select('title, slug, published_at, category')
+    .contains('site_show', ['remix'])
+    .eq('status', 'published')
+    .order('published_at', { ascending: false })
+    .limit(3);
+  latestPosts = data ?? [];
+}
+---
+
+{isSplit ? (
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- SIGNAL STUDIO — Split layout                        -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section style="background: var(--color_background);">
+    <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x); padding-top: var(--layout_padding_y_sm);">
+
+      <div class:list={["hero-split-grid", { "hero-split-grid--has-image": !!heroImageUrl }]} style="display: grid; gap: var(--gap_lg); align-items: start;">
+
+        <!-- LEFT: content column -->
+        <div style="display: flex; flex-direction: column; gap: 0; padding-bottom: var(--layout_padding_y_sm);">
+
+          {(block.eyebrow ?? block.props?.eyebrow ?? block.props?.headline) && (
+            block.props?.ecosystem_href ? (
+              <a href={block.props.ecosystem_href} target="_blank" rel="noopener noreferrer" style="font-size: var(--text_xs); font-weight: var(--font_weight_medium); color: var(--color_text_secondary); opacity: 0.75; text-decoration: none; display: block; margin: 0 0 var(--gap_sm);">
+                {block.eyebrow ?? block.props?.eyebrow ?? block.props?.headline}
+              </a>
+            ) : (
+              <p style="font-size: var(--text_xs); font-weight: var(--font_weight_medium); color: var(--color_text_secondary); opacity: 0.75; margin: 0 0 var(--gap_sm);">
+                {block.eyebrow ?? block.props?.eyebrow ?? block.props?.headline}
+              </p>
+            )
+          )}
+
+          <h1 style="font-family: var(--font_heading); font-size: var(--font_size_hero); font-weight: var(--font_weight_bold); line-height: var(--line_height_heading); letter-spacing: var(--letter_spacing_heading); color: var(--color_text_heading); margin: 0 0 var(--gap_md);">
+            {block.props?.title ?? block.title}
+          </h1>
+
+          {(block.subtitle ?? block.props?.subtitle) && (
+            <p style="font-size: var(--text_lg); font-weight: var(--font_weight_medium); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm); max-width: 52ch;">
+              {block.subtitle ?? block.props?.subtitle}
+            </p>
+          )}
+
+          {block.props?.subhead && (
+            <p style="font-size: var(--text_base); font-weight: var(--font_weight_normal); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm); max-width: 52ch;">
+              {block.props.subhead}
+            </p>
+          )}
+
+          {(block.body ?? block.props?.body) && (
+            <p style="font-size: var(--text_base); font-weight: var(--font_weight_normal); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_sm); max-width: 52ch;">
+              {block.body ?? block.props?.body}
+            </p>
+          )}
+
+          {block.props?.note && (
+            <p style="font-size: var(--text_sm); font-weight: var(--font_weight_normal); line-height: var(--leading_relaxed); color: var(--color_text_secondary); opacity: 0.75; margin: 0 0 var(--gap_md); max-width: 52ch;">
+              {block.props.note}
+            </p>
+          )}
+
+          {block.props?.bullets && block.props.bullets.length > 0 && (
+            <ul style="list-style: none; padding: 0; margin: 0 0 var(--gap_lg); display: flex; flex-direction: column; gap: var(--gap_sm);">
+              {(block.props.bullets as string[]).map((bullet) => (
+                <li style="display: flex; align-items: baseline; gap: var(--gap_sm); font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_normal);">
+                  <span style="color: var(--color_cta_primary); font-weight: var(--font_weight_bold); flex-shrink: 0;">—</span>
+                  {bullet}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div style="display: flex; gap: var(--gap_sm); flex-wrap: wrap; margin-bottom: var(--gap_sm);">
+            {block.props?.cta_primary?.href && (
+              <a href={block.props.cta_primary.href} class="btn btn--primary">
+                {block.props.cta_primary.label}
+              </a>
+            )}
+            {(block.props?.cta_secondary?.label && block.props?.cta_secondary?.href) && (
+              <a
+                href={block.props.cta_secondary.href}
+                class="btn btn--outline"
+                target={block.props.cta_secondary.href.startsWith('http') ? '_blank' : undefined}
+                rel={block.props.cta_secondary.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+              >
+                {block.props.cta_secondary.label}
+              </a>
+            )}
+          </div>
+
+          {latestPosts.length > 0 && (
+            <div style="border-top: 1px solid var(--color_border); padding-top: var(--gap_md); margin-top: var(--gap_md);">
+              <span style="font-size: var(--text_xs); font-weight: var(--font_weight_bold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_cta_primary); display: block; margin-bottom: var(--gap_sm);">
+                Latest from the Studio
+              </span>
+              <div class="hero-latest-strip">
+                {latestPosts.map((post: any, i: number) => (
+                  <a
+                    href={`/latest/${post.slug}`}
+                    class="hero-latest-item"
+                  >
+                    <span style="font-size: var(--text_xs); color: var(--color_text_secondary); white-space: nowrap;">
+                      {new Date(post.published_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                    </span>
+                    <span style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); line-height: var(--leading_tight); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                      {post.title}
+                    </span>
+                    <span style="font-size: var(--text_xs); color: var(--color_cta_primary); font-weight: var(--font_weight_medium); margin-top: auto;">Read →</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        <!-- RIGHT: image only — renders nothing if no image -->
+        {heroImageUrl && (
+          <div style="padding-top: var(--gap_sm);">
+            <img
+              src={`${heroImageUrl}?width=800&quality=80`}
+              alt={heroImageAlt}
+              style={`width: 100%; height: auto; max-height: 560px; object-fit: cover; object-position: ${block.props?.image_position ?? 'center'}; border-radius: var(--radius_lg); display: block;`}
+              loading="eager"
+              decoding="async"
+            />
+          </div>
+        )}
+
+      </div>
+
+    </div>
+  </section>
+
+) : (
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- REMIX — Path cards + right rail layout              -->
+  <!-- ═══════════════════════════════════════════════════ -->
+  <section style={`background: ${heroBg}; border-bottom: 1px solid var(--color_border);`}>
+    <div class="rm-hero-grid" style={`max-width: 1400px; margin-inline: auto; padding: ${heroPadding ?? '48px 48px 24px'};${showRail ? ` display: grid; grid-template-columns: 1fr ${railColWidth ?? 'var(--layout_rail_width, 360px)'}; gap: ${heroGap ?? 'var(--gap_xl)'};  align-items: start;` : ''}`}>
+
+      <!-- LEFT COLUMN -->
+      <div>
+
+        {(block.props?.ecosystem_label && block.props?.ecosystem_href) && (
+          <a href={block.props.ecosystem_href} style="font-size: var(--text_xs); color: var(--color_text_secondary); text-decoration: none; display: block; margin-bottom: var(--gap_sm); opacity: 0.7;">{block.props.ecosystem_label}</a>
+        )}
+
+        {block.props?.eyebrow && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_bold); letter-spacing: var(--letter_spacing_eyebrow); text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--gap_sm);">
+            {block.props.eyebrow}
+          </p>
+        )}
+
+        {(block.props?.title ?? block.title) && (
+          <h1 style="font-family: var(--font_heading); font-size: var(--font_size_hero); font-weight: var(--font_weight_bold); line-height: var(--line_height_heading); letter-spacing: var(--letter_spacing_heading); color: var(--color_text_heading); margin: 0 0 var(--gap_md);">
+            {block.props?.title ?? block.title}
+          </h1>
+        )}
+
+        {(block.props?.subtitle ?? block.subtitle) && (
+          <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0 0 var(--gap_lg); max-width: 54ch;">
+            {block.props?.subtitle ?? block.subtitle}
+          </p>
+        )}
+
+        {pathCards.length > 0 && (
+          <div class="rm-path-card-grid" style={`display: grid; grid-template-columns: 1fr 1fr; gap: ${heroCardGap ?? 'var(--gap_sm)'}; margin-top: ${heroSectionGap ?? 'var(--gap_sm)'};`}>
+            {pathCards.map((card) => {
+              const isApplier = card.track === 'appliers' || card.track === 'applier';
+              const cardBg   = isApplier ? 'var(--color_track_applier_tint)' : 'var(--color_track_builder_tint)';
+              const badgeBg  = isApplier ? 'var(--color_track_applier)'      : 'var(--color_track_builder)';
+              const ctaColor = isApplier ? 'var(--color_track_applier)'      : 'var(--color_track_builder)';
+              return (
+                <a
+                  href={card.href}
+                  class="rm-path-card"
+                  style={`display: flex; flex-direction: row; align-items: flex-start; gap: var(--gap_md); padding: ${heroCardPadding ?? 'var(--gap_sm) var(--gap_md)'}; border-radius: var(--radius_lg); text-decoration: none; background: ${cardBg};`}
+                >
+                  <div style={`width: 48px; height: 48px; border-radius: 50%; background: ${badgeBg}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;`}>
+                    {isApplier ? (
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="7" r="4"/>
+                        <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+                      </svg>
+                    ) : (
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polyline points="16 18 22 12 16 6"/>
+                        <polyline points="8 6 2 12 8 18"/>
+                      </svg>
+                    )}
+                  </div>
+                  <div class="rm-path-card-body" style="display: flex; flex-direction: column;">
+                    <span style={`font-family: var(--font_heading); font-size: ${heroCardTitleSize ?? 'var(--text_xl)'}; font-weight: var(--font_weight_bold); color: var(--color_text_heading); line-height: var(--leading_tight); margin-bottom: var(--gap_xs);`}>
+                      {card.title}
+                    </span>
+                    {card.subtitle && (
+                      <span style={`font-size: ${heroCardSubtitleSize ?? 'var(--text_sm)'}; color: var(--color_text_secondary); line-height: var(--leading_relaxed); flex: 1; margin-bottom: var(--gap_md);`}>
+                        {card.subtitle}
+                      </span>
+                    )}
+                    <span style={`font-size: var(--text_sm); font-weight: var(--font_weight_bold); color: ${ctaColor}; margin-top: auto;`}>
+                      Explore →
+                    </span>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        )}
+
+        <!-- New here? card — only renders when props are set -->
+        {(newHereHeading && newHereBody) && (
+          <a
+            href={howItWorksAnchor ? `#${howItWorksAnchor}` : '#how-it-works'}
+            class="rm-new-here-card"
+            style="margin-top: var(--gap_md); background: var(--color_surface); border: 1px solid var(--color_border); border-radius: var(--radius_lg); padding: var(--gap_md); display: flex; align-items: flex-start; gap: var(--gap_md); text-decoration: none; cursor: pointer;"
+          >
+            <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--color_background); border: 1.5px solid var(--color_border); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color_text_secondary);" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <polyline points="19 12 12 19 5 12"/>
+              </svg>
+            </div>
+            <div>
+              <p style="font-size: var(--text_base); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0 0 var(--gap_xs);">{newHereHeading}</p>
+              <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed);">{newHereBody}</p>
+            </div>
+          </a>
+        )}
+
+      </div>
+
+      <!-- RIGHT RAIL — only rendered when showRail is true -->
+      {showRail && (
+        <aside style="align-self: flex-start;">
+          <div style={`background: ${railBg ?? 'var(--color_surface_dark)'}; border-radius: var(--radius_lg); padding: var(--gap_md) var(--gap_lg); border: ${railBorder ?? '1px solid rgba(255,255,255,0.08)'}; box-shadow: ${railShadow ?? 'var(--shadow_lg)'};`}>
+
+            <!-- Rail header -->
+            {railHeading && (
+              <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: var(--gap_sm); margin-bottom: var(--gap_xs);">
+                <span style="font-size: var(--text_xs); font-weight: var(--font_weight_bold); text-transform: uppercase; letter-spacing: var(--letter_spacing_eyebrow); color: var(--color_text_on_dark);">{railHeading}</span>
+                {(railSeeAllHref && railSeeAllLabel) && (
+                  <a href={railSeeAllHref} style="font-size: var(--text_xs); font-weight: var(--font_weight_medium); color: var(--color_cta_primary); text-decoration: none;">{railSeeAllLabel} →</a>
+                )}
+              </div>
+            )}
+
+            {/* Events first (default) */}
+            {contentOrder !== 'posts_first' && railEvents.slice(0, railEventsLimit).map((ev: any, i: number) => {
+              const isLast = i === Math.min(railEventsLimit, railEvents.length) - 1 && railPosts.length === 0;
+              const isApplier = ev.audience_track === 'appliers' || ev.audience_track === 'applier';
+              return (
+                <div style={`padding: var(--gap_sm) 0; border-bottom: 1px solid ${isLast ? 'transparent' : 'rgba(255,255,255,0.1)'};`}>
+                  <div style={`display: flex; align-items: center; gap: ${railBadgeGap}; margin-bottom: var(--gap_xs); flex-wrap: wrap;`}>
+                    <span style="font-size: var(--badge_font_size); font-weight: var(--font_weight_semibold); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.15); white-space: nowrap;">
+                      Event
+                    </span>
+                    {ev.audience_track && (
+                      <span style={`font-size: var(--badge_font_size); font-weight: var(--font_weight_semibold); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; white-space: nowrap; color: ${isApplier ? 'var(--color_track_applier)' : 'var(--color_track_builder)'}; background: ${isApplier ? 'rgba(255,138,51,0.2)' : 'rgba(26,158,126,0.2)'};`}>
+                        {ev.audience_track}
+                      </span>
+                    )}
+                    {ev.suburb && <span style="font-size: var(--text_xs); color: rgba(255,255,255,0.5);">· {ev.suburb}</span>}
+                    <span style="margin-left: auto; font-size: var(--text_xs); color: rgba(255,255,255,0.5);">{fmtDate(ev.start_at, railEventTimezone)}</span>
+                  </div>
+                  {ev.slug
+                    ? <a href={`${railEventsBasePath}${ev.slug}`} style="display: block; font-family: var(--font_heading); font-size: var(--text_sm); font-weight: var(--font_weight_bold); color: var(--color_text_on_dark); margin: 0 0 var(--gap_xs); line-height: var(--leading_tight); text-decoration: none;">{ev.title}</a>
+                    : <span style="display: block; font-family: var(--font_heading); font-size: var(--text_sm); font-weight: var(--font_weight_bold); color: var(--color_text_on_dark); margin: 0 0 var(--gap_xs); line-height: var(--leading_tight);">{ev.title}</span>
+                  }
+                  {ev.summary && (
+                    <p style="font-size: var(--text_xs); color: rgba(255,255,255,0.65); margin: var(--gap_xs) 0 0; line-height: var(--leading_relaxed); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{ev.summary}</p>
+                  )}
+                  <div style="display: flex; justify-content: flex-end; margin-top: var(--gap_xs);">
+                    <a href={ev.registration_url ?? '#'} style="font-size: var(--text_xs); color: var(--color_cta_primary); text-decoration: none; font-weight: var(--font_weight_bold);" target="_blank" rel="noopener noreferrer">Register →</a>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Divider between sections when both present */}
+            {(railEvents.length > 0 && railPosts.length > 0) && (
+              <div style="border-top: 1px solid rgba(255,255,255,0.1); margin: 2px 0;" aria-hidden="true"></div>
+            )}
+
+            {/* Posts */}
+            {railPosts.slice(0, postsToShow).map((post: any, i: number) => {
+              const isLast = i === Math.min(postsToShow, railPosts.length) - 1;
+              return (
+                <div style={`padding: var(--gap_sm) 0; border-bottom: 1px solid ${isLast ? 'transparent' : 'rgba(255,255,255,0.1)'};`}>
+                  <div style={`display: flex; align-items: center; gap: ${railBadgeGap}; margin-bottom: var(--gap_xs);`}>
+                    <span style="font-size: var(--badge_font_size); font-weight: var(--font_weight_semibold); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.15); white-space: nowrap;">
+                      {typeLabels[post.category] ?? post.category ?? 'Post'}
+                    </span>
+                    {(post.audience_primary && audienceLabels[post.audience_primary]) && (
+                      <span style={`font-size: var(--badge_font_size); font-weight: var(--font_weight_semibold); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; white-space: nowrap; background: ${trackColours[post.audience_primary]?.badge ?? 'rgba(255,255,255,0.1)'}; color: rgba(255,255,255,0.9);`}>
+                        {audienceLabels[post.audience_primary]}
+                      </span>
+                    )}
+                    <span style="font-size: var(--text_xs); color: rgba(255,255,255,0.5); margin-left: auto;">{timeAgo(post.published_at)}</span>
+                  </div>
+                  <a href={`/posts/${post.slug}`} class="rail-post-title">
+                    {post.title}
+                  </a>
+                  <div style="display: flex; align-items: center; justify-content: flex-end;">
+                    <a href={`/posts/${post.slug}`} style="font-size: var(--text_xs); color: var(--color_cta_primary); text-decoration: none; font-weight: var(--font_weight_bold);">Read →</a>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Posts first variant */}
+            {contentOrder === 'posts_first' && railEvents.slice(0, railEventsLimit).map((ev: any, i: number) => {
+              const isLast = i === Math.min(railEventsLimit, railEvents.length) - 1;
+              const isApplier = ev.audience_track === 'appliers' || ev.audience_track === 'applier';
+              return (
+                <div style={`padding: var(--gap_sm) 0; border-bottom: 1px solid ${isLast ? 'transparent' : 'rgba(255,255,255,0.1)'};`}>
+                  <div style={`display: flex; align-items: center; gap: ${railBadgeGap}; margin-bottom: var(--gap_xs); flex-wrap: wrap;`}>
+                    <span style="font-size: var(--badge_font_size); font-weight: var(--font_weight_semibold); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.15); white-space: nowrap;">Event</span>
+                    {ev.audience_track && (
+                      <span style={`font-size: var(--badge_font_size); font-weight: var(--font_weight_semibold); letter-spacing: var(--badge_letter_spacing); padding: 2px 6px; border-radius: 100px; white-space: nowrap; color: ${isApplier ? 'var(--color_track_applier)' : 'var(--color_track_builder)'}; background: ${isApplier ? 'rgba(255,138,51,0.2)' : 'rgba(26,158,126,0.2)'};`}>{ev.audience_track}</span>
+                    )}
+                    {ev.suburb && <span style="font-size: var(--text_xs); color: rgba(255,255,255,0.5);">· {ev.suburb}</span>}
+                    <span style="margin-left: auto; font-size: var(--text_xs); color: rgba(255,255,255,0.5);">{fmtDate(ev.start_at, railEventTimezone)}</span>
+                  </div>
+                  {ev.slug
+                    ? <a href={`${railEventsBasePath}${ev.slug}`} style="display: block; font-family: var(--font_heading); font-size: var(--text_sm); font-weight: var(--font_weight_bold); color: var(--color_text_on_dark); margin: 0 0 var(--gap_xs); line-height: var(--leading_tight); text-decoration: none;">{ev.title}</a>
+                    : <span style="display: block; font-family: var(--font_heading); font-size: var(--text_sm); font-weight: var(--font_weight_bold); color: var(--color_text_on_dark); margin: 0 0 var(--gap_xs); line-height: var(--leading_tight);">{ev.title}</span>
+                  }
+                  {ev.summary && (
+                    <p style="font-size: var(--text_xs); color: rgba(255,255,255,0.65); margin: var(--gap_xs) 0 0; line-height: var(--leading_relaxed); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{ev.summary}</p>
+                  )}
+                  <div style="display: flex; justify-content: flex-end; margin-top: var(--gap_xs);">
+                    <a href={ev.registration_url ?? '#'} style="font-size: var(--text_xs); color: var(--color_cta_primary); text-decoration: none; font-weight: var(--font_weight_bold);" target="_blank" rel="noopener noreferrer">Register →</a>
+                  </div>
+                </div>
+              );
+            })}
+
+          </div>
+        </aside>
+      )}
+
+    </div>
+  </section>
+
+)}
+
+<style>
+  /* ═══════════════════════════════════════════════════════ */
+  /* SIGNAL STUDIO — HeroBlock split layout                  */
+  /* ═══════════════════════════════════════════════════════ */
+
+  /* Rail post title link */
+  .rail-post-title {
+    display: block;
+    font-family: var(--font_heading);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_on_dark);
+    text-decoration: none;
+    margin: 0 0 var(--gap_xs);
+    line-height: var(--leading_tight);
+  }
+  .rail-post-title:hover {
+    text-decoration: underline;
+  }
+
+  /* Grid: default 1 column, 2 columns when image is present */
+  .hero-split-grid {
+    grid-template-columns: 1fr;
+  }
+  .hero-split-grid--has-image {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Latest posts strip */
+  .hero-latest-strip {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+  }
+  .hero-latest-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    text-decoration: none;
+    padding: 0 var(--gap_md);
+  }
+  .hero-latest-item:first-child {
+    padding-left: 0;
+  }
+  .hero-latest-item + .hero-latest-item {
+    border-left: 1px solid var(--color_border);
+  }
+
+  /* Remix hero — single column on mobile */
+  @media (max-width: 768px) {
+    .rm-hero-grid {
+      grid-template-columns: 1fr !important;
+      padding-inline: var(--layout_padding_x) !important;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .rm-path-card-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .rm-path-card,
+    .rm-new-here-card,
+    .rm-path-card-body,
+    .rm-hero-grid > *,
+    .rm-hero-grid aside {
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
+
+  /* Mobile */
+  @media (max-width: 768px) {
+    .hero-split-grid,
+    .hero-split-grid--has-image {
+      grid-template-columns: 1fr;
+    }
+    .hero-latest-strip {
+      flex-direction: column;
+      gap: var(--gap_sm);
+    }
+    .hero-latest-item {
+      padding: var(--gap_sm) 0;
+      border-left: none;
+    }
+    .hero-latest-item:first-child {
+      padding-top: 0;
+    }
+    .hero-latest-item + .hero-latest-item {
+      border-left: none;
+      border-top: 1px solid var(--color_border);
+    }
+  }
+</style>

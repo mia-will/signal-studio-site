@@ -1,0 +1,127 @@
+---
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+interface PrincipleItem {
+  short_name?: string;
+  title?: string;
+  description?: string;
+  body?: string;
+  accent?: string;
+}
+
+const inlineItems: PrincipleItem[] = block.props?.items ?? [];
+const bodyItems: PrincipleItem[] = inlineItems.length === 0 && (block.body ?? block.props?.body)
+  ? String(block.body ?? block.props.body)
+      .split(/\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((title) => ({ title }))
+  : [];
+
+const items: PrincipleItem[] = inlineItems.length > 0 ? inlineItems : bodyItems;
+
+const accentMap: Record<string, string> = {
+  orange: 'var(--color_cta_primary)',
+  eucalyptus: 'var(--color_accent_eucalyptus)',
+  teal: 'var(--color_accent_teal)',
+  yellow: 'var(--color_accent_yellow)',
+};
+
+const subtitle = block.subtitle ?? block.props?.subtitle;
+---
+
+<section class="principles section animate-on-scroll" aria-labelledby="principles-heading">
+  <div class="container">
+    {(block.title || block.eyebrow) && (
+      <header class="principles-header">
+        {block.eyebrow && <p class="principles-eyebrow">{block.eyebrow}</p>}
+        {block.title && <h2 id="principles-heading" style="font-family: var(--font_heading, 'Plus Jakarta Sans', sans-serif); font-weight: var(--font_weight_bold, 800);">{block.title}</h2>}
+        {subtitle && <p class="principles-subtitle">{subtitle}</p>}
+      </header>
+    )}
+
+    <div class="principles-grid">
+      {items.map((item) => {
+        const accentColor = accentMap[item.accent || ''] || 'var(--color_cta_primary)';
+        const label = item.title ?? item.short_name ?? '';
+        const body  = item.body  ?? item.description ?? '';
+        return (
+          <div class="principle-item" style={`--accent: ${accentColor};`}>
+            <h3 class="principle-title" style="font-family: var(--font_heading, 'Plus Jakarta Sans', sans-serif); font-weight: var(--font_weight_bold, 800);">{label}</h3>
+            <p class="principle-body">{body}</p>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+</section>
+
+<style>
+  .principles {
+    border-top: 1px solid var(--color_border);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .principles-header {
+    margin-bottom: var(--space_2xl);
+  }
+
+  .principles-subtitle {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: var(--space_sm) 0 0;
+    max-width: 52ch;
+  }
+
+  .principles-eyebrow {
+    font-family: var(--font_body);
+    font-size: 11px;
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--block-eyebrow, var(--color_cta_primary));
+    margin-bottom: 12px;
+    max-width: none;
+  }
+
+  .principles-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space_xl);
+  }
+
+  .principle-item {
+    border-top: 3px solid var(--accent);
+    padding-top: var(--space_md);
+  }
+
+  .principle-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--block-heading, var(--color_text_heading));
+    margin-bottom: var(--space_sm);
+    line-height: 1.25;
+  }
+
+  .principle-body {
+    font-size: var(--text_base);
+    color: var(--block-body, var(--color_text_secondary));
+    line-height: var(--leading_relaxed);
+    max-width: none;
+  }
+
+  @media (max-width: 768px) {
+    .principles-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space_lg);
+    }
+  }
+</style>

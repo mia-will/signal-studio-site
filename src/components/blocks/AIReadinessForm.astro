@@ -1,0 +1,524 @@
+---
+import type { PageBlock } from '../../types/content';
+import { supabase } from '../../lib/supabase';
+
+interface Props {
+  block?: PageBlock;
+  fallbackBlock?: PageBlock;
+}
+
+interface FormField {
+  field_key: string;
+  field_type: string;
+  label: string;
+  placeholder?: string | null;
+  helper_text?: string | null;
+  options?: Array<{ label: string; value: string }> | null;
+  is_required?: boolean;
+}
+
+const { block, fallbackBlock } = Astro.props;
+
+function normaliseField(field: Record<string, any>): FormField {
+  if (!field.name) throw new Error('AIReadinessForm: configured field missing name');
+  if (!field.type) throw new Error(`AIReadinessForm: configured field "${field.name}" missing type`);
+  if (!field.label) throw new Error(`AIReadinessForm: configured field "${field.name}" missing label`);
+
+  return {
+    field_key: field.name,
+    field_type: field.type,
+    label: field.label,
+    placeholder: field.placeholder ?? null,
+    helper_text: field.helper_text ?? null,
+    options: field.options ?? null,
+    is_required: field.required === true,
+  };
+}
+
+const stageOneConfig = block?.props?.stage_one ?? null;
+const stageTwoConfig = block?.props?.stage_two ?? null;
+const isTwoStage = Boolean(stageOneConfig?.fields?.length && stageTwoConfig?.fields?.length);
+
+const configuredFields = Array.isArray(block?.props?.fields)
+  ? (block.props.fields as Array<Record<string, any>>)
+  : [];
+
+const hasConfiguredFields = configuredFields.length > 0;
+
+const { data: fetchedFields = [] } = hasConfiguredFields || isTwoStage
+  ? { data: [] }
+  : await supabase
+      .from('form_fields')
+      .select('field_key, field_type, label, placeholder, helper_text, options, is_required, sort_order')
+      .eq('form_key', block?.props?.form_key ?? 'ai_readiness')
+      .eq('site_slug', block?.site_slug ?? 'signal_studio')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+const fields: FormField[] = hasConfiguredFields
+  ? configuredFields.map(normaliseField)
+  : ((fetchedFields ?? []) as FormField[]);
+
+const stageOneFields: FormField[] = isTwoStage
+  ? (stageOneConfig.fields as Array<Record<string, any>>).map(normaliseField)
+  : [];
+
+const stageTwoFields: FormField[] = isTwoStage
+  ? (stageTwoConfig.fields as Array<Record<string, any>>).map(normaliseField)
+  : [];
+
+const eyebrow = block?.props?.eyebrow ?? block?.eyebrow ?? null;
+const title = block?.props?.title ?? block?.title ?? null;
+const subtitle = block?.props?.subtitle ?? block?.subtitle ?? null;
+const intro = block?.props?.body ?? block?.props?.intro ?? block?.body ?? fallbackBlock?.subtitle ?? fallbackBlock?.body ?? null;
+const submitLabel = block?.props?.submit_label ?? null;
+const success = block?.props?.success ?? null;
+const apiRoute = block?.props?.api_route ?? (isTwoStage ? '/api/form-submission' : null);
+const siteSlug = block?.props?.site_slug ?? null;
+const source = block?.props?.source ?? block?.props?.form_type ?? null;
+const anchor = block?.anchor ?? block?.props?.anchor ?? block?.section_key ?? block?.props?.section_key ?? null;
+
+if (!title && (hasConfiguredFields || isTwoStage)) throw new Error('AIReadinessForm: missing block title');
+if (hasConfiguredFields && !submitLabel) throw new Error('AIReadinessForm: missing props.submit_label');
+if (!hasConfiguredFields && !isTwoStage && fields.length === 0) throw new Error('AIReadinessForm: missing form fields');
+if ((hasConfiguredFields || isTwoStage) && !apiRoute) throw new Error('AIReadinessForm: missing submission route');
+if ((hasConfiguredFields || isTwoStage) && !siteSlug) throw new Error('AIReadinessForm: missing props.site_slug');
+if ((hasConfiguredFields || isTwoStage) && !source) throw new Error('AIReadinessForm: missing props.source');
+if ((hasConfiguredFields || isTwoStage) && !success?.heading) throw new Error('AIReadinessForm: missing props.success.heading');
+if ((hasConfiguredFields || isTwoStage) && !success?.body) throw new Error('AIReadinessForm: missing props.success.body');
+if (isTwoStage && !stageOneConfig.submit_label) throw new Error('AIReadinessForm: missing props.stage_one.submit_label');
+if (isTwoStage && !stageTwoConfig.submit_label) throw new Error('AIReadinessForm: missing props.stage_two.submit_label');
+if (isTwoStage && !success?.cta_href) throw new Error('AIReadinessForm: missing props.success.cta_href');
+if (isTwoStage && !success?.cta_label) throw new Error('AIReadinessForm: missing props.success.cta_label');
+---
+
+<section id={anchor ?? undefined} class="ai-readiness-form-section">
+  <div class="ai-readiness-form-inner">
+    {eyebrow && <p class="ai-form-eyebrow">{eyebrow}</p>}
+    {title && <h2 class="ai-form-title">{title}</h2>}
+    {subtitle && <p class="ai-form-subtitle">{subtitle}</p>}
+    {intro && <p class="ai-form-intro">{intro}</p>}
+
+    {isTwoStage ? (
+      <form
+        id="ai-readiness-form"
+        data-two-stage="true"
+        data-api-route={apiRoute}
+        data-site-slug={siteSlug}
+        data-source={source}
+        novalidate
+      >
+        <div class="ai-form-stage" data-stage="one">
+          <div class="ai-form-fields">
+            {stageOneFields.map((field) => (
+              <div class="ai-form-field" data-field-wrapper="" data-field-key={field.field_key} data-field-type={field.field_type} data-required={field.is_required ? 'true' : 'false'}>
+                <label for={field.field_type !== 'multi_select' ? `field-${field.field_key}` : undefined}>
+                  {field.label}
+                  {field.is_required && <span aria-hidden="true">*</span>}
+                </label>
+                {field.helper_text && <p class="ai-form-helper">{field.helper_text}</p>}
+                {(field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'tel') && (
+                  <input type={field.field_type} id={`field-${field.field_key}`} name={field.field_key} placeholder={field.placeholder ?? undefined} required={field.is_required} autocomplete={field.field_type === 'email' ? 'email' : undefined} />
+                )}
+                {field.field_type === 'textarea' && (
+                  <textarea id={`field-${field.field_key}`} name={field.field_key} placeholder={field.placeholder ?? undefined} required={field.is_required} rows="4"></textarea>
+                )}
+                {field.field_type === 'select' && (
+                  <select id={`field-${field.field_key}`} name={field.field_key} required={field.is_required}>
+                    {field.placeholder && <option value="">{field.placeholder}</option>}
+                    {(field.options ?? []).map((opt) => <option value={opt.value}>{opt.label}</option>)}
+                  </select>
+                )}
+                {field.field_type === 'multi_select' && (
+                  <div class="ai-form-options" data-multi-container="" role="group" aria-label={field.label}>
+                    {(field.options ?? []).map((opt) => <button type="button" data-value={opt.value} data-selected="false">{opt.label}</button>)}
+                  </div>
+                )}
+              </div>
+            ))}
+            {stageOneConfig.microcopy && <p class="ai-form-helper">{stageOneConfig.microcopy}</p>}
+            <div class="ai-form-actions">
+              <button type="submit" id="ai-readiness-submit">{stageOneConfig.submit_label}</button>
+              <p id="ai-readiness-error" class="ai-form-error" hidden></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-form-stage" data-stage="two" hidden>
+          <div class="ai-form-fields">
+            {stageTwoFields.map((field) => (
+              <div class="ai-form-field" data-field-wrapper="" data-field-key={field.field_key} data-field-type={field.field_type} data-required={field.is_required ? 'true' : 'false'}>
+                <label for={field.field_type !== 'multi_select' ? `field-${field.field_key}` : undefined}>
+                  {field.label}
+                  {field.is_required && <span aria-hidden="true">*</span>}
+                </label>
+                {field.helper_text && <p class="ai-form-helper">{field.helper_text}</p>}
+                {(field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'tel') && (
+                  <input type={field.field_type} id={`field-${field.field_key}`} name={field.field_key} placeholder={field.placeholder ?? undefined} required={field.is_required} autocomplete={field.field_type === 'email' ? 'email' : undefined} />
+                )}
+                {field.field_type === 'textarea' && (
+                  <textarea id={`field-${field.field_key}`} name={field.field_key} placeholder={field.placeholder ?? undefined} required={field.is_required} rows="4"></textarea>
+                )}
+                {field.field_type === 'select' && (
+                  <select id={`field-${field.field_key}`} name={field.field_key} required={field.is_required}>
+                    {field.placeholder && <option value="">{field.placeholder}</option>}
+                    {(field.options ?? []).map((opt) => <option value={opt.value}>{opt.label}</option>)}
+                  </select>
+                )}
+                {field.field_type === 'multi_select' && (
+                  <div class="ai-form-options" data-multi-container="" role="group" aria-label={field.label}>
+                    {(field.options ?? []).map((opt) => <button type="button" data-value={opt.value} data-selected="false">{opt.label}</button>)}
+                  </div>
+                )}
+              </div>
+            ))}
+            <div class="ai-form-actions">
+              <button type="submit" id="ai-readiness-submit-final">{stageTwoConfig.submit_label}</button>
+              <p id="ai-readiness-error-final" class="ai-form-error" hidden></p>
+            </div>
+          </div>
+        </div>
+      </form>
+    ) : (
+      <form
+        id="ai-readiness-form"
+        data-api-route={apiRoute}
+        data-site-slug={siteSlug}
+        data-source={source}
+        novalidate
+      >
+        <div class="ai-form-fields">
+          {fields.map((field) => (
+            <div class="ai-form-field" data-field-wrapper="" data-field-key={field.field_key} data-field-type={field.field_type} data-required={field.is_required ? 'true' : 'false'}>
+              <label for={field.field_type !== 'multi_select' ? `field-${field.field_key}` : undefined}>
+                {field.label}
+                {field.is_required && <span aria-hidden="true">*</span>}
+              </label>
+              {field.helper_text && <p class="ai-form-helper">{field.helper_text}</p>}
+              {(field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'tel') && (
+                <input type={field.field_type} id={`field-${field.field_key}`} name={field.field_key} placeholder={field.placeholder ?? undefined} required={field.is_required} autocomplete={field.field_type === 'email' ? 'email' : undefined} />
+              )}
+              {field.field_type === 'textarea' && (
+                <textarea id={`field-${field.field_key}`} name={field.field_key} placeholder={field.placeholder ?? undefined} required={field.is_required} rows="4"></textarea>
+              )}
+              {field.field_type === 'select' && (
+                <select id={`field-${field.field_key}`} name={field.field_key} required={field.is_required}>
+                  {field.placeholder && <option value="">{field.placeholder}</option>}
+                  {(field.options ?? []).map((opt) => <option value={opt.value}>{opt.label}</option>)}
+                </select>
+              )}
+              {field.field_type === 'multi_select' && (
+                <div class="ai-form-options" data-multi-container="" role="group" aria-label={field.label}>
+                  {(field.options ?? []).map((opt) => <button type="button" data-value={opt.value} data-selected="false">{opt.label}</button>)}
+                </div>
+              )}
+            </div>
+          ))}
+          <div class="ai-form-actions">
+            <button type="submit" id="ai-readiness-submit">{submitLabel}</button>
+            <p id="ai-readiness-error" class="ai-form-error" hidden></p>
+          </div>
+        </div>
+      </form>
+    )}
+
+    <div id="ai-readiness-success" class="ai-form-success" hidden>
+      {success?.heading && <h3>{success.heading}</h3>}
+      {success?.body && <p>{success.body}</p>}
+      {success?.cta_href && success?.cta_label && (
+        <a href={success.cta_href} target={success.cta_href.startsWith('http') ? '_blank' : undefined} rel={success.cta_href.startsWith('http') ? 'noopener noreferrer' : undefined}>
+          {success.cta_label}
+        </a>
+      )}
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('[data-multi-container] button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const isSelected = btn.dataset.selected === 'true';
+      btn.dataset.selected = isSelected ? 'false' : 'true';
+    });
+  });
+
+  const form = document.getElementById('ai-readiness-form') as HTMLFormElement | null;
+  const successEl = document.getElementById('ai-readiness-success') as HTMLElement | null;
+  const stageOne = form?.querySelector<HTMLElement>('[data-stage="one"]') ?? null;
+  const stageTwo = form?.querySelector<HTMLElement>('[data-stage="two"]') ?? null;
+  const isTwoStage = form?.dataset.twoStage === 'true';
+
+  function collectValues(scope: ParentNode): Record<string, string | string[]> {
+    const payload: Record<string, string | string[]> = {};
+
+    scope.querySelectorAll<HTMLElement>('[data-field-wrapper]').forEach((wrapper) => {
+      const key = wrapper.dataset.fieldKey;
+      const type = wrapper.dataset.fieldType;
+      if (!key || !type) return;
+
+      if (type === 'multi_select') {
+        payload[key] = [...wrapper.querySelectorAll<HTMLButtonElement>('button[data-selected="true"]')]
+          .map((button) => button.dataset.value)
+          .filter((value): value is string => Boolean(value));
+      } else if (type === 'textarea') {
+        payload[key] = wrapper.querySelector<HTMLTextAreaElement>('textarea')?.value.trim() ?? '';
+      } else {
+        payload[key] = wrapper.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')?.value.trim() ?? '';
+      }
+    });
+
+    return payload;
+  }
+
+  async function submitPayload(payload: Record<string, string | string[]>, status: string) {
+    if (!form?.dataset.apiRoute || !form.dataset.siteSlug || !form.dataset.source) {
+      throw new Error('Missing form submission configuration.');
+    }
+
+    const email = typeof payload.email === 'string' ? payload.email : '';
+    const firstName = typeof payload.first_name === 'string' ? payload.first_name : '';
+
+    const res = await fetch(form.dataset.apiRoute, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        formKey: form.dataset.source,
+        siteSlug: form.dataset.siteSlug,
+        site_slug: form.dataset.siteSlug,
+        source: form.dataset.source,
+        page_path: window.location.pathname,
+        email,
+        first_name: firstName,
+        answers: payload,
+        payload,
+        status,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error ?? 'Submission failed.');
+    }
+  }
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    if (!form) return;
+
+    if (isTwoStage && stageOne && stageTwo && !stageOne.hidden) {
+      const submitBtn = document.getElementById('ai-readiness-submit') as HTMLButtonElement | null;
+      const errorEl = document.getElementById('ai-readiness-error') as HTMLElement | null;
+      const payload = collectValues(stageOne);
+
+      if (submitBtn) submitBtn.disabled = true;
+      if (errorEl) errorEl.hidden = true;
+
+      try {
+        await submitPayload(payload, 'partial');
+        stageOne.hidden = true;
+        stageTwo.hidden = false;
+      } catch (error) {
+        if (errorEl) {
+          errorEl.textContent = error instanceof Error ? error.message : 'Submission failed.';
+          errorEl.hidden = false;
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+
+      return;
+    }
+
+    const activeScope = isTwoStage && stageOne && stageTwo ? form : form;
+    const submitBtn = document.getElementById(isTwoStage ? 'ai-readiness-submit-final' : 'ai-readiness-submit') as HTMLButtonElement | null;
+    const errorEl = document.getElementById(isTwoStage ? 'ai-readiness-error-final' : 'ai-readiness-error') as HTMLElement | null;
+    const payload = collectValues(activeScope);
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (errorEl) errorEl.hidden = true;
+
+    try {
+      await submitPayload(payload, 'received');
+      form.hidden = true;
+      if (successEl) successEl.hidden = false;
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error instanceof Error ? error.message : 'Submission failed.';
+        errorEl.hidden = false;
+      }
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .ai-readiness-form-section {
+    padding-block: var(--layout_padding_y);
+    padding-inline: var(--layout_padding_x);
+    background: var(--color_surface);
+    border-top: 1px solid var(--color_border);
+    border-bottom: 1px solid var(--color_border);
+    overflow: hidden;
+  }
+
+  .ai-readiness-form-inner {
+    max-width: var(--form_max_width);
+    margin-inline: auto;
+  }
+
+  .ai-form-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin: 0 0 var(--gap_xs);
+  }
+
+  .ai-form-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_3xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0 0 var(--gap_sm);
+    line-height: var(--leading_tight);
+  }
+
+  .ai-form-subtitle,
+  .ai-form-intro {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0 0 var(--gap_md);
+  }
+
+  .ai-form-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_md);
+  }
+
+  .ai-form-field label {
+    display: block;
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading, var(--color_text_primary));
+    margin-bottom: var(--gap_sm);
+  }
+
+  .ai-form-field label span,
+  .ai-form-error {
+    color: var(--color_cta_primary);
+  }
+
+  .ai-form-helper {
+    font-size: var(--text_xs);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0;
+  }
+
+  .ai-form-field input,
+  .ai-form-field textarea,
+  .ai-form-field select {
+    width: 100%;
+    padding: var(--gap_sm) var(--gap_md);
+    font: inherit;
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_sm);
+    background: var(--color_surface, white);
+    color: var(--color_text_primary);
+    box-sizing: border-box;
+  }
+
+  .ai-form-field input:focus,
+  .ai-form-field textarea:focus,
+  .ai-form-field select:focus {
+    outline: 2px solid var(--color_cta_primary);
+    outline-offset: 2px;
+    border-color: var(--color_cta_primary);
+  }
+
+  .ai-form-field textarea {
+    resize: vertical;
+  }
+
+  .ai-form-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap_xs);
+  }
+
+  .ai-form-options button {
+    padding: var(--gap_sm) var(--gap_md);
+    font: inherit;
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_pill);
+    background: var(--color_surface, white);
+    color: var(--color_text_secondary);
+    cursor: pointer;
+  }
+
+  .ai-form-options button[data-selected="true"] {
+    border-color: var(--color_cta_primary);
+    background: color-mix(in srgb, var(--color_cta_primary) 10%, transparent);
+    color: var(--color_text_heading);
+  }
+
+  .ai-form-actions {
+    padding-top: var(--gap_xs);
+  }
+
+  #ai-readiness-submit,
+  #ai-readiness-submit-final,
+  .ai-form-success a {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--gap_sm) var(--gap_lg);
+    background: var(--color_cta_primary);
+    color: var(--button_primary_text);
+    font: inherit;
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    border: none;
+    border-radius: var(--radius_pill);
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .ai-form-error {
+    margin: var(--gap_sm) 0 0;
+    font-size: var(--text_sm);
+  }
+
+  .ai-form-success {
+    padding: var(--gap_lg);
+    border: 1px solid var(--color_border);
+    background: var(--color_surface, white);
+    border-left: var(--space_xs) solid var(--color_cta_primary);
+  }
+
+  .ai-form-success h3 {
+    margin: 0 0 var(--gap_xs);
+    color: var(--color_text_heading);
+    font-size: var(--text_xl);
+  }
+
+  .ai-form-success p {
+    margin: 0 0 var(--gap_md);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+  }
+
+  @media (max-width: 768px) {
+    #ai-readiness-submit,
+    #ai-readiness-submit-final,
+    .ai-form-success a {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+</style>

@@ -1,0 +1,256 @@
+---
+import '../styles/global.css';
+import { CURRENT_SITE } from '../config/sites';
+import { getBrandTokenData } from '../lib/tokens';
+import LiveSignalBar from '../components/LiveSignalBar.astro';
+
+interface Props {
+  title: string;
+  description?: string | null;
+  canonical?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  robots?: string;
+  jsonld?: any[];
+  aeoSummary?: string;
+  siteName?: string;
+  brandKey?: string;
+  rawTokenCSS?: string;
+}
+
+const {
+  title,
+  description = null,
+  canonical,
+  ogTitle,
+  ogDescription,
+  ogImage,
+  robots = 'index, follow',
+  jsonld = [],
+  aeoSummary,
+  siteName = 'The Signal Studio',
+  brandKey,
+  rawTokenCSS,
+} = Astro.props;
+
+const resolvedOgTitle = ogTitle || title;
+const resolvedOgDescription = ogDescription || description;
+const canonicalUrl = canonical || Astro.url.href;
+
+function parseFontNamesFromCSS(css: string) {
+  const extract = (key: string) => {
+    const m = css.match(new RegExp(`--${key}:\\s*([^;]+);`));
+    return m?.[1]?.trim()?.split(',')?.[0]?.trim()?.replace(/^['"]|['"]$/g, '') ?? '';
+  };
+  return { heading: extract('font_heading') || extract('font-heading'), body: extract('font_body') || extract('font-body') };
+}
+
+function cssToInlineStyle(css: string): string {
+  return Array.from(css.matchAll(/--([^:]+):\s*([^;]+);/g))
+    .map((m) => `--${m[1]}: ${m[2]}`)
+    .join('; ');
+}
+
+function buildGoogleFontsURL(heading: string, body: string): string {
+  const toParam = (name: string, weights: string) =>
+    name ? `family=${encodeURIComponent(name).replace(/%20/g, '+')}:wght@${weights}` : '';
+  const headingParam = toParam(heading, '400;600;700');
+  const bodyParam = body && body !== heading ? toParam(body, '400;500;600') : '';
+  const params = [headingParam, bodyParam].filter(Boolean).join('&');
+  return params ? `https://fonts.googleapis.com/css2?${params}&display=swap` : '';
+}
+
+let brandCSS: string;
+let brandInlineStyle: string;
+let fontHeadingName: string;
+let fontBodyName: string;
+
+if (rawTokenCSS != null) {
+  brandCSS = rawTokenCSS;
+  brandInlineStyle = cssToInlineStyle(rawTokenCSS);
+  const parsed = parseFontNamesFromCSS(rawTokenCSS);
+  fontHeadingName = parsed.heading;
+  fontBodyName = parsed.body;
+} else {
+  const tokenData = await getBrandTokenData(brandKey);
+  brandCSS = tokenData.css;
+  brandInlineStyle = tokenData.inlineStyle;
+  fontHeadingName = tokenData.fontHeadingName;
+  fontBodyName = tokenData.fontBodyName;
+}
+
+const googleFontsURL = buildGoogleFontsURL(fontHeadingName, fontBodyName);
+
+const showSignalBar = (brandKey ?? CURRENT_SITE) === 'signal_studio';
+
+const isRemixBrand = brandKey === 'the_remix' || CURRENT_SITE === 'remix';
+const faviconBase = isRemixBrand ? '' : '/signal-studio';
+---
+
+<!doctype html>
+<html lang="en" style={brandInlineStyle || undefined}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {!isRemixBrand && <link rel="icon" type="image/svg+xml" href={`${faviconBase}/favicon.svg`} />}
+    <link rel="icon" href={`${faviconBase}/favicon.ico`} />
+    <link rel="icon" type="image/png" sizes="32x32" href={`${faviconBase}/favicon-32x32.png`} />
+    {!isRemixBrand && <link rel="icon" type="image/png" sizes="16x16" href={`${faviconBase}/favicon-16x16.png`} />}
+    <link rel="apple-touch-icon" href={`${faviconBase}/apple-touch-icon.png`} />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    {googleFontsURL && <link href={googleFontsURL} rel="stylesheet" />}
+    <!-- Brand token override (per-site, from Supabase) -->
+    {brandCSS && <style set:html={brandCSS} />}
+
+    <!-- Heading font lock — must come after brand tokens so !important wins -->
+    <style is:global>
+      h1, h2, h3, h4 {
+        font-family: var(--font_heading) !important;
+        font-weight: 800 !important;
+      }
+
+      @media (max-width: 768px) {
+        .rm-site-header .rm-header-brand,
+        .rm-site-header .rm-header-nav {
+          border-bottom: 0 !important;
+        }
+
+        .rm-site-header .rm-header-brand {
+          padding-block: var(--space_xs) !important;
+          padding-inline: var(--space_sm) !important;
+        }
+
+        .rm-site-header ~ main {
+          --layout_padding_x: var(--space_sm);
+          --layout_padding_y: var(--space_xl);
+          --layout_padding_y_sm: var(--space_lg);
+          --card_padding_lg: var(--space_lg);
+          --gap_xl: var(--gap_lg);
+        }
+
+        .rm-site-header ~ main > section,
+        .rm-site-header ~ main .block-section > section,
+        .rm-site-header ~ main :where(.ehb-section, .eub-root, [data-pathways-block], .ph, .po, .pd, .pm, .pf, .pn, .pfaq) {
+          padding-block: var(--space_xl) !important;
+        }
+
+        .rm-site-header ~ main > section:first-child,
+        .rm-site-header ~ main .block-section:first-child > section,
+        .rm-site-header ~ main :where(.ehb-section, .ph) {
+          padding-top: var(--space_lg) !important;
+        }
+
+        .rm-site-header ~ main :where(.ehb-shell, .eub-shell, .ev-container, .latest-top-row, [data-pathways-block] > div, .ph-inner, .po-inner, .pd-inner, .pm-inner, .pf-inner, .pn-inner, .pfaq > div) {
+          padding-inline: var(--space_sm) !important;
+        }
+
+        .rm-site-header ~ main :where(.ehb-layout, .latest-top-row, .lfs-grid, .ev-hero-grid, .ev-body-grid, .ev-body-main, .pwb-grid, .eub-grid, .eub-past-grid) {
+          gap: var(--gap_md) !important;
+        }
+
+        .rm-site-header ~ main :where(.ehb-intro > p, .ph-eyebrow) {
+          margin-bottom: var(--space_xs) !important;
+        }
+
+        .rm-site-header ~ main :where(.ehb-intro > h1, .ph-title) {
+          margin-bottom: var(--space_sm) !important;
+        }
+
+        .rm-site-header ~ main :where(.ev-hero-section, .ev-body-section, .ev-more-section, .ev-cta-band) {
+          padding-block: var(--space_xl) !important;
+        }
+
+        .rm-site-header ~ main .ev-hero-text {
+          gap: var(--space_sm) !important;
+          padding-top: 0 !important;
+        }
+
+        .rm-site-header ~ main :where(.ev-title, .ph-title) {
+          line-height: var(--leading_tight) !important;
+        }
+
+        .rm-site-header ~ main :where(.ev-summary, .ev-body-para, .ph-body, .ph-subtitle) {
+          line-height: var(--leading_snug) !important;
+        }
+
+        .rm-site-header ~ main :where(.ev-body-main, .ev-editorial-section) {
+          gap: var(--space_lg) !important;
+        }
+
+        .rm-site-header ~ main :where(.eub-card > div, [data-pathway-card] > a, [data-pathway-card] > div, .ev-sidebar-card, .ev-audience-card, .ev-person-card, .ltr-panel > div) {
+          padding: var(--space_lg) !important;
+        }
+
+        .rm-site-header ~ main :where(.eub-tabs, [role="tablist"][aria-label="Filter pathways"]) {
+          margin-bottom: var(--space_lg) !important;
+          gap: var(--space_xs) !important;
+        }
+
+        .rm-site-header ~ main :where(.ev-more-card-body, .ev-sidebar-block) {
+          padding-block: var(--space_sm) !important;
+        }
+      }
+    </style>
+
+    <!-- Core SEO -->
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    {aeoSummary && <meta name="aeo-summary" content={aeoSummary} />}
+    <link rel="canonical" href={canonicalUrl} />
+    <meta name="robots" content={robots} />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={resolvedOgTitle} />
+    {resolvedOgDescription && <meta property="og:description" content={resolvedOgDescription} />}
+    <meta property="og:url" content={canonicalUrl} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={resolvedOgTitle} />
+    {resolvedOgDescription && <meta name="twitter:description" content={resolvedOgDescription} />}
+    {ogImage && <meta name="twitter:image" content={ogImage} />}
+
+    <!-- JSON-LD (from Supabase page_seo.jsonld) -->
+    {jsonld.map((schema) => (
+      <script type="application/ld+json" set:html={JSON.stringify(schema)} />
+    ))}
+
+    <!-- PostHog (The Remix only) -->
+    {isRemixBrand && (
+      <script define:vars={{ posthogKey: import.meta.env.PUBLIC_POSTHOG_KEY }}>
+        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys onSessionId".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+        posthog.init(posthogKey, {api_host: 'https://app.posthog.com'})
+      </script>
+    )}
+  </head>
+  <body>
+    {showSignalBar && <LiveSignalBar />}
+    <slot />
+  </body>
+
+  <script>
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }
+    );
+
+    document.querySelectorAll('.animate-on-scroll').forEach((el) => {
+      observer.observe(el);
+    });
+  </script>
+</html>

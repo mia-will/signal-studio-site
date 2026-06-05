@@ -1,0 +1,70 @@
+---
+import type { PageBlock } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+interface Segment {
+  title: string;
+  body?: string;
+  description?: string;
+  cta_href?: string;
+  cta_label?: string;
+  cta?: { href?: string; label?: string };
+}
+
+const { block } = Astro.props;
+
+const title = block.props?.title ?? block.title;
+const intro = block.props?.intro ?? block.props?.body ?? block.body;
+const segments: Segment[] = block.props?.segments ?? [];
+const anchor = block.anchor ?? block.props?.section_key ?? undefined;
+const bodyParagraphs = intro ? String(intro).split('\n\n').map((p) => p.trim()).filter(Boolean) : [];
+---
+
+<section id={anchor} style="padding-block: var(--layout_padding_y);">
+  <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+    {(title || bodyParagraphs.length > 0) && (
+      <div style="margin-bottom: var(--gap_lg); max-width: 680px;">
+        {title && (
+          <h2 style="font-family: var(--font_heading); font-size: var(--text_3xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0 0 var(--gap_sm); line-height: var(--leading_tight);">
+            {title}
+          </h2>
+        )}
+        {bodyParagraphs.map((paragraph) => (
+          <p style="font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0 0 var(--gap_sm);">
+            {paragraph}
+          </p>
+        ))}
+      </div>
+    )}
+
+    {segments.length > 0 && (
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--gap_md); align-items: stretch;">
+        {segments.map((segment) => {
+          const body = segment.body ?? segment.description;
+          const ctaHref = segment.cta_href ?? segment.cta?.href;
+          const ctaLabel = segment.cta_label ?? segment.cta?.label;
+          return (
+            <article style="display: flex; flex-direction: column; min-height: 100%; background: var(--color_surface); border: 1px solid var(--color_border); border-radius: var(--radius_lg); padding: var(--gap_lg); gap: var(--gap_sm); box-shadow: var(--shadow_sm);">
+              <h3 style="font-family: var(--font_heading); font-size: var(--text_xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_tight);">
+                {segment.title}
+              </h3>
+              {body && (
+                <p style="font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0; flex: 1;">
+                  {body}
+                </p>
+              )}
+              {ctaHref && ctaLabel && (
+                <a href={ctaHref} style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); text-decoration: none; margin-top: auto; padding-top: var(--gap_sm);">
+                  {ctaLabel} <span aria-hidden="true">&rarr;</span>
+                </a>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    )}
+  </div>
+</section>

@@ -1,0 +1,355 @@
+---
+interface Link {
+  label?: string | null;
+  url?: string | null;
+  href?: string | null;
+}
+
+interface Props {
+  block?: any;
+  pathway: any;
+}
+
+const { pathway } = Astro.props;
+
+const sectionTitle: string | null  = pathway.section_label_next_steps ?? null;
+const pathwayStatus: string | null = pathway.pathway_status ?? null;
+const isOpen       = pathwayStatus === 'open';
+const isComingSoon = pathwayStatus === 'coming_soon';
+
+// Body text
+const bodyParas: string[] = pathway.next_step_text
+  ? (pathway.next_step_text as string).split('\n\n').map((p: string) => p.trim()).filter(Boolean)
+  : [];
+
+// Links
+function normalizeLinks(val: unknown): Link[] {
+  if (Array.isArray(val)) return val as Link[];
+  if (typeof val === 'string') {
+    try { return JSON.parse(val) as Link[]; } catch { return []; }
+  }
+  return [];
+}
+
+const links: Link[] = normalizeLinks(pathway.next_step_links)
+  .filter((l) => !!(l.url ?? l.href) && !!l.label);
+
+// Open CTA
+const ctaHref: string | null = pathway.stripe_payment_link_url ?? pathway.cta_link ?? null;
+const showCta = isOpen && !!pathway.cta_label && !!ctaHref;
+
+// Payment plan (open only, plan URL required)
+const showPlan = isOpen
+  && !!pathway.stripe_payment_link_url_plan
+  && (!!pathway.price_plan_amount || !!pathway.price_plan_instalments);
+
+// Coming-soon capture
+const showCapture = isComingSoon && !!pathway.panel_capture_label;
+
+const hasContent =
+  sectionTitle ||
+  bodyParas.length > 0 ||
+  links.length > 0 ||
+  showCta ||
+  showCapture;
+---
+
+{hasContent && (
+  <section class="pns">
+    <div class="pns-inner">
+
+      {sectionTitle && (
+        <h2 class="pns-title">{sectionTitle}</h2>
+      )}
+
+      {bodyParas.length > 0 && (
+        <div class="pns-body">
+          {bodyParas.map((p) => <p>{p}</p>)}
+        </div>
+      )}
+
+      {links.length > 0 && (
+        <ul class="pns-links">
+          {links.map((link) => (
+            <li>
+              <a href={(link.url ?? link.href)!} class="pns-link">{link.label}</a>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {showCta && (
+        <div class="pns-cta-wrap">
+          <a href={ctaHref!} class="pns-cta-btn">{pathway.cta_label}</a>
+
+          {showPlan && (
+            <a href={pathway.stripe_payment_link_url_plan} class="pns-plan-link">
+              {pathway.price_plan_amount && (
+                <span class="pns-plan-amount">{pathway.price_plan_amount}</span>
+              )}
+              {pathway.price_plan_instalments && (
+                <span class="pns-plan-instalments">{pathway.price_plan_instalments}</span>
+              )}
+            </a>
+          )}
+        </div>
+      )}
+
+      {showCapture && (
+        <div class="pns-capture">
+          <p class="pns-capture-label">{pathway.panel_capture_label}</p>
+          <form
+            class="pns-capture-form"
+            data-source={pathway.panel_capture_source ?? ''}
+            data-success={pathway.panel_capture_success ?? ''}
+            data-error={pathway.panel_capture_error ?? ''}
+            novalidate
+          >
+            <div class="pns-capture-row">
+              <input
+                type="email"
+                class="pns-capture-input"
+                placeholder={pathway.panel_capture_placeholder ?? ''}
+                autocomplete="email"
+                aria-label={pathway.panel_capture_label}
+              />
+              <button
+                type="submit"
+                class="pns-capture-btn"
+                aria-label={pathway.panel_capture_label}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          </form>
+          <p class="pns-capture-success" aria-live="polite" hidden></p>
+          <p class="pns-capture-error" aria-live="assertive" hidden></p>
+        </div>
+      )}
+
+    </div>
+  </section>
+)}
+
+<style>
+  .pns {
+    padding-block: var(--layout_padding_y_md);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .pns-inner {
+    max-width: 760px;
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_lg);
+  }
+
+  .pns-title {
+    font-family: var(--font_heading);
+    font-size: clamp(1.4rem, 2.5vw, 1.875rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+
+  .pns-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_lg);
+  }
+
+  .pns-body p {
+    font-size: var(--text_base);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+
+  /* ── Links ── */
+  .pns-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_xs);
+  }
+
+  .pns-link {
+    font-size: var(--text_base);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_cta_primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: opacity 0.15s;
+  }
+
+  .pns-link:hover { opacity: var(--hover_opacity); }
+
+  /* ── Open CTA ── */
+  .pns-cta-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space_sm);
+  }
+
+  .pns-cta-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--btn_padding);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    font-family: var(--font_body);
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    border-radius: var(--btn_radius_pill);
+    text-decoration: none;
+    transition: opacity 0.15s;
+  }
+
+  .pns-cta-btn:hover { opacity: var(--hover_opacity); }
+
+  .pns-plan-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space_xs);
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: opacity 0.15s;
+  }
+
+  .pns-plan-link:hover { opacity: var(--hover_opacity); }
+
+  .pns-plan-amount {
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading);
+  }
+
+  .pns-plan-instalments {
+    color: var(--color_text_secondary);
+  }
+
+  /* ── Capture form ── */
+  .pns-capture {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_sm);
+  }
+
+  .pns-capture-label {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_secondary);
+    text-transform: uppercase;
+    letter-spacing: var(--letter_spacing_eyebrow);
+    margin: 0;
+  }
+
+  .pns-capture-row {
+    display: flex;
+    gap: var(--space_xs);
+    max-width: 420px;
+  }
+
+  .pns-capture-input {
+    flex: 1;
+    height: 40px;
+    padding: 0 var(--space_sm);
+    font-size: var(--text_sm);
+    font-family: var(--font_body);
+    border: 1.5px solid var(--color_border);
+    border-radius: var(--radius_sm);
+    background: var(--color_white);
+    color: var(--color_text_primary);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .pns-capture-input::placeholder {
+    color: var(--color_text_secondary);
+    opacity: 0.5;
+  }
+
+  .pns-capture-input:focus {
+    border-color: var(--color_cta_primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color_cta_primary) 12%, transparent);
+  }
+
+  .pns-capture-btn {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    border: none;
+    border-radius: var(--radius_sm);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+
+  .pns-capture-btn:hover:not(:disabled) { opacity: var(--hover_opacity); }
+  .pns-capture-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .pns-capture-success {
+    font-size: var(--text_sm);
+    color: var(--color_cta_primary);
+    margin: 0;
+  }
+
+  .pns-capture-error {
+    font-size: var(--text_sm);
+    color: var(--color_error, #dc2626);
+    margin: 0;
+  }
+</style>
+
+<script>
+  const form    = document.querySelector<HTMLFormElement>('.pns-capture-form');
+  const success = document.querySelector<HTMLElement>('.pns-capture-success');
+  const error   = document.querySelector<HTMLElement>('.pns-capture-error');
+  const input   = document.querySelector<HTMLInputElement>('.pns-capture-input');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = input?.value?.trim();
+    if (!email) { input?.focus(); return; }
+
+    const btn = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (btn) btn.disabled = true;
+
+    try {
+      const source = form.dataset.source ?? '';
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, source, site_slug: 'remix' }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        const msg = form.dataset.success ?? '';
+        if (form) form.hidden = true;
+        if (success) { success.textContent = msg; success.hidden = false; }
+      } else {
+        const msg = form.dataset.error ?? '';
+        if (btn) btn.disabled = false;
+        if (error) { error.textContent = msg; error.hidden = false; }
+      }
+    } catch {
+      const msg = form?.dataset.error ?? '';
+      if (btn) btn.disabled = false;
+      if (error) { error.textContent = msg; error.hidden = false; }
+    }
+  });
+</script>

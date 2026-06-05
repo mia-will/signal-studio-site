@@ -1,0 +1,426 @@
+---
+import type { PageBlock, Event } from '../../../types/content';
+import { supabase } from '../../../lib/supabase';
+import { cleanRemixUrl } from '../../../lib/cleanRemixUrl';
+
+interface Props {
+  block: PageBlock;
+  events: Event[];
+  pastEvents?: Event[];
+}
+
+const { block, events, pastEvents = [] } = Astro.props;
+
+const eyebrow      = block.props?.eyebrow     ?? block.eyebrow;
+const title        = block.props?.title       ?? block.title;
+const tabs         = (block.props?.tabs       ?? []) as Array<{ label: string; filter: string[] | null }>;
+const defaultTab   = (block.props?.default_tab ?? tabs[0]?.label ?? '') as string;
+const emptyMsg     = (block.props?.empty_message ?? '') as string;
+const pastTabLabel = (block.props?.past_tab_label ?? '') as string;
+const showTabs     = block.props?.show_tabs !== false;
+const limitNum     = block.props?.limit as number | undefined;
+const _ctaPrimary  = block.props?.cta_primary as { href?: string; label?: string } | undefined;
+const ctaPrimary   = _ctaPrimary ? { ..._ctaPrimary, href: cleanRemixUrl(_ctaPrimary.href) } : undefined;
+const displayEvents = limitNum ? (events as any[]).slice(0, limitNum) : (events as any[]);
+
+const { data: pastCtaToken } = await supabase
+  .from('brand_tokens')
+  .select('token_value')
+  .eq('brand_key', 'the_remix')
+  .eq('token_key', 'cta_past_events_label')
+  .maybeSingle();
+
+const pastCtaLabel = pastCtaToken?.token_value ?? null;
+
+function fmtDatetime(iso: string): string {
+  const d    = new Date(iso);
+  const date = d.toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Australia/Sydney' });
+  const time = d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Australia/Sydney' });
+  return `${date} · ${time}`;
+}
+
+function trackColour(track: string | null | undefined): string {
+  if (!track || track.toLowerCase() === 'both') return 'var(--color_text_secondary)';
+  if (track.toLowerCase().startsWith('applier')) return 'var(--color_track_applier)';
+  return 'var(--color_track_builder)';
+}
+
+function trackLabel(track: string | null | undefined): string {
+  if (!track) return '';
+  if (track.toLowerCase() === 'both') return 'Appliers + Builders';
+  if (track.toLowerCase().startsWith('applier')) return 'Appliers';
+  return 'Builders';
+}
+---
+
+<section
+  class="eub-root"
+  style="padding: var(--space_3xl) 0;"
+  data-tabs={JSON.stringify(tabs)}
+  data-default={defaultTab}
+>
+  <div class="eub-shell" style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--eub_padding_inline, var(--layout_padding_x));">
+
+    <!-- Section header -->
+    <div style="margin-bottom: var(--space_xl);">
+      {eyebrow && (
+        <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--space_sm);">
+          {eyebrow}
+        </p>
+      )}
+      {title && (
+        <h2 style="font-family: var(--font_heading); font-size: clamp(var(--text_2xl), 3vw, var(--text_4xl)); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0 0 var(--space_lg); line-height: var(--leading_tight);">
+          {title}
+        </h2>
+      )}
+
+      {ctaPrimary?.href && ctaPrimary?.label && (
+        <a
+          href={ctaPrimary.href}
+          style="display: inline-flex; align-items: center; padding: var(--btn_padding); background: var(--color_cta_primary); color: var(--color_text_on_dark); font-family: var(--font_body); font-size: var(--btn_font_size); font-weight: var(--btn_font_weight); border-radius: var(--btn_radius_pill); text-decoration: none; white-space: nowrap; margin-bottom: var(--space_lg);"
+        >
+          {ctaPrimary.label} →
+        </a>
+      )}
+
+      <!-- Tab row -->
+      {showTabs && (tabs.length > 0 || pastTabLabel) && (
+        <div class="eub-tabs" role="tablist" aria-label="Filter events by audience">
+          {tabs.map((tab) => (
+            <button
+              type="button"
+              role="tab"
+              class="eub-tab"
+              data-filter={JSON.stringify(tab.filter)}
+              aria-selected={tab.label === defaultTab ? 'true' : 'false'}
+            >
+              {tab.label}
+            </button>
+          ))}
+          {pastTabLabel && (
+            <button
+              type="button"
+              role="tab"
+              class="eub-tab"
+              data-is-past="true"
+              aria-selected="false"
+            >
+              {pastTabLabel}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+
+    <!-- Upcoming event grid -->
+    <div class="eub-grid">
+      {displayEvents.map((ev) => (
+        <div
+          class="eub-card"
+          data-track={ev.audience_track ?? ''}
+          style="border: var(--card_border); background: var(--card_bg); display: flex; flex-direction: column; box-shadow: var(--shadow_md); overflow: hidden;"
+        >
+          <div class="eub-image-wrap" data-track={ev.audience_track ?? ''} style="aspect-ratio: 16 / 9; overflow: hidden; flex-shrink: 0;">
+            {ev.image_url ? (
+              <img
+                src={`${ev.image_url}?width=600&quality=80`}
+                alt={ev.title ?? ''}
+                style={`width: 100%; height: 100%; object-fit: cover; object-position: ${ev.image_position ?? 'center'}; display: block;`}
+                loading="lazy"
+                decoding="async"
+              />
+            ) : (
+              <div style={`width: 100%; height: 100%; background: ${trackColour(ev.audience_track)};`} aria-hidden="true"></div>
+            )}
+          </div>
+          <div style="padding: var(--card_padding_lg); display: flex; flex-direction: column; gap: var(--space_sm); flex: 1;">
+
+            {ev.audience_track && (
+              <span style={`display: inline-block; align-self: flex-start; font-size: var(--badge_font_size); font-weight: var(--badge_font_weight); letter-spacing: var(--badge_letter_spacing); text-transform: uppercase; color: ${trackColour(ev.audience_track)}; background: var(--color_surface); padding: var(--badge_padding); border-radius: var(--badge_radius);`}>
+                {trackLabel(ev.audience_track)}
+              </span>
+            )}
+
+            <h3 style="font-family: var(--font_heading); font-size: var(--text_lg); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_snug);">
+              {ev.title}
+            </h3>
+
+            {ev.start_at && (
+              <p style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); margin: 0;">
+                {fmtDatetime(ev.start_at)}
+              </p>
+            )}
+
+            {(ev.venue_name || ev.location_name) && (
+              <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0;">
+                {ev.venue_name ?? ev.location_name}
+              </p>
+            )}
+
+            {ev.summary && (
+              <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                {ev.summary}
+              </p>
+            )}
+
+            <a
+              href={`/events/${ev.event_slug}`}
+              style="display: block; width: 100%; text-align: center; margin-top: auto; padding: var(--btn_padding); background: var(--color_cta_primary); color: var(--color_text_on_dark); font-size: var(--btn_font_size); font-weight: var(--btn_font_weight); font-family: var(--font_body); text-decoration: none; border-radius: var(--btn_radius_pill); box-sizing: border-box;"
+            >
+              View event →
+            </a>
+
+          </div>
+        </div>
+      ))}
+    </div>
+
+    {ctaPrimary?.href && ctaPrimary?.label && (
+      <div style="text-align: center; margin-top: var(--space_xl);">
+        <a
+          href={ctaPrimary.href}
+          style="display: inline-flex; align-items: center; padding: var(--btn_padding); background: var(--color_cta_primary); color: var(--color_text_on_dark); font-family: var(--font_body); font-size: var(--btn_font_size); font-weight: var(--btn_font_weight); border-radius: var(--btn_radius_pill); text-decoration: none; white-space: nowrap;"
+        >
+          {ctaPrimary.label} →
+        </a>
+      </div>
+    )}
+
+    <!-- Past event grid (hidden until Past tab is activated) -->
+    <div class="eub-past-grid" style="display: none;">
+      {(pastEvents as any[]).map((ev) => (
+        <div
+          class="eub-card"
+          data-track={ev.audience_track ?? ''}
+          style="border: var(--card_border); background: var(--card_bg); display: flex; flex-direction: column; box-shadow: var(--shadow_md); overflow: hidden;"
+        >
+          <div class="eub-image-wrap" data-track={ev.audience_track ?? ''} style="aspect-ratio: 16 / 9; overflow: hidden; flex-shrink: 0; display: none;">
+            {ev.image_url ? (
+              <img
+                src={`${ev.image_url}?width=600&quality=80`}
+                alt={ev.title ?? ''}
+                style={`width: 100%; height: 100%; object-fit: cover; object-position: ${ev.image_position ?? 'center'}; display: block;`}
+                loading="lazy"
+                decoding="async"
+              />
+            ) : (
+              <div style={`width: 100%; height: 100%; background: ${trackColour(ev.audience_track)};`} aria-hidden="true"></div>
+            )}
+          </div>
+          <div style="padding: var(--card_padding_lg); display: flex; flex-direction: column; gap: var(--space_sm); flex: 1;">
+
+            {ev.audience_track && (
+              <span style={`display: inline-block; align-self: flex-start; font-size: var(--badge_font_size); font-weight: var(--badge_font_weight); letter-spacing: var(--badge_letter_spacing); text-transform: uppercase; color: ${trackColour(ev.audience_track)}; background: var(--color_surface); padding: var(--badge_padding); border-radius: var(--badge_radius);`}>
+                {trackLabel(ev.audience_track)}
+              </span>
+            )}
+
+            <h3 style="font-family: var(--font_heading); font-size: var(--text_lg); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_snug);">
+              {ev.title}
+            </h3>
+
+            {ev.start_at && (
+              <p style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); margin: 0;">
+                {fmtDatetime(ev.start_at)}
+              </p>
+            )}
+
+            {(ev.venue_name || ev.location_name) && (
+              <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0;">
+                {ev.venue_name ?? ev.location_name}
+              </p>
+            )}
+
+            {ev.summary && (
+              <p style="font-size: var(--text_sm); color: var(--color_text_secondary); margin: 0; line-height: var(--leading_relaxed); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                {ev.summary}
+              </p>
+            )}
+
+            {pastCtaLabel && (
+              <a
+                href={`/events/${ev.event_slug}`}
+                style="color: var(--color_cta_primary); text-decoration: underline;"
+              >
+                {pastCtaLabel}
+              </a>
+            )}
+
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <!-- Empty state (upcoming only) -->
+    <div class="eub-empty" style="display: none; text-align: center; padding: var(--space_3xl) 0;">
+      <p style="font-size: var(--text_base); color: var(--color_text_secondary); margin: 0;">
+        {emptyMsg}
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<style>
+  .eub-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .eub-tab {
+    font-family: var(--font_body);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_secondary);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: var(--space_sm) var(--space_md);
+    margin-bottom: -1px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .eub-tab[aria-selected="true"] {
+    color: var(--color_cta_primary);
+    border-bottom-color: var(--color_cta_primary);
+  }
+
+  .eub-tab:hover {
+    color: var(--color_text_primary);
+  }
+
+  .eub-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--gap_md);
+  }
+
+  .eub-past-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--gap_md);
+  }
+
+  .eub-image-wrap {
+    position: relative;
+  }
+
+  .eub-image-wrap::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--event-card-tint) 26%, transparent) 0%,
+      color-mix(in srgb, var(--event-card-tint) 18%, transparent) 18%,
+      transparent 35%
+    );
+  }
+
+  .eub-image-wrap[data-track="builders"],
+  .eub-image-wrap[data-track="builder"] {
+    --event-card-tint: var(--color_track_builder);
+  }
+
+  .eub-image-wrap[data-track="appliers"],
+  .eub-image-wrap[data-track="applier"] {
+    --event-card-tint: var(--color_track_applier);
+  }
+
+  .eub-image-wrap[data-track="both"] {
+    --event-card-tint: color-mix(in srgb, var(--color_track_builder) 50%, var(--color_track_applier));
+  }
+
+  @media (max-width: 1024px) {
+    .eub-grid,
+    .eub-past-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .eub-shell {
+      --eub_padding_inline: var(--space_sm);
+    }
+
+    .eub-tabs {
+      overflow-x: auto;
+      max-width: 100%;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .eub-grid,
+    .eub-past-grid {
+      grid-template-columns: 1fr;
+      max-width: 100%;
+    }
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('.eub-root').forEach((root) => {
+    const tabs       = JSON.parse(root.dataset.tabs    || '[]') as Array<{ label: string; filter: string[] | null }>;
+    const defaultTab = root.dataset.default || '';
+    const tabEls     = root.querySelectorAll<HTMLButtonElement>('.eub-tab');
+    const cards      = root.querySelectorAll<HTMLElement>('.eub-grid [data-track]');
+    const grid       = root.querySelector<HTMLElement>('.eub-grid');
+    const pastGrid   = root.querySelector<HTMLElement>('.eub-past-grid');
+    const emptyEl    = root.querySelector<HTMLElement>('.eub-empty');
+
+    function applyFilter(filter: string[] | null) {
+      let visible = 0;
+      cards.forEach((card) => {
+        const track = card.dataset.track ?? '';
+        const show  = filter === null || filter.includes(track);
+        card.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      if (emptyEl) emptyEl.style.display = visible === 0 ? '' : 'none';
+    }
+
+    function showUpcoming(filter: string[] | null) {
+      if (grid)     grid.style.display     = '';
+      if (pastGrid) pastGrid.style.display = 'none';
+      applyFilter(filter);
+    }
+
+    function showPast() {
+      if (grid)    grid.style.display    = 'none';
+      if (pastGrid) pastGrid.style.display = '';
+      if (emptyEl) emptyEl.style.display  = 'none';
+    }
+
+    // Activate the default tab on load
+    tabEls.forEach((btn) => {
+      const isPast = btn.dataset.isPast === 'true';
+      const label  = btn.textContent?.trim() ?? '';
+      if (label === defaultTab && !isPast) {
+        btn.setAttribute('aria-selected', 'true');
+        const tab = tabs.find((t) => t.label === label);
+        showUpcoming(tab?.filter ?? null);
+      } else {
+        btn.setAttribute('aria-selected', 'false');
+      }
+    });
+
+    // Tab click handler
+    tabEls.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tabEls.forEach((t) => t.setAttribute('aria-selected', 'false'));
+        btn.setAttribute('aria-selected', 'true');
+
+        if (btn.dataset.isPast === 'true') {
+          showPast();
+        } else {
+          const label = btn.textContent?.trim() ?? '';
+          const tab   = tabs.find((t) => t.label === label);
+          showUpcoming(tab?.filter ?? null);
+        }
+      });
+    });
+  });
+</script>

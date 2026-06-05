@@ -1,0 +1,108 @@
+---
+interface CarouselImage {
+  asset_id: string;
+  image_url: string;
+  alt_text: string;
+  caption: string | null;
+}
+
+interface Props {
+  block: any;
+}
+
+const { block } = Astro.props;
+
+const images = ((block.props?.images ?? []) as CarouselImage[]).filter((img) => Boolean(img.image_url));
+
+const eyebrow = block.props?.eyebrow ?? block.eyebrow ?? null;
+const title   = block.props?.title   ?? block.title   ?? null;
+---
+
+{images.length > 0 && (
+  <section class="ic-section">
+    <div class="ic-inner">
+      {eyebrow && <p class="ic-eyebrow">{eyebrow}</p>}
+      {title   && <h2 class="ic-heading">{title}</h2>}
+
+      <div class="ic-grid">
+        {images.map((img, i) => (
+          <figure class="ic-figure">
+            <img
+              src={img.image_url}
+              alt={img.alt_text}
+              class="ic-img"
+              loading={i === 0 ? 'eager' : 'lazy'}
+              decoding="async"
+            />
+            {img.caption && (
+              <figcaption class="ic-caption">{img.caption}</figcaption>
+            )}
+          </figure>
+        ))}
+      </div>
+    </div>
+  </section>
+)}
+
+<style>
+  .ic-section {
+    padding-block: var(--layout_padding_y);
+    padding-inline: var(--layout_padding_x);
+  }
+
+  .ic-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+  }
+
+  .ic-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin: 0 0 var(--gap_xs);
+  }
+
+  .ic-heading {
+    font-family: var(--font_heading);
+    font-size: var(--text_2xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0 0 var(--gap_xl);
+    line-height: var(--leading_tight);
+  }
+
+  .ic-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap_lg);
+  }
+
+  .ic-figure {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+  }
+
+  .ic-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: var(--radius_md);
+  }
+
+  .ic-caption {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0;
+  }
+
+  @media (max-width: 768px) {
+    .ic-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

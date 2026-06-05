@@ -1,0 +1,42 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  included_files = ["dist/**"]
+
+[functions."ssr"]
+  memory = 1024
+  timeout = 30
+
+# 10-minute cache - Signal Studio content pages
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, s-maxage=600, stale-while-revalidate=60"
+
+[[headers]]
+  for = "/services"
+  [headers.values]
+    Cache-Control = "public, s-maxage=600, stale-while-revalidate=60"
+
+[[headers]]
+  for = "/about"
+  [headers.values]
+    Cache-Control = "public, s-maxage=600, stale-while-revalidate=60"
+
+[[headers]]
+  for = "/ai-readiness"
+  [headers.values]
+    Cache-Control = "public, s-maxage=600, stale-while-revalidate=60"
+
+# 2-minute cache - posts and latest news
+[[headers]]
+  for = "/latest"
+  [headers.values]
+    Cache-Control = "public, s-maxage=120, stale-while-revalidate=60"
+
+[[headers]]
+  for = "/latest/*"
+  [headers.values]
+    Cache-Control = "public, s-maxage=120, stale-while-revalidate=60"

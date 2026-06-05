@@ -1,0 +1,393 @@
+---
+// Direct URL access only — not linked from any nav.
+// Read-only Supabase table browser using the project anon client credentials.
+
+const TABLE_GROUPS: Record<string, string[]> = {
+  'System design': [
+    'automation_registry', 'workflow_registry', 'workflow_steps', 'workflow_security',
+    'agent_qa_log', 'schema_registry', 'system_patterns', 'system_audit',
+    'build_history', 'processes',
+  ],
+  'Contacts': [
+    'contacts_crm', 'contact_activity', 'contact_assessments', 'conversations',
+    'professional_contexts', 'people_bios', 'person_types', 'people_capture_fields',
+  ],
+  'Events': [
+    'events', 'event_actions', 'event_attendee_feedback', 'event_insights',
+    'event_people', 'event_session_library', 'event_sites', 'remix_event_interests',
+    'remix_event_interest_votes', 'remix_locations',
+  ],
+  'Content': [
+    'posts', 'media_assets', 'brand_tokens', 'brand_prompts', 'brand_systems',
+    'block_types', '__page_blocks', '__page_faq', 'faq_items', 'testimonials',
+    'values_principles',
+  ],
+  'Offers': [
+    'offers', 'pathways', 'pathway_modules', 'pathway_experiments',
+    'curriculum_topics', 'capability_stages', 'case_studies',
+  ],
+  'Sites': [
+    'sites', 'site_pages', 'site_config', 'site_nav_items', 'page_seo',
+    'form_fields', 'form_submissions', 'intake_questions',
+  ],
+  'Campaigns': [
+    'campaigns', 'newsletter_send_log', 'client_projects', 'project_plan',
+    'project_change_log', 'facilitators', 'strategy',
+  ],
+};
+
+const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+const supabaseKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+---
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control Panel</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --surface: #161616;
+      --surface-raised: #1f1f1f;
+      --border: #2b2b2b;
+      --text: #d4d4d4;
+      --text-muted: #666;
+      --accent: #7c6af7;
+      --accent-hover: #9d8fff;
+      --active-bg: #1e1c38;
+      --font: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+      --sidebar-w: 13rem;
+      --tables-w: 15rem;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 0.8rem;
+    }
+
+    .shell {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Group sidebar ─────────────────────────────────────── */
+    .groups {
+      width: var(--sidebar-w);
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 1rem 0;
+    }
+
+    .groups-label {
+      padding: 0 1rem 0.5rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .group-btn {
+      display: block;
+      width: 100%;
+      padding: 0.5rem 1rem;
+      background: none;
+      border: none;
+      color: var(--text);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+
+    .group-btn:hover {
+      background: var(--surface-raised);
+      color: var(--accent-hover);
+    }
+
+    .group-btn.active {
+      border-left-color: var(--accent);
+      color: var(--accent);
+      background: var(--active-bg);
+    }
+
+    /* ── Table list ────────────────────────────────────────── */
+    .tables {
+      width: var(--tables-w);
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 1rem 0;
+    }
+
+    .tables-label {
+      padding: 0 1rem 0.5rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .table-btn {
+      display: block;
+      width: 100%;
+      padding: 0.4rem 1rem;
+      background: none;
+      border: none;
+      color: var(--text);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+      word-break: break-all;
+    }
+
+    .table-btn:hover {
+      background: var(--surface-raised);
+      color: var(--accent-hover);
+    }
+
+    .table-btn.active {
+      border-left-color: var(--accent);
+      color: var(--accent);
+      background: var(--active-bg);
+    }
+
+    /* ── Data panel ────────────────────────────────────────── */
+    .data-panel {
+      flex: 1;
+      overflow: auto;
+      padding: 1.25rem;
+      background: var(--bg);
+    }
+
+    .hint {
+      color: var(--text-muted);
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .panel-title {
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+
+    .row-count {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .table-wrap {
+      overflow: auto;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: max-content;
+      min-width: 100%;
+      font-size: 0.75rem;
+    }
+
+    th {
+      background: var(--surface);
+      color: var(--text-muted);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-align: left;
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 0.35rem 0.75rem;
+      border: 1px solid var(--border);
+      vertical-align: top;
+      max-width: 24rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+    }
+
+    tr:hover td {
+      background: var(--surface);
+    }
+
+    .status-loading {
+      color: var(--text-muted);
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .status-error {
+      color: #f87171;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .status-empty {
+      color: var(--text-muted);
+      padding: 2rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="groups">
+      <p class="groups-label">Groups</p>
+      {Object.keys(TABLE_GROUPS).map((group) => (
+        <button class="group-btn" data-group={group}>{group}</button>
+      ))}
+    </aside>
+
+    <nav class="tables" id="table-list">
+      <p class="hint">Select a group</p>
+    </nav>
+
+    <main class="data-panel" id="data-panel">
+      <p class="hint">Select a table to browse</p>
+    </main>
+  </div>
+
+  <script define:vars={{ TABLE_GROUPS, supabaseUrl, supabaseKey }}>
+    const tableList = document.getElementById('table-list');
+    const dataPanel = document.getElementById('data-panel');
+
+    let activeGroup = null;
+    let activeTable = null;
+
+    // ── Group selection ─────────────────────────────────────
+    document.querySelectorAll('.group-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const group = btn.dataset.group;
+        if (activeGroup === group) return;
+
+        activeGroup = group;
+        activeTable = null;
+
+        document.querySelectorAll('.group-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        renderTableList(TABLE_GROUPS[group]);
+        dataPanel.innerHTML = '<p class="hint">Select a table to browse</p>';
+      });
+    });
+
+    function renderTableList(tables) {
+      tableList.innerHTML = '<p class="tables-label">Tables</p>';
+      tables.forEach((name) => {
+        const btn = document.createElement('button');
+        btn.className = 'table-btn';
+        btn.textContent = name;
+        btn.addEventListener('click', () => selectTable(name, btn));
+        tableList.appendChild(btn);
+      });
+    }
+
+    // ── Table selection ─────────────────────────────────────
+    function selectTable(name, btn) {
+      if (activeTable === name) return;
+      activeTable = name;
+
+      document.querySelectorAll('.table-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      loadTable(name);
+    }
+
+    // ── Data fetch ──────────────────────────────────────────
+    async function loadTable(name) {
+      dataPanel.innerHTML = `<p class="status-loading">Loading ${name}…</p>`;
+
+      try {
+        const res = await fetch(
+          `${supabaseUrl}/rest/v1/${name}?select=*&limit=200`,
+          {
+            headers: {
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
+            },
+          }
+        );
+
+        if (!res.ok) {
+          const err = await res.text();
+          dataPanel.innerHTML = `<p class="status-error">Error ${res.status}: ${escapeHtml(err)}</p>`;
+          return;
+        }
+
+        const rows = await res.json();
+        renderData(name, rows);
+      } catch (e) {
+        dataPanel.innerHTML = `<p class="status-error">Fetch failed: ${escapeHtml(String(e))}</p>`;
+      }
+    }
+
+    function renderData(name, rows) {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        dataPanel.innerHTML = `
+          <div class="panel-header">
+            <span class="panel-title">${escapeHtml(name)}</span>
+            <span class="row-count">0 rows</span>
+          </div>
+          <p class="status-empty">No rows returned</p>
+        `;
+        return;
+      }
+
+      const cols = Object.keys(rows[0]);
+      const rowsHtml = rows.map((row) =>
+        `<tr>${cols.map((c) => `<td title="${escapeAttr(String(row[c] ?? ''))}">${escapeHtml(String(row[c] ?? ''))}</td>`).join('')}</tr>`
+      ).join('');
+
+      dataPanel.innerHTML = `
+        <div class="panel-header">
+          <span class="panel-title">${escapeHtml(name)}</span>
+          <span class="row-count">${rows.length} row${rows.length === 1 ? '' : 's'}${rows.length === 200 ? ' (limit 200)' : ''}</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function escapeAttr(str) {
+      return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>

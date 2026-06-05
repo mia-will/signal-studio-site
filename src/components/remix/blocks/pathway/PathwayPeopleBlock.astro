@@ -1,0 +1,140 @@
+---
+import type { PageBlock } from '../../../../types/content';
+
+interface Person {
+  id: string;
+  display_name: string;
+  title?: string | null;
+  organisation?: string | null;
+  bio_short?: string | null;
+  profile_image_url?: string | null;
+  pathway_role?: string | null;
+}
+
+interface Props {
+  block: PageBlock;
+  people?: Person[];
+}
+
+const { block, people = [] } = Astro.props;
+const title = block.props?.title ?? block.title ?? null;
+
+const groupedPeople = people.reduce<Record<string, Person[]>>((groups, person) => {
+  const role = person.pathway_role?.trim() ?? '';
+  if (!groups[role]) groups[role] = [];
+  groups[role].push(person);
+  return groups;
+}, {});
+---
+
+{people.length > 0 && (
+  <section class="pp">
+    <div class="pp-inner">
+      {title && <h2 class="pp-title">{title}</h2>}
+
+      {Object.entries(groupedPeople).map(([role, rolePeople]) => (
+        <div class="pp-group">
+          {role && <h3 class="pp-role">{role}</h3>}
+          <div class="pp-grid">
+            {rolePeople.map((person) => (
+              <article class="pp-card">
+                {person.profile_image_url && (
+                  <img class="pp-image" src={person.profile_image_url} alt="" loading="lazy" />
+                )}
+                <div>
+                  <h4 class="pp-name">{person.display_name}</h4>
+                  {(person.title || person.organisation) && (
+                    <p class="pp-meta">{[person.title, person.organisation].filter(Boolean).join(', ')}</p>
+                  )}
+                  {person.bio_short && <p class="pp-bio">{person.bio_short}</p>}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+)}
+
+<style>
+  .pp {
+    padding-block: var(--space_2xl);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .pp-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+  }
+
+  .pp-title {
+    margin: 0 0 var(--space_lg);
+    font-family: var(--font_heading);
+    font-size: clamp(1.5rem, 2.5vw, 2rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+  }
+
+  .pp-group + .pp-group {
+    margin-top: var(--space_lg);
+  }
+
+  .pp-role {
+    margin: 0 0 var(--gap_md);
+    font-family: var(--font_heading);
+    font-size: var(--text_lg);
+    color: var(--color_text_heading);
+  }
+
+  .pp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--gap_md);
+  }
+
+  .pp-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--gap_md);
+    padding: var(--space_lg);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_md);
+    background: var(--color_surface_panel, var(--color_surface));
+  }
+
+  .pp-image {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .pp-name,
+  .pp-meta,
+  .pp-bio {
+    margin: 0;
+  }
+
+  .pp-name {
+    font-family: var(--font_heading);
+    font-size: var(--text_base);
+    color: var(--color_text_heading);
+  }
+
+  .pp-meta {
+    margin-top: var(--space_xs);
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+  }
+
+  .pp-bio {
+    margin-top: var(--gap_sm);
+    font-size: var(--text_sm);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+  }
+</style>

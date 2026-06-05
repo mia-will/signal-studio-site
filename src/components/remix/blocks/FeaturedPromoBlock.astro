@@ -1,0 +1,224 @@
+---
+import type { PageBlock } from '../../../types/content';
+import { supabase } from '../../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const eyebrow      = block.eyebrow ?? block.props?.eyebrow;
+const featuredType = block.props?.featured_type as string | undefined;
+const featuredId   = block.props?.featured_id   as string | undefined;
+
+type FeaturedRecord = {
+  title: string;
+  description: string | null;
+  ctaLabel: string | null;
+  ctaHref:  string | null;
+  ctaSecLabel: string | null;
+  ctaSecHref:  string | null;
+  meta: { label: string; value: string }[];
+};
+
+let record: FeaturedRecord | null = null;
+let imageAssetId: string | null = null;
+let imageUrl: string | null = null;
+
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' });
+}
+
+if (featuredId && featuredType) {
+
+  if (featuredType === 'event') {
+    const { data } = await supabase
+      .from('events')
+      .select('id, title, summary, start_at, location_name, registration_url, publish_status, featured_image_asset_id')
+      .eq('id', featuredId)
+      .single();
+
+    if (data) {
+      imageAssetId = data.featured_image_asset_id ?? null;
+      const meta: { label: string; value: string }[] = [];
+      if (data.start_at)      meta.push({ label: 'Date',     value: fmtDate(data.start_at) });
+      if (data.location_name) meta.push({ label: 'Location', value: data.location_name });
+
+      record = {
+        title:       data.title,
+        description: data.summary ?? null,
+        ctaLabel:    data.registration_url ? 'Register now' : null,
+        ctaHref:     data.registration_url ?? null,
+        ctaSecLabel: null,
+        ctaSecHref:  null,
+        meta,
+      };
+    }
+
+  } else if (featuredType === 'pathway') {
+    const { data } = await supabase
+      .from('pathways')
+      .select('id, title, short_description, who_its_for, time_commitment_label, start_label, cta_label, cta_link, cta_secondary_label, cta_secondary_link, featured_image_asset_id')
+      .eq('id', featuredId)
+      .single();
+
+    if (data) {
+      imageAssetId = data.featured_image_asset_id ?? null;
+      const meta: { label: string; value: string }[] = [];
+      if (data.time_commitment_label) meta.push({ label: 'Format', value: data.time_commitment_label });
+      if (data.start_label)           meta.push({ label: 'Starts', value: data.start_label });
+      if (data.who_its_for) meta.push({ label: 'For', value: data.who_its_for });
+
+      record = {
+        title:       data.title,
+        description: data.short_description ?? null,
+        ctaLabel:    data.cta_label ?? 'Find out more',
+        ctaHref:     data.cta_link ?? null,
+        ctaSecLabel: data.cta_secondary_label ?? null,
+        ctaSecHref:  data.cta_secondary_link  ?? null,
+        meta,
+      };
+    }
+
+  } else if (featuredType === 'post') {
+    const { data } = await supabase
+      .from('posts')
+      .select('id, title, summary, published_at, cta_label, slug, featured_image_asset_id')
+      .eq('id', featuredId)
+      .single();
+
+    if (data) {
+      imageAssetId = data.featured_image_asset_id ?? null;
+      const meta: { label: string; value: string }[] = [];
+      if (data.published_at) meta.push({ label: 'Published', value: fmtDate(data.published_at) });
+
+      record = {
+        title:       data.title,
+        description: data.summary ?? null,
+        ctaLabel:    data.cta_label ?? 'Read more',
+        ctaHref:     data.slug ? `/posts/${data.slug}` : null,
+        ctaSecLabel: null,
+        ctaSecHref:  null,
+        meta,
+      };
+    }
+  }
+}
+
+if (imageAssetId) {
+  const { data: asset } = await supabase
+    .from('media_assets')
+    .select('public_url')
+    .eq('id', imageAssetId)
+    .single();
+  imageUrl = asset?.public_url ?? null;
+}
+---
+
+{record && (
+  <section style="padding-block: 64px;">
+    <div style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+      <!-- White inner tile -->
+      <div style="background: var(--color_surface_featured_inner); border-radius: 20px; padding: 40px;">
+        <div class="fp-layout">
+
+          <!-- Left: content -->
+          <div class="fp-left">
+            {eyebrow && (
+              <p style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_track_applier); margin: 0 0 16px;">
+                {eyebrow}
+              </p>
+            )}
+            <h2 style="font-family: var(--font_heading); font-size: clamp(1.9rem, 3vw, 2.8rem); font-weight: 800; line-height: 1.08; letter-spacing: -0.02em; color: var(--color_text_heading); margin: 0 0 20px;">
+              {record.title}
+            </h2>
+            {record.description && (
+              <p style="font-size: 16px; line-height: 1.65; color: var(--color_text_secondary); margin: 0 0 36px; max-width: 52ch;">
+                {record.description}
+              </p>
+            )}
+            {record.ctaHref && record.ctaLabel && (
+              <a
+                href={record.ctaHref}
+                style="display: inline-flex; align-items: center; padding: 13px 32px; background: var(--color_cta_primary); color: var(--color_text_on_dark); font-family: var(--font_body); font-size: 15px; font-weight: var(--font_weight_semibold); border-radius: var(--btn_radius_pill); text-decoration: none; white-space: nowrap; transition: opacity 0.15s;"
+              >
+                {record.ctaLabel}
+              </a>
+            )}
+          </div>
+
+          <!-- Right: image + metadata -->
+          <div class="fp-right">
+            {imageUrl && (
+              <img
+                src={imageUrl}
+                alt={record.title}
+                style="width: 100%; border-radius: 12px; display: block; margin-bottom: 24px; object-fit: cover; max-height: 240px;"
+                loading="lazy"
+                decoding="async"
+              />
+            )}
+
+            {record.meta.length > 0 && (
+              <dl style="margin: 0; display: flex; flex-direction: column; gap: 16px;">
+                {record.meta.map(({ label, value }) => (
+                  <div>
+                    <dt style="font-size: 10px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 4px;">
+                      {label}
+                    </dt>
+                    <dd style="font-size: 15px; font-weight: 600; color: var(--color_text_primary); margin: 0; line-height: 1.3;">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+
+            {record.ctaSecHref && record.ctaSecLabel && (
+              <a
+                href={record.ctaSecHref}
+                style="display: inline-block; margin-top: 20px; font-size: 14px; font-weight: 600; color: var(--color_text_primary); text-decoration: underline; text-underline-offset: 3px;"
+              >
+                {record.ctaSecLabel} →
+              </a>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+)}
+
+<style>
+  .fp-layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 56px;
+    align-items: center;
+  }
+
+  .fp-left {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .fp-right {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  @media (max-width: 900px) {
+    .fp-layout {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+  }
+</style>

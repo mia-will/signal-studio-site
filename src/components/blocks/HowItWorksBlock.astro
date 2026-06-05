@@ -1,0 +1,168 @@
+---
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+interface StepItem {
+  label?: string;
+  title: string;
+  body: string;
+  stage?: string;
+}
+
+const { block } = Astro.props;
+
+const steps    = (block.props?.steps as StepItem[] | undefined) ?? [];
+const hasSteps = steps.length > 0;
+const isDark   = block.props?.text_theme === 'dark';
+
+const eyebrow  = block.props?.eyebrow   ?? null;
+const title    = block.props?.title     ?? block.title    ?? null;
+const subtitle = block.props?.subtitle  ?? block.subtitle ?? null;
+const closing  = block.props?.closing   ?? null;
+
+const bodyText  = block.props?.body ?? block.body ?? null;
+const bodyParas = bodyText
+  ? (bodyText as string).split('\n\n').map((p: string) => p.trim()).filter(Boolean)
+  : [];
+
+const colorHeading    = isDark ? 'var(--color_text_on_dark)' : 'var(--color_text_heading)';
+const colorBody       = isDark ? 'var(--color_text_on_dark)' : 'var(--color_text_secondary)';
+const colorLabel      = isDark ? 'var(--color_text_on_dark)' : 'var(--color_text_tertiary, var(--color_text_secondary))';
+const colorAccent     = 'var(--color_cta_primary)';
+const colorBorder     = 'var(--color_border)';
+const colorNode       = 'var(--color_accent_journey, var(--color_cta_primary))';
+const colorNodeText   = 'var(--color_text_on_dark)';
+const colorClosingBg  = isDark ? 'var(--color_surface_dark, var(--color_surface))' : 'var(--color_surface)';
+const colorClosingText = isDark ? 'var(--color_text_on_dark)' : 'var(--color_text_secondary)';
+---
+
+<section style="padding-block: var(--layout_padding_y);">
+  <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+
+    {hasSteps ? (
+
+      <div class="hiw-grid">
+
+        <!-- Left column (28%): eyebrow + heading + body -->
+        <div>
+          {eyebrow && (
+            <p style={`font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: ${colorAccent}; margin: 0 0 14px;`}>
+              {eyebrow}
+            </p>
+          )}
+          {title && (
+            <h2 style={`font-family: var(--font_heading); font-size: var(--text_2xl); font-weight: var(--font_weight_bold); color: ${colorHeading}; margin: 0 0 16px; line-height: var(--leading_tight); letter-spacing: -0.01em;`}>
+              {title}
+            </h2>
+          )}
+          {subtitle && (
+            <p style={`font-size: var(--text_base); color: ${colorBody}; margin: 0 0 16px; line-height: var(--leading_relaxed);`}>
+              {subtitle}
+            </p>
+          )}
+          {bodyParas.length > 0 && (
+            <p style={`font-size: var(--text_sm); color: ${colorBody}; margin: 0; line-height: var(--leading_relaxed);`}>
+              {bodyParas[0]}
+            </p>
+          )}
+        </div>
+
+        <!-- Right column: vertical step journey -->
+        <div>
+          {steps.map((step, i) => (
+            <div>
+              <div style="display: grid; grid-template-columns: 52px 1fr; gap: 20px; align-items: start;">
+
+                <!-- Node + connector -->
+                <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
+                  {i < steps.length - 1 && (
+                    <div style={`position: absolute; top: 26px; width: 1px; height: calc(100% + 24px); background: ${colorBorder}; z-index: 0;`}></div>
+                  )}
+                  <div style={`position: relative; z-index: 1; width: 44px; height: 44px; border-radius: 50%; background: ${colorNode}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;`}>
+                    <span style={`font-size: var(--text_base); font-weight: var(--font_weight_bold); color: ${colorNodeText};`}>{i + 1}</span>
+                  </div>
+                </div>
+
+                <!-- Content -->
+                <div style={`padding-bottom: ${i < steps.length - 1 ? '24px' : '0'};`}>
+                  {step.label && (
+                    <p style={`font-size: var(--text_xs); font-weight: var(--font_weight_bold); letter-spacing: 0.12em; text-transform: uppercase; color: ${colorLabel}; margin: 0 0 6px; padding-top: 8px;`}>
+                      {step.label}
+                    </p>
+                  )}
+                  <h4 style={`font-family: var(--font_heading); font-size: var(--text_base); font-weight: var(--font_weight_bold); color: ${colorHeading}; margin: 0 0 8px; line-height: var(--leading_tight);`}>
+                    {step.title}
+                  </h4>
+                  <p style={`font-size: var(--text_sm); color: ${colorBody}; margin: 0; line-height: var(--leading_relaxed);`}>
+                    {step.body}
+                  </p>
+                </div>
+
+              </div>
+
+              {i < steps.length - 1 && (
+                <div style={`height: 1px; background: ${colorBorder}; margin: 0 0 0 52px;`}></div>
+              )}
+            </div>
+          ))}
+        </div>
+
+      </div>
+
+    ) : (
+
+      <!-- No steps — single column -->
+      <div style="max-width: var(--layout_content_width);">
+        {eyebrow && (
+          <p style={`font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: ${colorAccent}; margin: 0 0 14px;`}>
+            {eyebrow}
+          </p>
+        )}
+        {title && (
+          <h2 style={`font-family: var(--font_heading); font-size: var(--text_3xl); font-weight: var(--font_weight_bold); color: ${colorHeading}; margin: 0 0 20px; line-height: var(--leading_tight); letter-spacing: -0.01em;`}>
+            {title}
+          </h2>
+        )}
+        {subtitle && (
+          <p style={`font-size: var(--text_xl); color: ${colorBody}; margin: 0 0 16px; line-height: var(--leading_relaxed);`}>
+            {subtitle}
+          </p>
+        )}
+        {bodyParas.map((para: string) => (
+          <p style={`font-size: var(--text_lg); color: ${colorBody}; margin: 0 0 16px; line-height: var(--leading_relaxed); max-width: 64ch;`}>
+            {para}
+          </p>
+        ))}
+      </div>
+
+    )}
+
+    {closing && (
+      <div style={`margin-top: var(--gap_xl); border: 1px solid ${colorBorder}; background: ${colorClosingBg}; border-radius: var(--radius_md); padding: 24px 28px; display: flex; align-items: center; gap: 20px;`}>
+        <div style={`width: 4px; align-self: stretch; background: ${colorAccent}; border-radius: 2px; flex-shrink: 0;`}></div>
+        <p style={`font-size: var(--text_lg); font-style: italic; font-weight: var(--font_weight_bold); color: ${colorClosingText}; margin: 0; line-height: var(--leading_relaxed);`}>
+          {closing}
+        </p>
+      </div>
+    )}
+
+  </div>
+</section>
+
+<style>
+  .hiw-grid {
+    display: grid;
+    grid-template-columns: 28% 1fr;
+    gap: var(--gap_xl);
+    align-items: start;
+  }
+
+  @media (max-width: 768px) {
+    .hiw-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

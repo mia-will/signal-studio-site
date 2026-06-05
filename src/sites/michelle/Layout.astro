@@ -1,0 +1,43 @@
+---
+import SharedLayout from '../../layouts/Layout.astro';
+
+interface Props {
+  title: string;
+  siteName: string;
+  description?: string | null;
+  canonical?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  robots?: string;
+  jsonld?: any[];
+  aeoSummary?: string;
+  rawTokenCSS?: string;
+}
+
+const props = Astro.props;
+---
+
+<SharedLayout
+  {...props}
+  brandKey="michelle_williams"
+>
+  <style is:global>
+    /*
+      Map Supabase token names to the CSS variable names that global.css and shared
+      components expect. All resolved values still come from the injected brand token CSS.
+    */
+    :root {
+      --color_background: var(--color_background_base);
+      --color_cta_primary: var(--button_primary_background);
+      --color_white: var(--button_primary_text);
+    }
+    html, body {
+      background-color: var(--color_background_base);
+    }
+    h1, h2, h3, h4 {
+      font-family: var(--font_heading) !important;
+    }
+  </style>
+  <slot />
+</SharedLayout>

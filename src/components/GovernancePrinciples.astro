@@ -1,0 +1,151 @@
+---
+import { supabase } from '../lib/supabase';
+
+interface Principle {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  display_order: number;
+}
+
+const { data, error } = await supabase
+  .schema('governance')
+  .from('governance_principles')
+  .select('id, name, description, category, display_order')
+  .eq('is_active', true)
+  .order('display_order', { ascending: true });
+
+const principles: Principle[] = (error || !data) ? [] : data as Principle[];
+
+const categoryConfig: Record<string, { label: string; color: string }> = {
+  ai:         { label: 'AI & Technology',      color: 'var(--color_cta_primary)' },
+  governance: { label: 'Governance',            color: 'var(--color_accent_violet)' },
+  data:       { label: 'Data & Privacy',        color: 'var(--color_accent_eucalyptus)' },
+  community:  { label: 'Community & People',    color: 'var(--color_accent_aqua)' },
+};
+
+const categoryOrder = ['ai', 'governance', 'data', 'community'];
+
+const grouped: Record<string, Principle[]> = {};
+for (const p of principles) {
+  if (!grouped[p.category]) grouped[p.category] = [];
+  grouped[p.category].push(p);
+}
+---
+
+<div class="governance-principles">
+  {categoryOrder.map((cat) => {
+    const items = grouped[cat];
+    if (!items || items.length === 0) return null;
+    const config = categoryConfig[cat] || { label: cat, color: 'var(--color_text_secondary)' };
+
+    return (
+      <div class="principle-group">
+        <h2 class="group-label" style={`--cat-color: ${config.color}`}>
+          {config.label}
+        </h2>
+        <div class="principle-cards">
+          {items.map((p) => (
+            <article class="principle-card">
+              <span class="principle-pill" style={`background: ${config.color}1a; color: ${config.color}`}>
+                {config.label}
+              </span>
+              <h3 class="principle-name">{p.name}</h3>
+              <p class="principle-desc">{p.description}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    );
+  })}
+</div>
+
+<style>
+  .governance-principles {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_3xl);
+  }
+
+  /* ── Category group ── */
+  .principle-group {}
+
+  .group-label {
+    font-family: var(--font_body);
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cat-color);
+    margin-bottom: var(--space_lg);
+    padding-bottom: var(--space_sm);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  /* suppress global h2::after for these category labels */
+  .group-label::after {
+    display: none;
+  }
+
+  /* ── Card grid ── */
+  .principle-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space_md);
+  }
+
+  /* ── Card ── */
+  .principle-card {
+    background: var(--color_white);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_lg);
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_md);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+
+  .principle-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 40px rgba(47,47,47,0.10);
+    border-color: rgba(255,138,51,0.25);
+    cursor: default;
+  }
+
+  .principle-pill {
+    display: inline-flex;
+    align-self: flex-start;
+    font-family: var(--font_body);
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.3em 0.8em;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+
+  .principle-name {
+    font-family: var(--font_heading);
+    font-size: var(--text_xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+  }
+
+  .principle-desc {
+    font-family: var(--font_body);
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    max-width: none;
+  }
+
+  @media (max-width: 768px) {
+    .principle-cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

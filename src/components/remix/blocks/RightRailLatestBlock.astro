@@ -1,0 +1,153 @@
+---
+import type { PageBlock } from '../../../types/content';
+import { supabase } from '../../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const title       = block.props?.title ?? block.title;
+const eventsLimit = Number(block.props?.events_limit ?? 3);
+const postsLimit  = Number(block.props?.posts_limit  ?? 2);
+const now         = new Date().toISOString();
+
+const [eventsRes, postsRes] = await Promise.all([
+  supabase
+    .from('events')
+    .select('id, title, start_at, venue_name, suburb, state, registration_url, audience_track')
+    .eq('show_on_remix', true)
+    .eq('publish_status', 'published')
+    .in('audience_track', ['applier', 'appliers', 'both'])
+    .gt('start_at', now)
+    .order('start_at', { ascending: true })
+    .limit(eventsLimit),
+
+  supabase
+    .from('posts')
+    .select('id, title, slug, published_at, category')
+    .contains('site_show', ['remix'])
+    .eq('status', 'published')
+    .or('audience_primary.in.(applier,appliers,both),audience_primary.is.null')
+    .order('published_at', { ascending: false })
+    .limit(postsLimit),
+]);
+
+const events = eventsRes.data ?? [];
+const posts  = postsRes.data  ?? [];
+
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+}
+
+function fmtMonth(iso: string) {
+  return new Date(iso).toLocaleDateString('en-AU', { month: 'short' }).toUpperCase();
+}
+
+function fmtDay(iso: string) {
+  return String(new Date(iso).getDate());
+}
+
+function fmtVenue(ev: any): string {
+  return [ev.venue_name, ev.suburb, ev.state].filter(Boolean).join(', ');
+}
+---
+
+<section style="padding: 40px 0; border-bottom: 1px solid var(--color_border);">
+  <div style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+    {title && (
+      <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_track_applier); margin: 0 0 20px;">
+        {title}
+      </p>
+    )}
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start;">
+
+      <!-- Left: upcoming events -->
+      <div>
+        <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 12px;">
+          Upcoming
+        </p>
+
+        {events.length === 0 && (
+          <p style="font-size: 14px; color: var(--color_text_secondary); margin: 0;">
+            No upcoming events right now.
+          </p>
+        )}
+
+        {events.map((ev: any, i: number) => (
+          <div>
+            <div style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 0;">
+              <div style="width: 44px; flex-shrink: 0; background: var(--color_track_applier_tint); padding: 6px 4px; text-align: center;">
+                <span style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color_track_applier); line-height: 1;">
+                  {ev.start_at ? fmtMonth(ev.start_at) : ''}
+                </span>
+                <span style="display: block; font-size: 22px; font-weight: 800; line-height: 1; color: var(--color_track_applier); margin-top: 1px;">
+                  {ev.start_at ? fmtDay(ev.start_at) : ''}
+                </span>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <p style="font-size: 14px; font-weight: 600; color: var(--color_text_heading); margin: 0 0 3px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {ev.title}
+                </p>
+                {fmtVenue(ev) && (
+                  <p style="font-size: 12px; color: var(--color_text_secondary); margin: 0 0 4px;">
+                    {fmtVenue(ev)}
+                  </p>
+                )}
+                {ev.registration_url && (
+                  <a
+                    href={ev.registration_url}
+                    style="font-size: 12px; font-weight: 600; color: var(--color_track_applier); text-decoration: none;"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >Register →</a>
+                )}
+              </div>
+            </div>
+            {i < events.length - 1 && (
+              <div style="height: 1px; background: var(--color_border);"></div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <!-- Right: latest posts -->
+      <div>
+        <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color_text_secondary); margin: 0 0 12px;">
+          Latest reads
+        </p>
+
+        {posts.length === 0 && (
+          <p style="font-size: 14px; color: var(--color_text_secondary); margin: 0;">
+            No posts yet.
+          </p>
+        )}
+
+        {posts.map((post: any, i: number) => (
+          <div>
+            <a href={`/posts/${post.slug}`} style="display: block; padding: 12px 0; text-decoration: none;">
+              {post.category && (
+                <span style="display: inline-block; font-size: var(--badge_font_size); font-weight: var(--badge_font_weight); letter-spacing: var(--badge_letter_spacing); text-transform: uppercase; color: var(--color_track_applier); background: var(--card_bg_applier); padding: var(--badge_padding); border-radius: var(--badge_radius); margin-bottom: 6px;">
+                  {post.category}
+                </span>
+              )}
+              <p style="font-size: 14px; font-weight: 600; color: var(--color_text_heading); margin: 0 0 4px; line-height: 1.35;">
+                {post.title}
+              </p>
+              <p style="font-size: 12px; color: var(--color_text_secondary); margin: 0;">
+                {post.published_at ? fmtDate(post.published_at) : ''}
+              </p>
+            </a>
+            {i < posts.length - 1 && (
+              <div style="height: 1px; background: var(--color_border);"></div>
+            )}
+          </div>
+        ))}
+      </div>
+
+    </div>
+  </div>
+</section>

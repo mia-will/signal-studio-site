@@ -1,0 +1,160 @@
+---
+import type { PageBlock, FaqItem } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+  faqItems: FaqItem[];
+}
+
+const { block, faqItems } = Astro.props;
+
+// Props read — current accordion style already matches open/borderless intent
+const _variant   = block.props?.variant    ?? '';
+const _cardStyle = block.props?.card_style ?? '';
+
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: faqItems.map((item) => ({
+    '@type': 'Question',
+    name: item.question,
+    acceptedAnswer: {
+      '@type': 'Answer',
+      text: item.answer,
+    },
+  })),
+};
+---
+
+{faqItems.length > 0 && (
+  <section class="faq section" style="padding-block: 3rem;" aria-labelledby="faq-heading">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+
+    <div class="container faq-inner">
+      <header class="faq-header">
+        <h2 id="faq-heading" style="font-family: var(--font_heading, 'Plus Jakarta Sans', sans-serif); font-weight: var(--font_weight_bold, 800);">{block.title}</h2>
+        {block.body && <p class="faq-intro">{block.body}</p>}
+      </header>
+
+      <dl class="faq-list">
+        {faqItems.map((item) => (
+          <details class="faq-item">
+            <summary class="faq-question">
+              <span>{item.question}</span>
+              <span class="faq-icon" aria-hidden="true">+</span>
+            </summary>
+            <div class="faq-answer">
+              <p>{item.answer}</p>
+            </div>
+          </details>
+        ))}
+      </dl>
+    </div>
+  </section>
+)}
+
+<style>
+  .faq {
+    border-top: 1px solid var(--color_border);
+  }
+
+  .faq-inner {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: clamp(var(--space_lg), 6vw, var(--space_2xl));
+    align-items: start;
+  }
+
+  .faq-header {
+    position: sticky;
+    top: calc(4rem + var(--space_lg));
+  }
+
+  .faq-header h2 {
+    font-size: clamp(var(--text_2xl), 3vw, var(--text_3xl));
+    margin-bottom: var(--space_sm);
+  }
+
+  .faq-intro {
+    font-size: var(--text_base);
+    color: var(--block-body, var(--color_text_secondary));
+    line-height: 1.65;
+    max-width: 32ch;
+  }
+
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .faq-item {
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .faq-item:first-child {
+    border-top: 1px solid var(--color_border);
+  }
+
+  .faq-question {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space_sm);
+    padding-block: var(--space_sm);
+    font-family: var(--font_heading);
+    font-size: var(--text_lg);
+    font-weight: 400;
+    color: var(--block-body, var(--color_text_primary));
+    cursor: pointer;
+    list-style: none;
+    transition: color var(--ease);
+  }
+
+  .faq-question::-webkit-details-marker { display: none; }
+
+  .faq-question:hover {
+    color: var(--color_cta_primary);
+  }
+
+  .faq-icon {
+    font-size: var(--text_xl);
+    font-weight: 300;
+    color: var(--color_cta_primary);
+    flex-shrink: 0;
+    transition: transform var(--ease);
+    line-height: 1;
+  }
+
+  details[open] .faq-icon {
+    transform: rotate(45deg);
+  }
+
+  details[open] .faq-question {
+    color: var(--color_cta_primary);
+  }
+
+  .faq-answer {
+    padding-bottom: var(--space_md);
+  }
+
+  .faq-answer p {
+    font-size: var(--text_base);
+    color: var(--block-body, var(--color_text_secondary));
+    line-height: 1.75;
+    max-width: 56ch;
+  }
+
+  @media (max-width: 768px) {
+    .faq-inner {
+      grid-template-columns: 1fr;
+    }
+
+    .faq-header {
+      position: static;
+    }
+
+    .faq-intro {
+      max-width: none;
+    }
+  }
+</style>

@@ -1,0 +1,667 @@
+---
+import type { NavItem, Site } from '../types/content';
+
+interface Props {
+  footerItems: NavItem[];
+  site: Site;
+  acknowledgement?: string | null;
+}
+
+const { footerItems, site, acknowledgement } = Astro.props;
+
+const acknowledgementParagraphs = acknowledgement
+  ? acknowledgement.split('\n\n').filter(Boolean)
+  : [];
+
+const grouped: Record<string, NavItem[]> = {};
+for (const item of footerItems) {
+  const col = item.footer_column || 'other';
+  if (!grouped[col]) grouped[col] = [];
+  grouped[col].push(item);
+}
+
+const columnOrder = ['studio', 'explore', 'ecosystem', 'trust'];
+const columnLabels: Record<string, string> = {
+  studio:    'Studio',
+  explore:   'Explore',
+  ecosystem: 'Ecosystem',
+  trust:     'Trust & Governance',
+};
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+
+  <!-- ── Newsletter strip ── -->
+  <div class="footer-newsletter">
+    <div class="container footer-newsletter-inner">
+      <div class="footer-newsletter-text">
+        <p class="footer-newsletter-heading">Stay in the loop</p>
+        <p class="footer-newsletter-sub">Weekly from The Remix. No spam.</p>
+      </div>
+      <form class="footer-nl-form" id="footer-nl-form" novalidate data-site-slug={site.slug}>
+        <input
+          type="email"
+          name="email"
+          id="footer-nl-email"
+          placeholder="Your email address"
+          class="footer-nl-input"
+          required
+          autocomplete="email"
+        />
+        <button type="submit" class="footer-nl-btn">Join The Signal</button>
+      </form>
+      <p class="footer-nl-success" id="footer-nl-success" style="display:none">
+        You're in. Check your inbox.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Main footer ── -->
+  <div class="container footer-inner">
+
+    <!-- Brand column -->
+    <div class="footer-brand">
+      <p class="footer-wordmark">{site.name}</p>
+      {site.tagline && <p class="footer-tagline">{site.tagline}</p>}
+      {site.footer_description && (
+        <p class="footer-desc">{site.footer_description}</p>
+      )}
+
+      <!-- Social links -->
+      {(site.linkedin_url || site.contact_email) && (
+        <div class="footer-social">
+          {site.linkedin_url && (
+            <a
+              href={site.linkedin_url}
+              class="footer-social-link"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="LinkedIn"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+              </svg>
+            </a>
+          )}
+          {site.contact_email && (
+            <a
+              href={`mailto:${site.contact_email}`}
+              class="footer-social-link"
+              aria-label={`Email ${site.name}`}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+              </svg>
+            </a>
+          )}
+        </div>
+      )}
+
+      <!-- Inline contact form (toggle) -->
+      {site.contact_email && (
+        <details class="footer-contact-details">
+          <summary class="footer-contact-toggle">Send us a message</summary>
+          <form class="footer-contact-form" id="footer-contact-form" novalidate data-site-slug={site.slug}>
+            <input
+              type="text"
+              name="name"
+              placeholder="Your name"
+              class="footer-contact-input"
+              required
+              autocomplete="name"
+            />
+            <input
+              type="email"
+              name="email"
+              placeholder="Your email"
+              class="footer-contact-input"
+              required
+              autocomplete="email"
+            />
+            <textarea
+              name="message"
+              placeholder="Your message"
+              class="footer-contact-input footer-contact-textarea"
+              rows="3"
+              required
+            ></textarea>
+            <button type="submit" class="footer-contact-btn">Send message</button>
+            <p class="footer-contact-success" id="footer-contact-success" style="display:none">
+              Message sent. We'll be in touch.
+            </p>
+          </form>
+        </details>
+      )}
+    </div>
+
+    <!-- Nav columns -->
+    {columnOrder.map((col) => {
+      const items = grouped[col];
+      if (!items || items.length === 0) return null;
+      return (
+        <div class="footer-col">
+          <p class="footer-col-label">{columnLabels[col] || col}</p>
+          <ul role="list">
+            {items.map((item) => (
+              <li>
+                <a
+                  href={item.url}
+                  class="footer-link"
+                  target={item.open_in_new_tab ? '_blank' : undefined}
+                  rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+                >
+                  {item.label}
+                  {item.is_external && (
+                    <span class="footer-link-ext" aria-hidden="true">↗</span>
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    })}
+
+  </div>
+
+  <div class="footer-bottom">
+    <div class="container footer-bottom-inner">
+      <p class="footer-copy">
+        &copy; {year} {site.name}. All rights reserved.
+      </p>
+      <a href="/flywheel" class="footer-copy footer-ecosystem-link">
+        Part of The Signal ecosystem
+      </a>
+    </div>
+  </div>
+
+  {acknowledgementParagraphs.length > 0 && (
+    <div class="footer-acknowledgement">
+      <div class="container">
+        {acknowledgementParagraphs.map((para) => (
+          <p class="footer-copy footer-acknowledgement-para">{para}</p>
+        ))}
+      </div>
+    </div>
+  )}
+</footer>
+
+<script>
+  function initFooterForms() {
+    // ── Newsletter signup ──
+    const nlForms = document.querySelectorAll('.footer-nl-form');
+    
+    nlForms.forEach(nlForm => {
+      if (nlForm.dataset.bound === 'true') return;
+      nlForm.dataset.bound = 'true';
+
+      const nlSuccess = nlForm.parentElement?.querySelector('.footer-nl-success');
+
+      nlForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const btn = nlForm.querySelector('.footer-nl-btn');
+        const emailInput = nlForm.querySelector('input[type="email"]');
+        if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+        const payload = {
+          email: emailInput?.value || '',
+          site_slug: nlForm.dataset.siteSlug || '',
+          source: 'footer',
+          page_path: window.location.pathname,
+          audience_type: null,
+        };
+
+        try {
+          const res = await fetch('/api/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const json = await res.json();
+          if (res.ok && json.success) {
+            nlForm.style.display = 'none';
+            if (nlSuccess) nlSuccess.style.display = 'block';
+          } else {
+            if (btn) { btn.disabled = false; btn.textContent = 'Join The Signal'; }
+          }
+        } catch {
+          if (btn) { btn.disabled = false; btn.textContent = 'Join The Signal'; }
+        }
+      });
+    });
+
+    // ── Contact form ──
+    const contactForms = document.querySelectorAll('.footer-contact-form');
+    contactForms.forEach(contactForm => {
+      if (contactForm.dataset.bound === 'true') return;
+      contactForm.dataset.bound = 'true';
+
+      const contactSuccess = contactForm.querySelector('.footer-contact-success');
+
+      contactForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = contactForm.querySelector('.footer-contact-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+        const nameInput    = contactForm.querySelector('[name="name"]');
+        const emailInput   = contactForm.querySelector('[name="email"]');
+        const messageInput = contactForm.querySelector('[name="message"]');
+
+        try {
+          const res = await fetch('/api/contact', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name:      nameInput?.value || '',
+              email:     emailInput?.value || '',
+              message:   messageInput?.value || '',
+              site_slug: contactForm.dataset.siteSlug || '',
+              page_path: window.location.pathname,
+            }),
+          });
+          const json = await res.json();
+          if (res.ok && json.success) {
+            contactForm.style.display = 'none';
+            if (contactSuccess) contactSuccess.style.display = 'block';
+          } else {
+            if (btn) { btn.disabled = false; btn.textContent = 'Send message'; }
+          }
+        } catch {
+          if (btn) { btn.disabled = false; btn.textContent = 'Send message'; }
+        }
+      });
+    });
+  }
+
+  initFooterForms();
+  document.addEventListener('astro:page-load', initFooterForms);
+</script>
+
+<style>
+  .site-footer {
+    background: var(--color_text_primary);
+    color: var(--color_white);
+    margin-top: auto;
+  }
+
+  /* ── Newsletter strip ── */
+  .footer-newsletter {
+    background: rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-block: 32px;
+  }
+
+  .footer-newsletter-inner {
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    flex-wrap: wrap;
+  }
+
+  .footer-newsletter-text {
+    flex-shrink: 0;
+  }
+
+  .footer-newsletter-heading {
+    font-family: var(--font_heading);
+    font-size: var(--text_base);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_white);
+    margin-bottom: 4px;
+    max-width: none;
+  }
+
+  .footer-newsletter-sub {
+    font-size: var(--text_xs);
+    color: rgba(255,255,255,0.5);
+    max-width: none;
+  }
+
+  .footer-nl-form {
+    display: flex;
+    gap: 10px;
+    flex: 1;
+    max-width: 480px;
+    flex-wrap: wrap;
+  }
+
+  .footer-nl-input {
+    flex: 1;
+    min-width: 200px;
+    padding: 11px 16px;
+    background: transparent;
+    border: 1.5px solid rgba(255,255,255,0.25);
+    border-radius: 100px;
+    font-family: var(--font_body);
+    font-size: 14px;
+    color: var(--color_white);
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+
+  .footer-nl-input::placeholder {
+    color: rgba(255,255,255,0.4);
+  }
+
+  .footer-nl-input:focus {
+    border-color: var(--color_cta_primary);
+  }
+
+  .footer-nl-btn {
+    padding: 11px 24px;
+    background: var(--color_cta_primary);
+    color: var(--color_white);
+    font-family: var(--font_body);
+    font-size: 14px;
+    font-weight: var(--font_weight_semibold);
+    border: none;
+    border-radius: 100px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .footer-nl-btn:hover:not(:disabled) {
+    background: var(--color_cta_hover);
+  }
+
+  .footer-nl-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .footer-nl-success {
+    font-size: var(--text_sm);
+    color: rgba(255,255,255,0.8);
+    font-style: italic;
+    flex: 1;
+    max-width: none;
+  }
+
+  /* ── Main footer ── */
+  .footer-inner {
+    display: grid;
+    grid-template-columns: 2fr 1.4fr 1.2fr 1.2fr;
+    gap: clamp(var(--space_xl), 4vw, var(--space_3xl));
+    padding-top: 2.5rem;
+    padding-bottom: 2rem;
+    align-items: start;
+  }
+
+  /* ── Brand column ── */
+  .footer-brand {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_md);
+  }
+
+  .footer-wordmark {
+    font-family: var(--font_heading);
+    font-size: 18px;
+    font-weight: var(--font_weight_bold);
+    color: var(--color_white);
+    letter-spacing: -0.02em;
+    max-width: none;
+  }
+
+  .footer-tagline {
+    font-size: var(--text_sm);
+    color: rgba(255,255,255,0.6);
+    line-height: var(--leading_relaxed);
+    max-width: none;
+  }
+
+  .footer-desc {
+    font-size: var(--text_sm);
+    color: rgba(255,255,255,0.5);
+    line-height: var(--leading_relaxed);
+    max-width: none;
+  }
+
+  /* ── Social icons ── */
+  .footer-social {
+    display: flex;
+    gap: var(--space_sm);
+    align-items: center;
+  }
+
+  .footer-social-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.6);
+    transition: color 0.2s ease;
+  }
+
+  .footer-social-link:hover {
+    color: var(--color_cta_primary);
+  }
+
+  /* ── Contact form toggle ── */
+  .footer-contact-details {
+    margin-top: var(--space_xs);
+  }
+
+  .footer-contact-toggle {
+    font-size: var(--text_sm);
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.2s ease;
+  }
+
+  .footer-contact-toggle::-webkit-details-marker {
+    display: none;
+  }
+
+  .footer-contact-toggle::after {
+    content: '+';
+    font-size: 16px;
+    line-height: 1;
+    opacity: 0.6;
+    transition: transform 0.2s ease;
+  }
+
+  .footer-contact-details[open] .footer-contact-toggle::after {
+    content: '−';
+  }
+
+  .footer-contact-toggle:hover {
+    color: var(--color_cta_primary);
+  }
+
+  .footer-contact-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: var(--space_md);
+  }
+
+  .footer-contact-input {
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.07);
+    border: 1.5px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    font-family: var(--font_body);
+    font-size: 13px;
+    color: var(--color_white);
+    outline: none;
+    transition: border-color 0.2s ease;
+    resize: none;
+  }
+
+  .footer-contact-input::placeholder {
+    color: rgba(255,255,255,0.35);
+  }
+
+  .footer-contact-input:focus {
+    border-color: var(--color_cta_primary);
+  }
+
+  .footer-contact-textarea {
+    min-height: 80px;
+  }
+
+  .footer-contact-btn {
+    padding: 10px 20px;
+    background: var(--color_cta_primary);
+    color: var(--color_white);
+    font-family: var(--font_body);
+    font-size: 13px;
+    font-weight: var(--font_weight_semibold);
+    border: none;
+    border-radius: 100px;
+    cursor: pointer;
+    align-self: flex-start;
+    transition: background 0.2s ease;
+  }
+
+  .footer-contact-btn:hover:not(:disabled) {
+    background: var(--color_cta_hover);
+  }
+
+  .footer-contact-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .footer-contact-success {
+    font-size: var(--text_sm);
+    color: rgba(255,255,255,0.8);
+    font-style: italic;
+    max-width: none;
+  }
+
+  /* ── Nav columns ── */
+  .footer-col {
+    min-width: 0;
+  }
+
+  .footer-col-label {
+    font-family: var(--font_body);
+    font-size: 11px;
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: var(--space_md);
+    max-width: none;
+  }
+
+  .footer-col ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .footer-link {
+    font-size: var(--text_sm);
+    color: rgba(255,255,255,0.8);
+    transition: color var(--ease);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    line-height: 2.2;
+  }
+
+  .footer-link:hover {
+    color: var(--color_cta_primary);
+  }
+
+  .footer-link-ext {
+    font-size: 0.7em;
+    opacity: 0.6;
+  }
+
+  /* ── Bottom bar ── */
+  .footer-bottom {
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+
+  .footer-bottom-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-block: 2rem;
+  }
+
+  .footer-copy {
+    font-size: var(--text_xs);
+    color: rgba(255,255,255,0.4);
+    max-width: none;
+  }
+
+  .footer-ecosystem-link {
+    font-size: var(--text_xs);
+    color: rgba(255,255,255,0.4);
+    transition: color 0.2s ease;
+    text-decoration: none;
+    max-width: none;
+  }
+
+  .footer-ecosystem-link:hover {
+    color: rgba(255,255,255,0.7);
+  }
+
+  /* ── Acknowledgement ── */
+  .footer-acknowledgement {
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding-block: var(--space_lg);
+  }
+
+  .footer-acknowledgement-para {
+    max-width: 72ch;
+    line-height: var(--leading_relaxed);
+  }
+
+  .footer-acknowledgement-para + .footer-acknowledgement-para {
+    margin-top: var(--space_sm);
+  }
+
+  /* ── Mobile ── */
+  @media (max-width: 900px) {
+    .footer-inner {
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space_xl);
+    }
+
+    .footer-brand {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .footer-newsletter-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    .footer-nl-form {
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .footer-inner {
+      grid-template-columns: 1fr;
+      padding-top: 3rem;
+      padding-bottom: 2.5rem;
+    }
+
+    .footer-bottom-inner {
+      flex-direction: column;
+      gap: var(--space_xs);
+      text-align: center;
+    }
+  }
+</style>

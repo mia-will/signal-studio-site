@@ -1,0 +1,77 @@
+---
+import Layout from '../layouts/Layout.astro';
+import RemixNav from '../components/RemixNav.astro';
+import RemixFooter from '../components/RemixFooter.astro';
+import NotFoundPage from '../components/NotFoundPage.astro';
+import { supabase } from '../lib/supabase';
+import { SITE_CONFIGS, SITE_CONFIG } from '../config/sites';
+
+const host = Astro.request.headers.get('host')?.replace(/^www\./, '') ?? '';
+
+const siteConfig = Object.values(SITE_CONFIGS).find((c) => c.domain === host) ?? SITE_CONFIG;
+
+const { site_id: SITE_ID, site_slug: SITE_SLUG, brand_key: BRAND_KEY } = siteConfig;
+
+const isRemix = BRAND_KEY === 'the_remix';
+
+const [tokensRes, navRes, siteRes] = await Promise.all([
+  supabase
+    .from('brand_tokens')
+    .select('token_key, token_value')
+    .eq('brand_key', BRAND_KEY)
+    .order('sort_order', { ascending: true }),
+  supabase
+    .from('site_nav_items')
+    .select('label, url, open_in_new_tab')
+    .eq('site_slug', SITE_SLUG)
+    .eq('nav_group', 'header')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true }),
+  supabase
+    .from('sites')
+    .select('name, logo_asset_id, contact_email, primary_domain')
+    .eq('id', SITE_ID)
+    .maybeSingle(),
+]);
+
+const tokenRows = tokensRes.data ?? [];
+const rawTokenCSS = tokenRows.length
+  ? `:root {\n${tokenRows.map((t) => `  --${t.token_key}: ${t.token_value};`).join('\n')}\n}`
+  : '';
+
+const navItems = navRes.data ?? [];
+const site = siteRes.data;
+
+const logoRes = site?.logo_asset_id
+  ? await supabase.from('media_assets').select('image_url').eq('id', site.logo_asset_id).maybeSingle()
+  : { data: null };
+const logoUrl = logoRes.data?.image_url ?? null;
+
+const siteName = site?.name ?? (isRemix ? 'The Remix' : 'The Signal Studio');
+const homepageUrl = '/';
+const contactEmail = site?.contact_email ?? null;
+
+Astro.response.status = 404;
+---
+
+<Layout
+  title={`Page Not Found — ${siteName}`}
+  description="The page you're looking for doesn't exist."
+  robots="noindex, follow"
+  brandKey={BRAND_KEY}
+  rawTokenCSS={rawTokenCSS}
+  siteName={siteName}
+>
+  {isRemix && (
+    <RemixNav navItems={navItems} logoUrl={logoUrl} siteName={siteName} />
+  )}
+
+  <NotFoundPage
+    siteName={siteName}
+    homepageUrl={homepageUrl}
+    navItems={navItems}
+    contactEmail={contactEmail}
+  />
+
+  {isRemix && <RemixFooter />}
+</Layout>

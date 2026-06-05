@@ -1,0 +1,165 @@
+---
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+interface WhyNowItem {
+  title: string;
+  body: string;
+}
+
+const items: WhyNowItem[] = block.props?.items ?? [];
+const eyebrow  = block.eyebrow  ?? block.props?.eyebrow;
+const title    = block.props?.title    ?? block.title;
+const subtitle = block.subtitle ?? block.props?.subtitle;
+---
+
+<section class="why-now">
+  <div class="why-now-inner">
+
+    <!-- HEADER -->
+    <div class="why-now-header">
+      {eyebrow && (
+        <p class="why-now-eyebrow">{eyebrow}</p>
+      )}
+      {title && (
+        <h2 class="why-now-title">{title}</h2>
+      )}
+      {subtitle && (
+        <p class="why-now-subtitle">{subtitle}</p>
+      )}
+    </div>
+
+    <!-- ITEMS -->
+    {items.length > 0 && (
+      <ol class="why-now-list">
+        {items.map((item, i) => (
+          <li class="why-now-item">
+            <span class="why-now-item-num">{String(i + 1).padStart(2, '0')}</span>
+            <div class="why-now-item-content">
+              <h3 class="why-now-item-title">{item.title}</h3>
+              <p class="why-now-item-body">{item.body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    )}
+
+  </div>
+</section>
+
+<style>
+  .why-now {
+    padding-block: var(--layout_padding_y);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .why-now-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+  }
+
+  .why-now-header {
+    max-width: 52ch;
+    margin-bottom: var(--gap_lg);
+  }
+
+  .why-now-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin: 0 0 var(--space_sm);
+  }
+
+  .why-now-title {
+    font-family: var(--font_heading);
+    font-size: clamp(1.75rem, 3vw, 2.25rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--space_sm);
+  }
+
+  .why-now-subtitle {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0;
+  }
+
+  .why-now-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+  }
+
+  .why-now-item {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: var(--gap_sm);
+    padding: var(--space_lg) 0;
+    border-top: 1px solid var(--color_border);
+  }
+
+  .why-now-item:nth-child(odd) {
+    padding-right: var(--gap_lg);
+  }
+
+  .why-now-item:nth-child(even) {
+    padding-left: var(--gap_lg);
+    border-left: 1px solid var(--color_border);
+  }
+
+  .why-now-item-num {
+    font-family: var(--font_heading);
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_bold);
+    letter-spacing: 0.06em;
+    color: var(--color_cta_primary);
+    opacity: 0.6;
+    padding-top: 4px;
+    white-space: nowrap;
+  }
+
+  .why-now-item-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_base);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0 0 var(--space_xs);
+    line-height: var(--leading_tight);
+  }
+
+  .why-now-item-body {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0;
+  }
+
+  @media (max-width: 768px) {
+    .why-now-list {
+      grid-template-columns: 1fr;
+    }
+
+    .why-now-item:nth-child(odd) {
+      padding-right: 0;
+    }
+
+    .why-now-item:nth-child(even) {
+      padding-left: 0;
+      border-left: none;
+    }
+  }
+</style>

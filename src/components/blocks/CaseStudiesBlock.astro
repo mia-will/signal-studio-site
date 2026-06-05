@@ -1,0 +1,126 @@
+---
+import type { PageBlock } from '../../types/content';
+import { supabase } from '../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const limit = (block.props?.limit as number | undefined) ?? 3;
+const inlineBody = block.body ?? (block.props?.body as string | undefined) ?? null;
+const inlineItems = inlineBody
+  ? inlineBody
+      .split(/\n+/)
+      .map((item: string) => item.trim())
+      .filter(Boolean)
+  : [];
+const shouldUseInlineItems = inlineItems.length > 0 && !block.source_table && !block.props?.source_table;
+
+// ── Fetch case studies ────────────────────────────────────────
+const { data: rawStudies = [] } = shouldUseInlineItems
+  ? { data: [] }
+  : await supabase
+      .from('case_studies')
+      .select('id, title, slug, client_sector, summary')
+      .eq('is_public', true)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+const studies = rawStudies ?? [];
+
+// ── Block-level copy (top-level columns take precedence) ──────
+const eyebrow = (block.eyebrow as string | undefined) ?? (block.props?.eyebrow as string | undefined) ?? null;
+const title   = block.title ?? (block.props?.title as string | undefined) ?? null;
+const body    = shouldUseInlineItems ? null : inlineBody;
+---
+
+{(studies.length > 0 || shouldUseInlineItems) && (
+  <section
+    style="padding-block: var(--layout_padding_y); padding-inline: var(--layout_padding_x); max-width: var(--layout_max_width); margin-inline: auto;"
+    aria-labelledby={title ? 'case-studies-heading' : undefined}
+  >
+
+    <!-- ── Section header ──────────────────────────────────── -->
+    {(eyebrow || title || body) && (
+      <header style="margin-bottom: var(--space_2xl);">
+        {eyebrow && (
+          <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--gap_sm);">
+            {eyebrow}
+          </p>
+        )}
+        {title && (
+          <h2
+            id="case-studies-heading"
+            style="font-family: var(--font_heading); font-size: clamp(var(--text_xl), 3vw, var(--text_4xl, 2.25rem)); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0 0 var(--gap_sm);"
+          >
+            {title}
+          </h2>
+        )}
+        {body && (
+          <p style="font-size: var(--text_lg); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0; max-width: 60ch;">
+            {body}
+          </p>
+        )}
+      </header>
+    )}
+
+    {shouldUseInlineItems ? (
+      <ul style="list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--layout_max_width) / 3)), 1fr)); gap: var(--gap_sm);">
+        {inlineItems.map((item) => (
+          <li style="padding: var(--gap_md); background: var(--color_surface_alt); border: 1px solid var(--color_border); border-radius: var(--radius_md); font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_secondary);">
+            {item}
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <!-- ── Card grid ───────────────────────────────────────── -->
+      <!-- min card width derived from layout tokens — no hardcoded column count -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, calc((var(--layout_max_width) - 2 * var(--layout_padding_x) - 2 * var(--gap_md)) / 3)), 1fr)); gap: var(--gap_md);">
+
+        {studies.map((study: any) => {
+          const hasLink = Boolean(study.slug);
+          const Tag     = hasLink ? 'a' : 'div';
+          return (
+            <Tag
+              href={hasLink ? `/case-studies/${study.slug}` : undefined}
+              style={`display: flex; flex-direction: column; gap: var(--gap_sm); padding: var(--space_xl); background: var(--color_surface_alt); border: 1px solid var(--color_border); border-radius: var(--radius_lg); box-shadow: var(--shadow_sm); text-decoration: none; color: inherit; transition: box-shadow var(--ease, 0.2s ease), transform var(--ease, 0.2s ease);`}
+              onmouseenter={hasLink ? "this.style.boxShadow='var(--shadow_md)';this.style.transform='translateY(-2px)'" : undefined}
+              onmouseleave={hasLink ? "this.style.boxShadow='var(--shadow_sm)';this.style.transform=''" : undefined}
+            >
+
+              {/* Sector badge — only when non-null */}
+              {study.client_sector && (
+                <span style="display: inline-block; align-self: flex-start; font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color_cta_primary); background: color-mix(in srgb, var(--color_cta_primary) 10%, transparent); padding: 3px var(--gap_sm); border-radius: 100px;">
+                  {study.client_sector}
+                </span>
+              )}
+
+              {/* Title — always shown */}
+              <h3 style="font-family: var(--font_heading); font-size: var(--text_xl); font-weight: var(--font_weight_bold); line-height: var(--leading_tight); color: var(--color_text_heading); margin: 0;">
+                {study.title}
+              </h3>
+
+              {/* Summary — only when non-null */}
+              {study.summary && (
+                <p style="font-size: var(--text_base); line-height: var(--leading_relaxed); color: var(--color_text_secondary); margin: 0; flex: 1;">
+                  {study.summary}
+                </p>
+              )}
+
+              {/* CTA — only when linked */}
+              {hasLink && (
+                <span style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); margin-top: auto;">
+                  Read more →
+                </span>
+              )}
+
+            </Tag>
+          );
+        })}
+
+      </div>
+    )}
+  </section>
+)}

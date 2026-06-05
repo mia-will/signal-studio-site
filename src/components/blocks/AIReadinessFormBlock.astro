@@ -1,0 +1,488 @@
+---
+import type { PageBlock } from '../../types/content';
+import { supabase } from '../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+// ── Fetch form fields ────────────────────────────────────────────
+const { data: rawFields = [] } = await supabase
+  .from('form_fields')
+  .select('field_key, field_type, label, placeholder, helper_text, options, is_required, maps_to_column, is_essential, section, section_label, sort_order')
+  .eq('form_key', 'ai_readiness')
+  .eq('site_slug', 'signal_studio')
+  .eq('is_active', true)
+  .order('sort_order', { ascending: true });
+
+const fields = rawFields ?? [];
+
+// ── Split essential vs accordion ─────────────────────────────────
+const essentialFields = fields.filter((f: any) => f.is_essential);
+const nonEssential    = fields.filter((f: any) => !f.is_essential);
+
+// ── Group non-essential by section ───────────────────────────────
+const sectionMap = new Map<string, { label: string; fields: any[] }>();
+for (const field of nonEssential) {
+  const sectionKey = field.section ?? '__default';
+  if (!sectionMap.has(sectionKey)) {
+    sectionMap.set(sectionKey, { label: field.section_label ?? '', fields: [] });
+  }
+  sectionMap.get(sectionKey)!.fields.push(field);
+}
+const sections = [...sectionMap.entries()];
+
+// ── Block config ─────────────────────────────────────────────────
+const eyebrow            = (block.eyebrow as string | undefined) ?? (block.props?.eyebrow as string | undefined) ?? null;
+const title              = block.title ?? (block.props?.title as string | undefined) ?? null;
+const helperLine         = block.subtitle ?? (block.props?.subtitle as string | undefined) ?? null;
+const submitLabel        = (block.props?.submit_label as string | undefined) ?? 'Submit assessment';
+const successMessage     = (block.props?.success_message as string | undefined) ?? "Thanks — we'll be in touch shortly.";
+const accordionFirstOpen = block.props?.accordion_first_open === true;
+---
+
+<section style="padding-block: var(--layout_padding_y); padding-inline: var(--layout_padding_x); max-width: var(--layout_max_width); margin-inline: auto;">
+
+  <!-- ── Form panel ─────────────────────────────────────────── -->
+  <div style="max-width: var(--form_max_width); margin-inline: auto; background: var(--color_surface_alt); border: 1px solid var(--color_border); box-shadow: var(--shadow_sm); border-radius: var(--radius_lg); padding: var(--gap_lg);">
+
+    <!-- Header -->
+    {eyebrow && (
+      <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--gap_xs);">
+        {eyebrow}
+      </p>
+    )}
+    {title && (
+      <h2 style="font-family: var(--font_heading); font-size: clamp(1.75rem, 3vw, 2.25rem); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0 0 var(--gap_md); line-height: var(--leading_tight); letter-spacing: -0.02em;">
+        {title}
+      </h2>
+    )}
+
+    <!-- ── Form ───────────────────────────────────────────────── -->
+    <form id="ai-readiness-form" novalidate>
+      <div style="display: flex; flex-direction: column; gap: var(--gap_md);">
+
+        <!-- Essential fields (always visible) -->
+        {essentialFields.map((field: any) => (
+          <div
+            data-field-wrapper=""
+            data-field-key={field.field_key}
+            data-field-type={field.field_type}
+            data-maps-to={field.maps_to_column ?? ''}
+            data-required={field.is_required ? 'true' : 'false'}
+          >
+            <label
+              for={field.field_type !== 'multi_select' ? `field-${field.field_key}` : undefined}
+              style="display: block; font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); margin-bottom: var(--gap_xs); line-height: var(--leading_normal);"
+            >
+              {field.label}
+              {field.is_required && (
+                <span style="color: var(--color_cta_primary); margin-left: 3px;" aria-hidden="true">*</span>
+              )}
+            </label>
+
+            {field.helper_text && (
+              <p style="font-size: var(--text_xs); color: var(--color_text_secondary); margin: 0 0 var(--gap_xs); line-height: var(--leading_relaxed);">
+                {field.helper_text}
+              </p>
+            )}
+
+            {(field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'tel') && (
+              <input
+                type={field.field_type}
+                id={`field-${field.field_key}`}
+                name={field.field_key}
+                placeholder={field.placeholder ?? ''}
+                required={field.is_required}
+                autocomplete={
+                  field.field_type === 'email' ? 'email'
+                  : field.field_key === 'first_name' ? 'given-name'
+                  : field.field_key === 'last_name' ? 'family-name'
+                  : field.field_key === 'phone' ? 'tel'
+                  : field.field_key === 'organisation' ? 'organization'
+                  : undefined
+                }
+                style="width: 100%; padding: var(--gap_sm) var(--gap_md); font-size: var(--text_base); font-family: var(--font_body); border: 1px solid var(--color_border); border-radius: var(--radius_sm); background: var(--color_background); color: var(--color_text_primary); box-sizing: border-box; outline: none; transition: border-color 0.15s;"
+              />
+            )}
+
+            {field.field_type === 'textarea' && (
+              <textarea
+                id={`field-${field.field_key}`}
+                name={field.field_key}
+                placeholder={field.placeholder ?? ''}
+                required={field.is_required}
+                rows={4}
+                style="width: 100%; padding: var(--gap_sm) var(--gap_md); font-size: var(--text_base); font-family: var(--font_body); border: 1px solid var(--color_border); border-radius: var(--radius_sm); background: var(--color_background); color: var(--color_text_primary); box-sizing: border-box; outline: none; resize: vertical; transition: border-color 0.15s;"
+              ></textarea>
+            )}
+
+            {field.field_type === 'select' && (
+              <select
+                id={`field-${field.field_key}`}
+                name={field.field_key}
+                required={field.is_required}
+                style="width: 100%; padding: var(--gap_sm) var(--gap_md); font-size: var(--text_base); font-family: var(--font_body); border: 1px solid var(--color_border); border-radius: var(--radius_sm); background: var(--color_background); color: var(--color_text_primary); box-sizing: border-box; outline: none; cursor: pointer;"
+              >
+                <option value="">Choose one…</option>
+                {(field.options ?? []).map((opt: any) => (
+                  <option value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            )}
+
+            {field.field_type === 'multi_select' && (
+              <div
+                id={`multi-${field.field_key}`}
+                data-multi-container=""
+                style="display: flex; flex-wrap: wrap; gap: var(--gap_xs); border: 1px solid transparent; border-radius: var(--radius_sm); padding: 2px; transition: border-color 0.15s;"
+                role="group"
+                aria-label={field.label}
+              >
+                {(field.options ?? []).map((opt: any) => (
+                  <button
+                    type="button"
+                    data-value={opt.value}
+                    data-selected="false"
+                    style="display: inline-flex; align-items: center; padding: var(--gap_xs) var(--gap_md); font-size: var(--text_sm); font-weight: var(--font_weight_semibold); font-family: var(--font_body); border: 1.5px solid var(--color_border); border-radius: 100px; background: var(--color_background); color: var(--color_text_secondary); cursor: pointer; line-height: 1; transition: background 0.15s, border-color 0.15s, color 0.15s;"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+
+        <!-- Helper line — between essential fields and accordions -->
+        {helperLine && sections.length > 0 && (
+          <div style="border-top: 1px solid var(--color_border); padding-top: var(--gap_md); margin-top: var(--gap_xs);">
+            <p style="font-size: var(--text_sm); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0;">
+              {helperLine}
+            </p>
+          </div>
+        )}
+
+        <!-- Accordion sections (non-essential fields) -->
+        {sections.map(([sectionKey, sectionData], idx) => (
+          <details
+            data-accordion=""
+            open={accordionFirstOpen && idx === 0 ? true : undefined}
+            style="border-top: 1px solid var(--color_border);"
+          >
+            <summary style="display: flex; align-items: center; justify-content: space-between; padding: var(--gap_md) var(--gap_xs); cursor: pointer; list-style: none; user-select: none; border-radius: var(--radius_sm); transition: background 0.15s; margin-inline: calc(-1 * var(--gap_xs));">
+              <span style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading);">
+                {sectionData.label || sectionKey}
+              </span>
+              <span
+                data-chevron=""
+                style={`display: flex; align-items: center; transition: transform 0.2s; color: var(--color_text_secondary); transform: ${accordionFirstOpen && idx === 0 ? 'rotate(180deg)' : 'rotate(0deg)'};`}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </span>
+            </summary>
+
+            <div style="display: flex; flex-direction: column; gap: var(--gap_md); padding-bottom: var(--gap_md);">
+              {sectionData.fields.map((field: any) => (
+                <div
+                  data-field-wrapper=""
+                  data-field-key={field.field_key}
+                  data-field-type={field.field_type}
+                  data-maps-to={field.maps_to_column ?? ''}
+                  data-required={field.is_required ? 'true' : 'false'}
+                >
+                  <label
+                    for={field.field_type !== 'multi_select' ? `field-${field.field_key}` : undefined}
+                    style="display: block; font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); margin-bottom: var(--gap_xs); line-height: var(--leading_normal);"
+                  >
+                    {field.label}
+                    {field.is_required && (
+                      <span style="color: var(--color_cta_primary); margin-left: 3px;" aria-hidden="true">*</span>
+                    )}
+                  </label>
+
+                  {field.helper_text && (
+                    <p style="font-size: var(--text_xs); color: var(--color_text_secondary); margin: 0 0 var(--gap_xs); line-height: var(--leading_relaxed);">
+                      {field.helper_text}
+                    </p>
+                  )}
+
+                  {(field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'tel') && (
+                    <input
+                      type={field.field_type}
+                      id={`field-${field.field_key}`}
+                      name={field.field_key}
+                      placeholder={field.placeholder ?? ''}
+                      required={field.is_required}
+                      style="width: 100%; padding: var(--gap_sm) var(--gap_md); font-size: var(--text_base); font-family: var(--font_body); border: 1px solid var(--color_border); border-radius: var(--radius_sm); background: var(--color_background); color: var(--color_text_primary); box-sizing: border-box; outline: none; transition: border-color 0.15s;"
+                    />
+                  )}
+
+                  {field.field_type === 'textarea' && (
+                    <textarea
+                      id={`field-${field.field_key}`}
+                      name={field.field_key}
+                      placeholder={field.placeholder ?? ''}
+                      required={field.is_required}
+                      rows={4}
+                      style="width: 100%; padding: var(--gap_sm) var(--gap_md); font-size: var(--text_base); font-family: var(--font_body); border: 1px solid var(--color_border); border-radius: var(--radius_sm); background: var(--color_background); color: var(--color_text_primary); box-sizing: border-box; outline: none; resize: vertical; transition: border-color 0.15s;"
+                    ></textarea>
+                  )}
+
+                  {field.field_type === 'select' && (
+                    <select
+                      id={`field-${field.field_key}`}
+                      name={field.field_key}
+                      required={field.is_required}
+                      style="width: 100%; padding: var(--gap_sm) var(--gap_md); font-size: var(--text_base); font-family: var(--font_body); border: 1px solid var(--color_border); border-radius: var(--radius_sm); background: var(--color_background); color: var(--color_text_primary); box-sizing: border-box; outline: none; cursor: pointer;"
+                    >
+                      <option value="">Choose one…</option>
+                      {(field.options ?? []).map((opt: any) => (
+                        <option value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {field.field_type === 'multi_select' && (
+                    <div
+                      id={`multi-${field.field_key}`}
+                      data-multi-container=""
+                      style="display: flex; flex-wrap: wrap; gap: var(--gap_xs); border: 1px solid transparent; border-radius: var(--radius_sm); padding: 2px; transition: border-color 0.15s;"
+                      role="group"
+                      aria-label={field.label}
+                    >
+                      {(field.options ?? []).map((opt: any) => (
+                        <button
+                          type="button"
+                          data-value={opt.value}
+                          data-selected="false"
+                          style="display: inline-flex; align-items: center; padding: var(--gap_xs) var(--gap_md); font-size: var(--text_sm); font-weight: var(--font_weight_semibold); font-family: var(--font_body); border: 1.5px solid var(--color_border); border-radius: 100px; background: var(--color_background); color: var(--color_text_secondary); cursor: pointer; line-height: 1; transition: background 0.15s, border-color 0.15s, color 0.15s;"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        ))}
+
+        <!-- Form-level error (above submit) -->
+        <p
+          id="ai-form-error"
+          hidden
+          style="font-size: var(--text_sm); color: var(--color_error); line-height: var(--leading_relaxed); margin: 0;"
+          role="alert"
+        >
+          Please fill in all required fields before submitting.
+        </p>
+
+        <!-- Submit -->
+        <div style="padding-top: var(--gap_xs);">
+          <button
+            type="submit"
+            id="ai-readiness-submit"
+            data-label={submitLabel}
+            style="padding: var(--gap_sm) var(--gap_lg); background: var(--color_cta_primary); color: var(--color_text_on_dark, white); font-family: var(--font_body); font-size: var(--text_base); font-weight: var(--font_weight_semibold); border: none; border-radius: var(--btn_radius_pill, 100px); cursor: pointer; letter-spacing: 0.01em; transition: opacity 0.15s;"
+          >
+            {submitLabel}
+          </button>
+        </div>
+
+      </div>
+    </form>
+
+    <!-- ── Success state ───────────────────────────────────────── -->
+    <div
+      id="ai-readiness-success"
+      hidden
+      style="padding: var(--gap_lg); border: 1px solid var(--color_border); background: var(--color_background); border-left: 4px solid var(--color_success); border-radius: var(--radius_md);"
+    >
+      <p style="font-size: var(--text_lg); font-weight: var(--font_weight_semibold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_normal);">
+        {successMessage}
+      </p>
+    </div>
+
+  </div>
+</section>
+
+<script>
+  const SUPABASE_URL      = import.meta.env.PUBLIC_SUPABASE_URL as string;
+  const SUPABASE_ANON_KEY = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string;
+  if (!SUPABASE_URL)      throw new Error('Missing env var: PUBLIC_SUPABASE_URL');
+  if (!SUPABASE_ANON_KEY) throw new Error('Missing env var: PUBLIC_SUPABASE_ANON_KEY');
+
+  // ── Accordion chevron + hover ─────────────────────────────────
+  document.querySelectorAll<HTMLDetailsElement>('details[data-accordion]').forEach(details => {
+    const chevron = details.querySelector<HTMLElement>('[data-chevron]');
+    const summary = details.querySelector<HTMLElement>('summary');
+
+    details.addEventListener('toggle', () => {
+      if (chevron) {
+        chevron.style.transform = details.open ? 'rotate(180deg)' : 'rotate(0deg)';
+      }
+    });
+
+    if (summary) {
+      summary.addEventListener('mouseenter', () => {
+        summary.style.background = 'var(--color_surface)';
+      });
+      summary.addEventListener('mouseleave', () => {
+        summary.style.background = '';
+      });
+    }
+  });
+
+  // ── Pill toggle ───────────────────────────────────────────────
+  document.querySelectorAll<HTMLButtonElement>('[data-multi-container] button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const isSelected = btn.dataset.selected === 'true';
+      btn.dataset.selected = isSelected ? 'false' : 'true';
+      if (isSelected) {
+        btn.style.background  = 'var(--color_background)';
+        btn.style.borderColor = 'var(--color_border)';
+        btn.style.color       = 'var(--color_text_secondary)';
+      } else {
+        btn.style.background  = 'var(--color_cta_primary)';
+        btn.style.borderColor = 'var(--color_cta_primary)';
+        btn.style.color       = 'white';
+      }
+      // Clear any error highlight on the container
+      const container = btn.closest<HTMLElement>('[data-multi-container]');
+      if (container) container.style.borderColor = 'transparent';
+    });
+  });
+
+  // ── Clear field error on input ────────────────────────────────
+  document.querySelectorAll<HTMLElement>('[data-field-wrapper] input, [data-field-wrapper] select, [data-field-wrapper] textarea').forEach(el => {
+    el.addEventListener('input', () => {
+      (el as HTMLElement).style.borderColor = '';
+      // Also hide form-level error if user starts correcting
+      const errorEl = document.getElementById('ai-form-error');
+      if (errorEl) errorEl.hidden = true;
+    });
+  });
+
+  // ── Form submission ───────────────────────────────────────────
+  const form      = document.getElementById('ai-readiness-form') as HTMLFormElement | null;
+  const submitBtn = document.getElementById('ai-readiness-submit') as HTMLButtonElement | null;
+  const errorEl   = document.getElementById('ai-form-error') as HTMLElement | null;
+  const successEl = document.getElementById('ai-readiness-success') as HTMLElement | null;
+  const submitLabel = submitBtn?.dataset.label ?? 'Submit assessment';
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const wrappers = document.querySelectorAll<HTMLElement>('[data-field-wrapper]');
+
+    // ── Client-side validation ────────────────────────────────
+    let valid = true;
+    wrappers.forEach(wrapper => {
+      if (wrapper.dataset.required !== 'true') return;
+      const type = wrapper.dataset.fieldType!;
+      let isEmpty = false;
+
+      if (type === 'multi_select') {
+        isEmpty = wrapper.querySelectorAll('button[data-selected="true"]').length === 0;
+        if (isEmpty) {
+          const container = wrapper.querySelector<HTMLElement>('[data-multi-container]');
+          if (container) container.style.borderColor = 'var(--color_error)';
+        }
+      } else if (type === 'textarea') {
+        const el = wrapper.querySelector('textarea') as HTMLTextAreaElement;
+        isEmpty = !el?.value?.trim();
+        if (isEmpty && el) el.style.borderColor = 'var(--color_error)';
+      } else {
+        const el = wrapper.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+        isEmpty = !el?.value?.trim();
+        if (isEmpty && el) (el as HTMLElement).style.borderColor = 'var(--color_error)';
+      }
+
+      if (isEmpty) valid = false;
+    });
+
+    if (!valid) {
+      if (errorEl) errorEl.hidden = false;
+      return;
+    }
+
+    if (errorEl) errorEl.hidden = true;
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
+
+    // ── Gather values ─────────────────────────────────────────
+    const gathered: Record<string, any> = {};
+    wrappers.forEach(wrapper => {
+      const key  = wrapper.dataset.fieldKey!;
+      const type = wrapper.dataset.fieldType!;
+      if (type === 'multi_select') {
+        gathered[key] = [...wrapper.querySelectorAll<HTMLButtonElement>('button[data-selected="true"]')]
+          .map(btn => btn.dataset.value);
+      } else if (type === 'textarea') {
+        gathered[key] = (wrapper.querySelector('textarea') as HTMLTextAreaElement)?.value?.trim() ?? '';
+      } else {
+        gathered[key] = (wrapper.querySelector('input, select') as HTMLInputElement | HTMLSelectElement)?.value?.trim() ?? '';
+      }
+    });
+
+    // ── Route by maps_to_column ───────────────────────────────
+    const topLevel: Record<string, any> = {};
+    const payload:  Record<string, any> = {};
+
+    wrappers.forEach(wrapper => {
+      const key    = wrapper.dataset.fieldKey!;
+      const mapsTo = wrapper.dataset.mapsTo ?? '';
+      const value  = gathered[key];
+      if (mapsTo) {
+        topLevel[mapsTo] = value || null;
+      } else {
+        payload[key] = value;
+      }
+    });
+
+    const body = {
+      site_slug: 'signal_studio',
+      source:    'ai_readiness_form',
+      page_path: '/ai-readiness',
+      status:    'new',
+      ...topLevel,
+      payload: {
+        form_key: 'ai_readiness',
+        ...payload,
+      },
+    };
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/form_submissions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey':        SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Prefer':        'return=minimal',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        if (form)      form.style.display = 'none';
+        if (successEl) successEl.hidden = false;
+      } else {
+        const detail = await res.text().catch(() => '');
+        console.error('Form submission error', res.status, detail);
+        throw new Error(`HTTP ${res.status}`);
+      }
+    } catch {
+      if (errorEl) {
+        errorEl.textContent = 'Something went wrong. Please try again or email us directly.';
+        errorEl.hidden = false;
+      }
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitLabel; }
+    }
+  });
+</script>

@@ -1,0 +1,549 @@
+---
+import { supabase } from '../lib/supabase';
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import FlywheelCircle from '../components/FlywheelCircle.astro';
+import type { CircleNode } from '../components/FlywheelCircle.astro';
+import { getSite, getNavItems } from '../lib/queries';
+
+const SIGNAL_STUDIO_SLUG = 'signal_studio';
+const FLYWHEEL_PAGE_ID   = '45204928-015a-4c8d-80f1-3e598ad12a06';
+const { isPreview } = Astro.locals;
+
+// ── Build hero block query based on preview flag ──────────────
+let heroBlockQuery = supabase
+  .from('__page_blocks')
+  .select('eyebrow, title, subtitle')
+  .eq('site_page_id', FLYWHEEL_PAGE_ID)
+  .eq('block_type_key', 'hero');
+if (!isPreview) heroBlockQuery = heroBlockQuery.eq('is_enabled', true);
+heroBlockQuery = heroBlockQuery.limit(1).maybeSingle();
+
+// ── Site + Nav + Hero block (parallel) ───────────────────────
+const [site, headerNav, footerNav, heroBlockResult] = await Promise.all([
+  getSite(SIGNAL_STUDIO_SLUG),
+  getNavItems(SIGNAL_STUDIO_SLUG, 'header'),
+  getNavItems(SIGNAL_STUDIO_SLUG, 'footer'),
+  heroBlockQuery,
+]);
+if (!site) return Astro.redirect('/500');
+
+Astro.response.headers.set('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+
+type HeroBlockRow = { eyebrow: string | null; title: string | null; subtitle: string | null };
+const heroBlock = (heroBlockResult.data as unknown as HeroBlockRow | null) ?? null;
+if (!heroBlock) throw new Error('Missing: hero block for flywheel page (site_page_id=45204928-015a-4c8d-80f1-3e598ad12a06)');
+if (!heroBlock.eyebrow)  throw new Error('Missing: eyebrow on flywheel hero block');
+if (!heroBlock.title)    throw new Error('Missing: title on flywheel hero block');
+if (!heroBlock.subtitle) throw new Error('Missing: subtitle on flywheel hero block');
+const heroEyebrow  = heroBlock.eyebrow;
+const heroTitle    = heroBlock.title;
+const heroSubtitle = heroBlock.subtitle;
+
+// ── Brand tokens ──────────────────────────────────────────────
+const { data: tokenRows } = await supabase
+  .from('brand_tokens')
+  .select('token_key, token_value')
+  .eq('brand_key', 'signal_studio')
+  .order('sort_order', { ascending: true });
+
+const tokenCSS = tokenRows?.length
+  ? `:root {\n${tokenRows.map((t: { token_key: string; token_value: string }) => `  --${t.token_key}: ${t.token_value};`).join('\n')}\n}`
+  : '';
+
+// ── Flywheel sites ────────────────────────────────────────────
+const { data: sitesRaw } = await supabase
+  .from('sites')
+  .select('id, slug, name, tagline, description, who_its_for, how_to_get_involved, flywheel_position, brand_color, url')
+  .not('flywheel_position', 'is', null)
+  .order('flywheel_position', { ascending: true });
+
+interface FlywheelSite {
+  id: string;
+  slug: string;
+  name: string;
+  tagline: string | null;
+  description: string | null;
+  who_its_for: string | null;
+  how_to_get_involved: string | null;
+  flywheel_position: number;
+  brand_color: string | null;
+  url: string | null;
+}
+
+const allSites = (sitesRaw || []) as FlywheelSite[];
+const michelleSite = allSites.find(s => s.slug === 'michelle') ?? null;
+
+// The 4 circle sites in exact order: top, right, bottom, left
+const CIRCLE_SLUGS = ['remix', 'signal_studio', 'signal_summit', 'signal_retreats'];
+const CIRCLE_POSITIONS = {
+  remix:           'top',
+  signal_studio:   'right',
+  signal_summit:   'bottom',
+  signal_retreats: 'left',
+} as const;
+
+const circleSites = CIRCLE_SLUGS
+  .map(slug => allSites.find(s => s.slug === slug))
+  .filter((s): s is FlywheelSite => Boolean(s));
+
+for (const s of circleSites) {
+  if (!s.brand_color) throw new Error(`Missing: sites.brand_color for slug=${s.slug}`);
+  if (!s.url && s.slug !== 'signal_studio') throw new Error(`Missing: sites.url for slug=${s.slug}`);
+}
+
+function getCardUrl(s: FlywheelSite): string {
+  if (s.slug === 'signal_studio') return '/services';
+  return s.url || '#';
+}
+function isExternal(s: FlywheelSite): boolean {
+  return s.slug !== 'signal_studio';
+}
+
+// ── Prepared data for FlywheelCircle ─────────────────────────
+// Step colours — keyed by slug, used in "How the flywheel works" section
+const stepSlugs = ['michelle', 'remix', 'signal_studio', 'signal_summit'] as const;
+const stepColorMap: Record<string, string> = {};
+for (const slug of stepSlugs) {
+  const s = allSites.find(x => x.slug === slug);
+  if (!s?.brand_color) throw new Error(`Missing: sites.brand_color for slug=${slug} (needed for flywheel step colours)`);
+  stepColorMap[slug] = s.brand_color;
+}
+
+const circleNodes: CircleNode[] = circleSites.map(s => ({
+  slug:        s.slug,
+  name:        s.name,
+  tagline:     s.tagline,
+  brand_color: s.brand_color,
+  href:        getCardUrl(s),
+  is_external: isExternal(s),
+}));
+
+if (michelleSite) {
+  if (!michelleSite.url)         throw new Error('Missing: sites.url for slug=michelle');
+  if (!michelleSite.brand_color) throw new Error('Missing: sites.brand_color for slug=michelle');
+  if (!michelleSite.tagline)     throw new Error('Missing: sites.tagline for slug=michelle');
+}
+
+const michelleNode: CircleNode | null = michelleSite ? {
+  slug:        michelleSite.slug,
+  name:        michelleSite.name,
+  tagline:     michelleSite.tagline,
+  brand_color: michelleSite.brand_color,
+  href:        michelleSite.url,
+  is_external: true,
+} : null;
+---
+
+<Layout
+  title="The Signal Ecosystem | The Signal Studio"
+  description="Five interconnected properties working together — The Remix, The Signal Studio, Signal Summit, Signal Retreats, and Michelle Williams."
+  siteName={site.name}
+  rawTokenCSS={tokenCSS}
+>
+  <Nav navItems={headerNav} site={site} />
+
+  <main id="main-content">
+
+    <!-- ── HERO ── -->
+    <section class="fw-hero">
+      <div class="container fw-hero-inner">
+        <p class="fw-hero-eyebrow">{heroEyebrow}</p>
+        <h1 class="fw-hero-heading">{heroTitle}</h1>
+        <p class="fw-hero-body">{heroSubtitle}</p>
+      </div>
+    </section>
+
+    <!-- ── FLYWHEEL ── -->
+    <section class="fw-section">
+
+      <!-- DESKTOP: SVG circle component -->
+      <div class="fw-desktop">
+        <FlywheelCircle nodes={circleNodes} michelle={michelleNode} />
+      </div>
+
+      <!-- MOBILE: stacked cards -->
+      <div class="fw-stack container">
+        {michelleSite && (
+          <a
+            href={michelleSite.url}
+            class="fw-stack-card fw-stack-card--founder"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="fw-stack-header">
+              <div>
+                <p class="fw-stack-founder-badge">FOUNDER</p>
+                <p class="fw-stack-name">{michelleSite.name}</p>
+                <p class="fw-stack-tagline">The connective tissue</p>
+              </div>
+              <span class="fw-stack-arrow" aria-hidden="true">↗</span>
+            </div>
+            {michelleSite.description && (
+              <p class="fw-stack-desc">{michelleSite.description}</p>
+            )}
+          </a>
+        )}
+
+        {circleSites.map(s => {
+          const href = getCardUrl(s);
+          const external = isExternal(s);
+          return (
+            <a
+              href={href}
+              class="fw-stack-card"
+              style={`--brand: ${s.brand_color};`}
+              target={external ? '_blank' : undefined}
+              rel={external ? 'noopener noreferrer' : undefined}
+            >
+              <div class="fw-stack-header">
+                <div>
+                  <p class="fw-stack-name">{s.name}</p>
+                  {s.tagline && <p class="fw-stack-tagline">{s.tagline}</p>}
+                </div>
+                <span class="fw-stack-arrow" aria-hidden="true">↗</span>
+              </div>
+              {s.description && <p class="fw-stack-desc">{s.description}</p>}
+            </a>
+          );
+        })}
+      </div>
+
+    </section>
+
+    <!-- ── HOW THE FLYWHEEL WORKS ── -->
+    <section class="how-section">
+      <div class="container how-inner">
+        <h2 class="how-heading">How the flywheel works</h2>
+        <div class="how-steps">
+
+          <div class="how-step">
+            <div class="how-step-num" style={`--step-color: ${stepColorMap['michelle']};`}>1</div>
+            <div class="how-step-body">
+              <p class="how-step-sites">Michelle Williams · The Remix</p>
+              <h3 class="how-step-title">Discover</h3>
+              <p class="how-step-desc">Someone finds their way in. Through a newsletter, an event invite, a shared post. Curiosity sparked.</p>
+            </div>
+          </div>
+
+          <div class="how-arrow" aria-hidden="true">→</div>
+
+          <div class="how-step">
+            <div class="how-step-num" style={`--step-color: ${stepColorMap['remix']};`}>2</div>
+            <div class="how-step-body">
+              <p class="how-step-sites">The Remix</p>
+              <h3 class="how-step-title">Learn</h3>
+              <p class="how-step-desc">Events, conversations, and community turn overwhelm into confidence. Real capability gets built.</p>
+            </div>
+          </div>
+
+          <div class="how-arrow" aria-hidden="true">→</div>
+
+          <div class="how-step">
+            <div class="how-step-num" style={`--step-color: ${stepColorMap['signal_studio']};`}>3</div>
+            <div class="how-step-body">
+              <p class="how-step-sites">The Signal Studio</p>
+              <h3 class="how-step-title">Apply</h3>
+              <p class="how-step-desc">Readiness becomes action. Strategy, systems, and implementation that creates real change in organisations.</p>
+            </div>
+          </div>
+
+          <div class="how-arrow" aria-hidden="true">→</div>
+
+          <div class="how-step">
+            <div class="how-step-num" style={`--step-color: ${stepColorMap['signal_summit']};`}>4</div>
+            <div class="how-step-body">
+              <p class="how-step-sites">Signal Summit · Retreats</p>
+              <h3 class="how-step-title">Go deeper</h3>
+              <p class="how-step-desc">The flagship gathering. Immersive retreats. For people ready to engage with what's next at a higher level.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CTA ── -->
+    <section class="ecosystem-cta-section">
+      <div class="container ecosystem-cta-inner">
+        <h2 class="ecosystem-cta-heading">Where do you want to start?</h2>
+        <div class="ecosystem-cta-pills">
+          <a href="https://theremix.au" class="pill pill--remix" target="_blank" rel="noopener noreferrer">
+            Join The Remix
+          </a>
+          <a href="/services" class="pill pill--studio">
+            Book a call
+          </a>
+          <a href="#newsletter" class="pill pill--ghost">
+            Read the newsletter
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <Footer footerItems={footerNav} site={site} acknowledgement={site.acknowledgement} />
+</Layout>
+
+<style>
+  /* ══════════════════════════════════════════════
+     HERO
+  ══════════════════════════════════════════════ */
+  .fw-hero {
+    background: var(--color_text_primary, #111111);
+    padding-block: var(--space_3xl);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .fw-hero-inner { max-width: 72ch; }
+  .fw-hero-eyebrow {
+    font-size: 12px;
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary, #FF8A33);
+    margin-bottom: var(--space_sm);
+  }
+  .fw-hero-heading {
+    font-family: var(--font_heading);
+    font-size: clamp(2.25rem, 5vw, 3.75rem);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    color: #fff;
+    margin-bottom: var(--space_md);
+  }
+  .fw-hero-body {
+    font-size: var(--text_lg);
+    color: rgba(255,255,255,0.65);
+    line-height: var(--leading_relaxed);
+    max-width: 60ch;
+    margin-bottom: 0;
+  }
+
+  /* ══════════════════════════════════════════════
+     FLYWHEEL SECTION
+  ══════════════════════════════════════════════ */
+  .fw-section {
+    background: #FFFFFF;
+    border-bottom: 1px solid var(--color_border);
+    padding-block: var(--space_3xl);
+  }
+
+  /* ── DESKTOP: hosts the SVG component ── */
+  .fw-desktop {
+    display: flex;
+    justify-content: center;
+    padding-inline: var(--gutter);
+  }
+
+  /* ── Mobile stack (hidden on desktop) ── */
+  .fw-stack {
+    display: none;
+    flex-direction: column;
+    gap: var(--space_sm);
+  }
+
+  .fw-stack-card {
+    background: #fff;
+    border: 1px solid var(--color_border);
+    border-left: 4px solid var(--brand, #999);
+    border-radius: var(--radius_lg);
+    padding: var(--space_lg);
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_sm);
+    transition: box-shadow 0.2s ease;
+  }
+  .fw-stack-card:hover {
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  }
+  .fw-stack-card--founder {
+    border-left-color: #FF8A33;
+  }
+  .fw-stack-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space_sm);
+  }
+  .fw-stack-founder-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary, #FF8A33);
+    margin-bottom: 2px;
+    max-width: none;
+  }
+  .fw-stack-name {
+    font-family: var(--font_heading);
+    font-size: var(--text_base);
+    font-weight: 700;
+    color: var(--color_text_heading);
+    margin-bottom: 2px;
+    max-width: none;
+  }
+  .fw-stack-tagline {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    max-width: none;
+    margin-bottom: 0;
+  }
+  .fw-stack-arrow {
+    font-size: var(--text_lg);
+    color: var(--color_text_secondary);
+    flex-shrink: 0;
+  }
+  .fw-stack-desc {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    max-width: none;
+    margin-bottom: 0;
+  }
+
+  /* Responsive swap */
+  @media (max-width: 960px) {
+    .fw-desktop { display: none; }
+    .fw-stack   { display: flex; }
+  }
+
+  /* ══════════════════════════════════════════════
+     HOW THE FLYWHEEL WORKS
+  ══════════════════════════════════════════════ */
+  .how-section {
+    background: #fff;
+    border-bottom: 1px solid var(--color_border);
+    padding-block: var(--space_3xl);
+  }
+  .how-inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_2xl);
+  }
+  .how-heading {
+    font-family: var(--font_heading);
+    font-size: clamp(1.5rem, 3vw, 2.25rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin-bottom: 0;
+  }
+  .how-steps {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space_lg);
+    flex-wrap: wrap;
+  }
+  .how-step {
+    flex: 1;
+    min-width: 160px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_sm);
+  }
+  .how-step-num {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--step-color);
+    color: #fff;
+    font-family: var(--font_heading);
+    font-size: 20px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .how-step-body { display: flex; flex-direction: column; gap: 6px; }
+  .how-step-sites {
+    font-size: 11px;
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color_text_secondary);
+    margin-bottom: 0;
+    max-width: none;
+  }
+  .how-step-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_lg);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin-bottom: 0;
+  }
+  .how-step-desc {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    max-width: none;
+    margin-bottom: 0;
+  }
+  .how-arrow {
+    font-size: 28px;
+    color: var(--color_cta_primary, #FF8A33);
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 48px;
+  }
+  @media (max-width: 768px) {
+    .how-steps { flex-direction: column; gap: var(--space_md); }
+    .how-arrow { transform: rotate(90deg); margin-top: 0; align-self: center; }
+  }
+
+  /* ══════════════════════════════════════════════
+     CTA
+  ══════════════════════════════════════════════ */
+  .ecosystem-cta-section {
+    background: var(--color_surface, #F5F5F5);
+    padding-block: var(--space_3xl);
+  }
+  .ecosystem-cta-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space_xl);
+    text-align: center;
+  }
+  .ecosystem-cta-heading {
+    font-family: var(--font_heading);
+    font-size: clamp(1.75rem, 4vw, 2.75rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--color_text_heading);
+    margin-bottom: 0;
+  }
+  .ecosystem-cta-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space_sm);
+    justify-content: center;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 14px 28px;
+    border-radius: 100px;
+    font-family: var(--font_body);
+    font-size: var(--text_base);
+    font-weight: var(--font_weight_semibold);
+    transition: all 0.2s ease;
+    text-decoration: none;
+  }
+  .pill--remix { background: #2D5A35; color: #fff; }
+  .pill--remix:hover { background: #245045; }
+  .pill--studio { background: var(--color_cta_primary, #FF8A33); color: #fff; }
+  .pill--studio:hover { background: var(--color_cta_hover, #E07020); }
+  .pill--ghost {
+    background: transparent;
+    color: var(--color_text_heading);
+    border: 2px solid var(--color_border);
+  }
+  .pill--ghost:hover {
+    border-color: var(--color_text_primary);
+    background: rgba(0,0,0,0.04);
+  }
+</style>

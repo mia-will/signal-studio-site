@@ -1,0 +1,1050 @@
+---
+export const prerender = false
+
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  import.meta.env.PUBLIC_SUPABASE_URL,
+  import.meta.env.PUBLIC_SUPABASE_ANON_KEY
+)
+
+const [
+  agentsResult,
+  systemAuditResult,
+  securityChecksResult,
+  dataGovResult,
+  decisionsResult,
+  processesResult,
+  strategyResult,
+  principlesResult,
+  incidentsResult,
+  apiKeysResult
+] = await Promise.all([
+  supabase.from('v_agent_dashboard').select('*'),
+  supabase.from('system_audit').select('*').order('audit_date', { ascending: false }).limit(1).maybeSingle(),
+  supabase.from('security_checks').select('*').eq('resolved', false).order('created_at', { ascending: false }),
+  supabase.from('data_governance').select('*').order('table_name'),
+  supabase.from('decisions').select('*').order('made_at', { ascending: false }).limit(20),
+  supabase.from('processes').select('*').order('category', { ascending: true }),
+  supabase.from('strategy').select('*').order('sort_order'),
+  supabase.from('operating_principles').select('*').eq('is_active', true).order('domain'),
+  supabase.from('incident_log').select('*').order('detected_at', { ascending: false }).limit(5),
+  supabase.from('api_key_registry').select('id, key_name, service, environment, last_rotated_at, rotation_due_at, status').order('service')
+])
+
+const agents = agentsResult.data ?? []
+const systemAudit = systemAuditResult.data
+const securityChecks = securityChecksResult.data ?? []
+const dataGov = dataGovResult.data ?? []
+const decisions = decisionsResult.data ?? []
+const processes = processesResult.data ?? []
+const strategy = strategyResult.data ?? []
+const principles = principlesResult.data ?? []
+const incidents = incidentsResult.data ?? []
+const apiKeys = apiKeysResult.data ?? []
+
+const liveWithoutSecurity = agents.filter((a: any) => a.status === 'live' && !a.security_approved)
+const liveWithoutQA = agents.filter((a: any) => a.status === 'live' && a.qa_status !== 'pass')
+const tablesWithoutRLS = dataGov.filter((d: any) => d.rls_required && !d.rls_enabled)
+const overdueReviews = dataGov.filter((d: any) => d.review_due && new Date(d.review_due) < new Date())
+const openIncidents = incidents.filter((i: any) => !i.resolved_at)
+const openSecurityChecks = securityChecks.filter((c: any) => !c.resolved)
+
+const redCount = liveWithoutSecurity.length + openIncidents.length
+const amberCount = liveWithoutQA.length + tablesWithoutRLS.length + overdueReviews.length
+const securityRAG = redCount > 0 ? 'red' : amberCount > 0 ? 'amber' : 'green'
+
+const nextAuditDue = systemAudit?.next_audit_due ? new Date(systemAudit.next_audit_due) : null
+const auditOverdue = nextAuditDue ? nextAuditDue < new Date() : false
+
+const govAgents = agents.filter((a: any) => a.status === 'live' || a.status === 'active')
+
+const PROCESS_CATEGORY_ORDER = ['studio','events','governance','crm','email','operations','system','build']
+
+function groupBy<T>(arr: T[], key: keyof T): Record<string, T[]> {
+  return arr.reduce((acc: any, item: any) => {
+    const k = item[key] ?? 'other'
+    acc[k] = acc[k] ?? []
+    acc[k].push(item)
+    return acc
+  }, {})
+}
+
+const processesByCategory = groupBy(processes, 'category')
+const allCategories = [
+  ...PROCESS_CATEGORY_ORDER.filter(c => processesByCategory[c]),
+  ...Object.keys(processesByCategory).filter(c => !PROCESS_CATEGORY_ORDER.includes(c))
+]
+
+const CLASS_ORDER = ['restricted', 'confidential', 'internal', 'public']
+const dataGovSorted = [...dataGov].sort((a: any, b: any) => {
+  const ai = CLASS_ORDER.indexOf(a.classification_label) !== -1 ? CLASS_ORDER.indexOf(a.classification_label) : 99
+  const bi = CLASS_ORDER.indexOf(b.classification_label) !== -1 ? CLASS_ORDER.indexOf(b.classification_label) : 99
+  return ai - bi
+})
+
+function formatDate(d: string | null | undefined): string {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function isOverdue(d: string | null | undefined): boolean {
+  if (!d) return false
+  return new Date(d) < new Date()
+}
+
+const ragBorderColor = securityRAG === 'red' ? '#C0392B' : securityRAG === 'amber' ? '#FF8A33' : '#7BBE9A'
+---
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Signal OS — Governance</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --color-bg: #F5F4F1;
+      --color-surface: #FFFFFF;
+      --color-text-primary: #2F2F2F;
+      --color-text-secondary: #505050;
+      --color-text-muted: #909090;
+      --color-border: rgba(47,47,47,0.08);
+      --color-teal: #3C8A7E;
+      --color-orange: #FF8A33;
+      --color-green: #7BBE9A;
+      --color-red: #C0392B;
+      --color-violet: #6F4BA2;
+      --color-dark: #111111;
+      --font-heading: 'DM Sans', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --radius-card: 12px;
+      --shadow-sm: 0 1px 3px rgba(47,47,47,0.06);
+    }
+
+    body {
+      background: var(--color-bg);
+      color: var(--color-text-primary);
+      font-family: var(--font-body);
+    }
+
+    .os-shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── SIDEBAR ─────────────────────────────── */
+    .sidebar {
+      background: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-logo {
+      padding: 20px 16px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-heading);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--color-text-primary);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .nav-section-label {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      padding: 20px 16px 4px;
+    }
+
+    .nav-item {
+      display: block;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--color-text-secondary);
+      padding: 6px 16px;
+      border-radius: 6px;
+      margin: 1px 8px;
+      text-decoration: none;
+      cursor: default;
+    }
+
+    a.nav-item { cursor: pointer; }
+
+    .nav-item.active {
+      background: rgba(60,138,126,0.10);
+      color: var(--color-teal);
+      font-weight: 500;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 14px 16px;
+      border-top: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--color-teal);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .footer-name {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      line-height: 1.2;
+    }
+
+    .footer-role {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--color-text-muted);
+    }
+
+    /* ── MAIN CONTENT ────────────────────────── */
+    .content {
+      padding: 28px 32px;
+      overflow-x: hidden;
+    }
+
+    .page-header {
+      margin-bottom: 24px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-heading);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      line-height: 1.1;
+    }
+
+    .page-header p {
+      font-family: var(--font-body);
+      font-size: 14px;
+      color: var(--color-text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── PANELS ──────────────────────────────── */
+    .panel {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .panel-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-header h2 {
+      font-family: var(--font-heading);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    .panel-header a {
+      margin-left: auto;
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--color-teal);
+      text-decoration: none;
+    }
+
+    /* ── TWO COLUMN ──────────────────────────── */
+    .two-col-55-45 {
+      display: grid;
+      grid-template-columns: 55fr 45fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .two-col-50-50 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .two-col-55-45 > .panel,
+    .two-col-50-50 > .panel {
+      margin-bottom: 0;
+    }
+
+    /* ── TABLES ──────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-body);
+      font-size: 13px;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+      border-bottom: 1px solid var(--color-border);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 10px 16px;
+      color: var(--color-text-secondary);
+      border-bottom: 1px solid var(--color-border);
+      vertical-align: middle;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    .row-amber td:first-child {
+      border-left: 3px solid var(--color-orange);
+    }
+
+    .row-amber td {
+      background: rgba(255,138,51,0.04);
+    }
+
+    /* ── BADGES ──────────────────────────────── */
+    .badge {
+      display: inline-block;
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: var(--font-body);
+      white-space: nowrap;
+    }
+
+    .badge-green   { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .badge-red     { background: rgba(192,57,43,0.12);   color: var(--color-red); }
+    .badge-amber   { background: rgba(255,138,51,0.12);  color: #E07020; }
+    .badge-grey    { background: rgba(47,47,47,0.08);    color: var(--color-text-secondary); }
+    .badge-teal    { background: rgba(60,138,126,0.12);  color: var(--color-teal); }
+    .badge-violet  { background: rgba(111,75,162,0.12);  color: var(--color-violet); }
+    .badge-blue    { background: rgba(37,99,235,0.10);   color: #2563EB; }
+
+    /* classification */
+    .badge-restricted   { background: rgba(192,57,43,0.15);   color: var(--color-red); }
+    .badge-confidential { background: rgba(255,138,51,0.15);  color: #E07020; }
+    .badge-internal     { background: rgba(47,47,47,0.08);    color: var(--color-text-secondary); }
+    .badge-public       { background: rgba(123,190,154,0.15); color: #2D5A35; }
+
+    /* RAG badge */
+    .rag-green  { background: #7BBE9A; color: white; font-family: var(--font-body); font-size: 11px; font-weight: 600; border-radius: 20px; padding: 2px 10px; }
+    .rag-amber  { background: #FF8A33; color: white; font-family: var(--font-body); font-size: 11px; font-weight: 600; border-radius: 20px; padding: 2px 10px; }
+    .rag-red    { background: #C0392B; color: white; font-family: var(--font-body); font-size: 11px; font-weight: 600; border-radius: 20px; padding: 2px 10px; }
+
+    /* ── SECURITY HEALTH ─────────────────────── */
+    .health-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .health-header h2 {
+      font-family: var(--font-heading);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    .health-meta {
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--color-text-muted);
+    }
+
+    .stat-chips {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .stat-chip {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 110px;
+    }
+
+    .chip-value {
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .chip-label {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--color-text-muted);
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--color-border);
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+
+    .check-row:last-child { border-bottom: none; }
+
+    /* ── PROCESSES ───────────────────────────── */
+    details { border-bottom: 1px solid var(--color-border); }
+    details:last-child { border-bottom: none; }
+
+    details summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+
+    details summary::before {
+      content: '▶';
+      font-size: 9px;
+      transition: transform 0.15s;
+      flex-shrink: 0;
+    }
+
+    details[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    .process-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 20px 8px 36px;
+      border-top: 1px solid var(--color-border);
+      font-family: var(--font-body);
+      font-size: 13px;
+    }
+
+    .process-name {
+      flex: 1;
+      color: var(--color-text-primary);
+      font-weight: 500;
+    }
+
+    .process-owner {
+      font-size: 12px;
+      color: var(--color-text-muted);
+    }
+
+    /* ── PRINCIPLE CARDS ─────────────────────── */
+    .principles-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .principle-card {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .principle-card:last-child { border-bottom: none; }
+
+    .principle-text {
+      font-family: var(--font-body);
+      font-size: 14px;
+      color: var(--color-text-primary);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    /* ── ICON MARKS ──────────────────────────── */
+    .tick  { color: #2D5A35; font-weight: 600; }
+    .cross { color: var(--color-red); font-weight: 600; }
+    .dash  { color: var(--color-text-muted); }
+
+    .empty-state {
+      padding: 20px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--color-text-muted);
+      font-style: italic;
+    }
+
+    .strike { text-decoration: line-through; color: var(--color-text-muted); }
+  </style>
+</head>
+<body>
+<div class="os-shell">
+
+  <!-- ── SIDEBAR ────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <span>✦</span>
+      <span>THE SIGNAL OS</span>
+    </div>
+
+    <div style="padding: 8px 0;">
+      <span class="nav-item">🏠 Snapshot</span>
+
+      <div class="nav-section-label">Relationships</div>
+      <span class="nav-item">CRM</span>
+      <span class="nav-item">Growth</span>
+      <span class="nav-item">Clients</span>
+
+      <div class="nav-section-label">Delivery</div>
+      <span class="nav-item">Projects</span>
+      <span class="nav-item">Pathways</span>
+      <span class="nav-item">Events</span>
+
+      <div class="nav-section-label">Content</div>
+      <span class="nav-item">Content</span>
+      <span class="nav-item">Campaigns</span>
+      <span class="nav-item">EDMs</span>
+
+      <div class="nav-section-label">Operations</div>
+      <span class="nav-item">Finance</span>
+      <a href="/dashboard/governance" class="nav-item active">Governance</a>
+      <span class="nav-item">Automations</span>
+      <a href="/dashboard/agents" class="nav-item">Agents</a>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="avatar">M</div>
+      <div>
+        <div class="footer-name">Michelle</div>
+        <div class="footer-role">System Operator</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── MAIN ──────────────────────────────── -->
+  <main class="content">
+
+    <!-- Page header -->
+    <header class="page-header">
+      <h1>Governance</h1>
+      <p>Agent governance, data governance, SOPs, strategy and operating principles</p>
+    </header>
+
+    <!-- ── SECTION 1: Security Health ─────────────── -->
+    <div class="panel" style={`border-left: 4px solid ${ragBorderColor};`}>
+      <div class="panel-header">
+        <div class="health-header">
+          <h2>Security Health</h2>
+          <span class={`rag-${securityRAG}`}>{securityRAG.toUpperCase()}</span>
+          {systemAudit && (
+            <span class="health-meta">Last audit: {formatDate(systemAudit.audit_date)}</span>
+          )}
+          {nextAuditDue && (
+            <span class="health-meta" style={auditOverdue ? 'color: var(--color-red); font-weight: 500;' : ''}>
+              Next due: {formatDate(systemAudit?.next_audit_due)}{auditOverdue ? ' — OVERDUE' : ''}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div class="stat-chips">
+        <div class="stat-chip">
+          <span class="chip-value" style={liveWithoutSecurity.length > 0 ? 'color: var(--color-red);' : 'color: #2D5A35;'}>
+            {liveWithoutSecurity.length}
+          </span>
+          <span class="chip-label">Live without security</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value" style={liveWithoutQA.length > 0 ? 'color: var(--color-red);' : 'color: #2D5A35;'}>
+            {liveWithoutQA.length}
+          </span>
+          <span class="chip-label">Live without QA</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value" style={tablesWithoutRLS.length > 0 ? 'color: var(--color-orange);' : 'color: #2D5A35;'}>
+            {tablesWithoutRLS.length}
+          </span>
+          <span class="chip-label">Tables without RLS</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value" style={overdueReviews.length > 0 ? 'color: var(--color-orange);' : 'color: #2D5A35;'}>
+            {overdueReviews.length}
+          </span>
+          <span class="chip-label">Overdue reviews</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value" style={openIncidents.length > 0 ? 'color: var(--color-red);' : 'color: #2D5A35;'}>
+            {openIncidents.length}
+          </span>
+          <span class="chip-label">Open incidents</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value" style={openSecurityChecks.length > 0 ? 'color: var(--color-orange);' : 'color: #2D5A35;'}>
+            {openSecurityChecks.length}
+          </span>
+          <span class="chip-label">Open security checks</span>
+        </div>
+      </div>
+
+      {openSecurityChecks.length === 0 ? (
+        <div class="check-row" style="color: #2D5A35; font-style: italic;">
+          No open security checks — system is clean
+        </div>
+      ) : openSecurityChecks.map((c: any) => (
+        <div class="check-row">
+          <span class="badge badge-amber">{c.check_type ?? '—'}</span>
+          <span style="flex: 1; font-weight: 500;">{c.subject ?? '—'}</span>
+          <span style="color: var(--color-text-muted); flex: 2;">{c.detail ?? '—'}</span>
+          <span style="color: var(--color-text-muted);">{formatDate(c.due_date)}</span>
+          {c.action_required && <span class="badge badge-red">{c.action_required}</span>}
+        </div>
+      ))}
+    </div>
+
+    <!-- ── SECTION 2: Agent Governance + API Keys ── -->
+    <div class="two-col-55-45">
+
+      <!-- Agent Governance -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Agent Governance</h2>
+          <a href="/dashboard/agents">View all agents →</a>
+        </div>
+        {govAgents.length === 0 ? (
+          <div class="empty-state">No live or active agents</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Status</th>
+                <th>QA</th>
+                <th>Security</th>
+                <th>Last run</th>
+              </tr>
+            </thead>
+            <tbody>
+              {govAgents.map((a: any) => {
+                const flagged = a.live_without_qa || a.live_without_security
+                return (
+                  <tr class={flagged ? 'row-amber' : ''}>
+                    <td style="font-weight: 500;">{a.name}</td>
+                    <td><span class="badge badge-green">{a.status}</span></td>
+                    <td>
+                      {a.qa_status === 'pass'
+                        ? <span class="badge badge-green">Pass</span>
+                        : <span class="badge badge-amber">{a.qa_status ?? 'Not tested'}</span>
+                      }
+                    </td>
+                    <td>
+                      {a.security_approved
+                        ? <span class="tick">✓</span>
+                        : <span class="cross">✕</span>
+                      }
+                    </td>
+                    <td style="color: var(--color-text-muted); font-size: 12px;">
+                      {a.last_run ? new Date(a.last_run).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <!-- API Keys -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>API Keys</h2>
+        </div>
+        {apiKeys.length === 0 ? (
+          <div class="empty-state">No API keys registered</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Env</th>
+                <th>Last rotated</th>
+                <th>Due</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apiKeys.map((k: any) => {
+                const rotationOverdue = k.rotation_due_at && isOverdue(k.rotation_due_at)
+                const neverRotated = !k.last_rotated_at
+                let statusBadge
+                if (k.status === 'inactive') {
+                  statusBadge = <span class="badge badge-grey">Inactive</span>
+                } else if (neverRotated) {
+                  statusBadge = <span class="badge badge-amber">Never rotated</span>
+                } else if (rotationOverdue) {
+                  statusBadge = <span class="badge badge-amber">Rotation due</span>
+                } else {
+                  statusBadge = <span class="badge badge-green">Active</span>
+                }
+                return (
+                  <tr>
+                    <td style="font-weight: 500;">{k.service}</td>
+                    <td style="font-size: 12px; color: var(--color-text-muted);">{k.environment ?? '—'}</td>
+                    <td style="font-size: 12px; color: var(--color-text-muted);">{formatDate(k.last_rotated_at)}</td>
+                    <td style={`font-size: 12px; ${rotationOverdue ? 'color: var(--color-red); font-weight: 500;' : 'color: var(--color-text-muted);'}`}>
+                      {formatDate(k.rotation_due_at)}
+                    </td>
+                    <td>{statusBadge}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+    </div>
+
+    <!-- ── SECTION 3: Data Governance ─────────────── -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Data Governance</h2>
+      </div>
+      {dataGovSorted.length === 0 ? (
+        <div class="empty-state">No data governance records</div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Classification</th>
+              <th>Agent access</th>
+              <th>RLS</th>
+              <th>Consent</th>
+              <th>Review due</th>
+              <th>Owner</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dataGovSorted.map((d: any) => {
+              const rlsIssue = d.rls_required && !d.rls_enabled
+              const reviewIssue = d.review_due && isOverdue(d.review_due)
+              const rowFlag = rlsIssue || reviewIssue
+              return (
+                <tr class={rowFlag ? 'row-amber' : ''}>
+                  <td style="font-weight: 500; font-size: 12px; font-family: monospace;">{d.table_name}</td>
+                  <td>
+                    <span class={`badge badge-${d.classification_label ?? 'grey'}`}>
+                      {d.classification_label ?? '—'}
+                    </span>
+                  </td>
+                  <td style="font-size: 12px; color: var(--color-text-muted);">{d.agent_access ?? '—'}</td>
+                  <td>
+                    {d.rls_enabled
+                      ? <span class="tick">✓</span>
+                      : d.rls_required
+                        ? <span class="cross">✕</span>
+                        : <span class="dash">—</span>
+                    }
+                  </td>
+                  <td style="font-size: 12px; color: var(--color-text-muted);">{d.consent_basis ?? '—'}</td>
+                  <td style={`font-size: 12px; ${reviewIssue ? 'color: var(--color-red); font-weight: 500;' : 'color: var(--color-text-muted);'}`}>
+                    {formatDate(d.review_due)}
+                  </td>
+                  <td style="font-size: 12px; color: var(--color-text-muted);">{d.owner ?? '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+
+    <!-- ── SECTION 4: Decisions + Incidents ───────── -->
+    <div class="two-col-50-50">
+
+      <!-- Decisions -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Decisions</h2>
+        </div>
+        {decisions.length === 0 ? (
+          <div class="empty-state">No decisions recorded</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Summary</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {decisions.map((d: any) => {
+                const superseded = d.status === 'superseded'
+                const statusBadgeClass = d.status === 'active'
+                  ? 'badge-green'
+                  : d.status === 'under_review'
+                    ? 'badge-amber'
+                    : 'badge-grey'
+
+                const typeBadgeClass = d.decision_type === 'security'
+                  ? 'badge-red'
+                  : d.decision_type === 'architecture'
+                    ? 'badge-violet'
+                    : d.decision_type === 'governance'
+                      ? 'badge-teal'
+                      : 'badge-grey'
+
+                return (
+                  <tr>
+                    <td style="font-weight: 500; max-width: 200px;">
+                      <span class={superseded ? 'strike' : ''}>{d.summary ?? '—'}</span>
+                    </td>
+                    <td>
+                      {d.decision_type && (
+                        <span class={`badge ${typeBadgeClass}`}>{d.decision_type}</span>
+                      )}
+                    </td>
+                    <td>
+                      <span class={`badge ${statusBadgeClass}`}>{d.status ?? '—'}</span>
+                    </td>
+                    <td style="font-size: 12px; color: var(--color-text-muted); white-space: nowrap;">
+                      {formatDate(d.made_at)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <!-- Incidents -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Incidents</h2>
+        </div>
+        {incidents.length === 0 ? (
+          <div class="empty-state">No incidents recorded</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Severity</th>
+                <th>Type</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {incidents.map((i: any) => {
+                const sevClass = i.severity === 'critical'
+                  ? 'badge-red'
+                  : i.severity === 'high'
+                    ? 'badge-amber'
+                    : 'badge-grey'
+                return (
+                  <tr>
+                    <td style="font-size: 12px; color: var(--color-text-muted); white-space: nowrap;">
+                      {formatDate(i.detected_at)}
+                    </td>
+                    <td>
+                      <span class={`badge ${sevClass}`}>{i.severity ?? '—'}</span>
+                    </td>
+                    <td style="font-size: 12px; color: var(--color-text-muted);">{i.incident_type ?? '—'}</td>
+                    <td>
+                      {i.resolved_at
+                        ? <span class="badge badge-green">Resolved {formatDate(i.resolved_at)}</span>
+                        : <span class="badge badge-red">Open</span>
+                      }
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+    </div>
+
+    <!-- ── SECTION 5: SOPs & Processes ────────────── -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>SOPs &amp; Processes</h2>
+      </div>
+      {processes.length === 0 ? (
+        <div class="empty-state">No processes recorded</div>
+      ) : allCategories.map((cat) => {
+        const rows = processesByCategory[cat] ?? []
+        return (
+          <details>
+            <summary>
+              {cat} <span style="margin-left: 4px; font-weight: 400; font-size: 11px; color: var(--color-text-muted);">({rows.length})</span>
+            </summary>
+            {rows.map((p: any) => {
+              const noSteps = !p.steps || p.steps.length === 0
+              const statusClass = p.status === 'active'
+                ? 'badge-green'
+                : p.status === 'draft'
+                  ? 'badge-grey'
+                  : p.status === 'in_progress'
+                    ? 'badge-amber'
+                    : p.status === 'completed'
+                      ? 'badge-teal'
+                      : 'badge-grey'
+              return (
+                <div class="process-row">
+                  <span class="process-name">
+                    {p.name}
+                    {noSteps && <span class="badge badge-amber" style="margin-left: 8px;">Steps TBC</span>}
+                  </span>
+                  {p.frequency && <span class="badge badge-grey">{p.frequency}</span>}
+                  <span class={`badge ${statusClass}`}>{p.status ?? '—'}</span>
+                  {p.owner && <span class="process-owner">{p.owner}</span>}
+                </div>
+              )
+            })}
+          </details>
+        )
+      })}
+    </div>
+
+    <!-- ── SECTION 6: Strategy + Principles ──────── -->
+    <div class="two-col-50-50">
+
+      <!-- Strategy -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Strategy</h2>
+        </div>
+        {strategy.length === 0 ? (
+          <div class="empty-state">No strategy entries</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Review</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strategy.map((s: any) => {
+                const statusClass = s.status === 'active'
+                  ? 'badge-green'
+                  : s.status === 'under_review'
+                    ? 'badge-amber'
+                    : 'badge-grey'
+                const reviewOverdue = s.review_date && isOverdue(s.review_date)
+                return (
+                  <tr>
+                    <td style="font-weight: 500;">{s.title ?? '—'}</td>
+                    <td>
+                      {s.strategy_type && <span class="badge badge-grey">{s.strategy_type}</span>}
+                    </td>
+                    <td><span class={`badge ${statusClass}`}>{s.status ?? '—'}</span></td>
+                    <td style={`font-size: 12px; ${reviewOverdue ? 'color: var(--color-red); font-weight: 500;' : 'color: var(--color-text-muted);'}`}>
+                      {formatDate(s.review_date)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <!-- Operating Principles -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Operating Principles</h2>
+        </div>
+        {principles.length === 0 ? (
+          <div class="empty-state">No operating principles</div>
+        ) : (
+          <div class="principles-grid">
+            {principles.map((p: any) => {
+              const domainClass = p.domain === 'system'
+                ? 'badge-teal'
+                : p.domain === 'agents'
+                  ? 'badge-violet'
+                  : p.domain === 'security'
+                    ? 'badge-red'
+                    : p.domain === 'web'
+                      ? 'badge-blue'
+                      : p.domain === 'client_ops'
+                        ? 'badge-green'
+                        : 'badge-grey'
+              return (
+                <div class="principle-card">
+                  <span class={`badge ${domainClass}`}>{p.domain}</span>
+                  <p class="principle-text">{p.principle}</p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+    </div>
+
+  </main>
+</div>
+</body>
+</html>

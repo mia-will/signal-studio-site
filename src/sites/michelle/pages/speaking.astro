@@ -1,0 +1,50 @@
+---
+import MichelleLayout from '../Layout.astro';
+import MichelleHeader from '../Header.astro';
+import MichelleFooter from '../Footer.astro';
+import BlockRenderer from '../components/BlockRenderer.astro';
+import { loadMichellePage } from '../pageData';
+
+const PAGE_SLUG = 'speaking';
+
+const { isPreview } = Astro.locals;
+
+const {
+  site,
+  blocks,
+  seo,
+  navHeader,
+  navFooter,
+  tokens,
+  mediaAssets,
+  rawTokenCSS,
+  canonicalUrl,
+  robots,
+  jsonld,
+} = await loadMichellePage(PAGE_SLUG, 'Speaking page', isPreview);
+
+if (!seo?.seo_title_override) throw new Error('Speaking page: missing page_seo.seo_title_override');
+if (!seo.seo_description_override) throw new Error('Speaking page: missing page_seo.seo_description_override');
+if (!seo.jsonld) throw new Error('Speaking page: missing page_seo.jsonld');
+---
+
+<MichelleLayout
+  title={seo.seo_title_override}
+  siteName={site.name}
+  description={seo.seo_description_override}
+  canonical={canonicalUrl}
+  robots={robots}
+  jsonld={jsonld}
+  aeoSummary={seo.aeo_summary ?? undefined}
+  rawTokenCSS={rawTokenCSS}
+>
+  <MichelleHeader site={site} navItems={navHeader} />
+
+  <main id="main-content">
+    {blocks.map((block) => (
+      <BlockRenderer block={block} mediaAssets={mediaAssets} />
+    ))}
+  </main>
+
+  <MichelleFooter site={site} footerItems={navFooter} tokens={tokens} />
+</MichelleLayout>

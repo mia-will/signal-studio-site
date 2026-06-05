@@ -1,0 +1,101 @@
+---
+import type { PageBlock, MediaAsset } from '../../../types/content';
+
+import CaseStudiesBlock      from '../../../components/blocks/CaseStudiesBlock.astro';
+import PageIntroBlock        from '../../../components/blocks/PageIntroBlock.astro';
+import HowItWorksBlock       from '../../../components/blocks/HowItWorksBlock.astro';
+import PrinciplesBlock       from '../../../components/blocks/PrinciplesBlock.astro';
+import AIReadinessForm       from '../../../components/blocks/AIReadinessForm.astro';
+import FaqBlock              from '../../../components/blocks/FaqBlock.astro';
+import MailingListInviteBlock from '../../../components/blocks/MailingListInviteBlock.astro';
+import CtaPrimaryBlock       from '../../../components/blocks/CtaPrimaryBlock.astro';
+import MichelleOffersBlock        from './MichelleOffersBlock.astro';
+import MichelleHeroBlock          from './MichelleHeroBlock.astro';
+import MichelleAudienceSegmentsBlock from './MichelleAudienceSegmentsBlock.astro';
+import MichelleEcosystemBlock     from './MichelleEcosystemBlock.astro';
+import LatestPostsBlock            from '../../../components/blocks/LatestPostsBlock.astro';
+import PostsEditorialFeedBlock    from '../../../components/blocks/PostsEditorialFeedBlock.astro';
+import ImageCarouselBlock        from '../../../components/blocks/ImageCarouselBlock.astro';
+
+interface Props {
+  block: PageBlock;
+  mediaAssets: Record<string, MediaAsset>;
+  faqItems?: any[];
+  posts?: any[];
+}
+
+const { block, mediaAssets, faqItems = [], posts = [] } = Astro.props;
+
+const propsImage = block.props?.image;
+const propsImageUrl = block.props?.image_url ?? propsImage?.image_url;
+const imageAsset = propsImageUrl
+  ? {
+      id: propsImage?.asset_id ?? block.media_asset_id ?? block.id,
+      image_url: propsImageUrl,
+      alt_text: block.props?.image_alt ?? propsImage?.alt_text ?? null,
+      title: propsImage?.caption ?? null,
+      width: null,
+      height: null,
+    }
+  : block.media_asset_id ? mediaAssets[block.media_asset_id] : undefined;
+---
+
+{block.block_type_key === 'hero' && (
+  <MichelleHeroBlock block={block} imageAsset={imageAsset} />
+)}
+
+{block.block_type_key === 'audience_segments' && (
+  <MichelleAudienceSegmentsBlock block={block} />
+)}
+
+{block.block_type_key === 'case_studies' && (
+  <CaseStudiesBlock block={block} />
+)}
+
+{block.block_type_key === 'principles' && (
+  <PrinciplesBlock block={block} />
+)}
+
+{block.block_type_key === 'page_intro' && (
+  <PageIntroBlock block={block} imageAsset={imageAsset} />
+)}
+
+{block.block_type_key === 'how_it_works' && (
+  <HowItWorksBlock block={block} />
+)}
+
+{block.block_type_key === 'ai_readiness_form' && (
+  <AIReadinessForm block={block} />
+)}
+
+{block.block_type_key === 'faq' && (
+  <FaqBlock block={block} faqItems={faqItems} />
+)}
+
+{block.block_type_key === 'offers_grid' && (
+  <MichelleOffersBlock block={block} />
+)}
+
+{block.block_type_key === 'ecosystem' && (
+  <MichelleEcosystemBlock block={block} />
+)}
+
+{block.block_type_key === 'latest_posts' && (
+  <LatestPostsBlock block={block} />
+)}
+
+{block.block_type_key === 'newsletter_signup' && (
+  <MailingListInviteBlock block={block} />
+)}
+
+{block.block_type_key === 'posts_editorial_feed' && (
+  <PostsEditorialFeedBlock block={block} posts={posts} />
+)}
+
+{block.block_type_key === 'image_carousel' && (
+  <ImageCarouselBlock block={block} />
+)}
+
+{block.block_type_key === 'cta_primary' && (
+  <CtaPrimaryBlock block={block} />
+)}

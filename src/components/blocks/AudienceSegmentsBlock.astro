@@ -1,0 +1,301 @@
+---
+import type { PageBlock } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+interface Segment {
+  badge?: string;
+  icon?: string;
+  subtitle?: string;
+  track?: string;
+  title: string;
+  body?: string;
+  description?: string;
+  checklist?: string[];
+  cta_label?: string;
+  cta_href?: string;
+  cta?: { href: string; label: string };
+  badge_colour?: string;
+}
+
+const segments: Segment[] = block.props?.segments ?? [];
+
+const isStudioMode = block.props?.variant !== 'track_panels';
+
+// Top-border accent colours for Signal Studio cards (index-mapped to CSS vars)
+const studioAccents = [
+  'var(--color_section_orange)',
+  'var(--color_accent_eucalyptus)',
+  'var(--color_accent_aqua)',
+];
+
+const rawIntroText = block.subtitle ?? block.props?.intro ?? block.props?.body ?? block.body;
+const introParagraphs: string[] = rawIntroText
+  ? String(rawIntroText).split('\n\n').map((p) => p.trim()).filter(Boolean)
+  : [];
+---
+
+{isStudioMode ? (
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- SIGNAL STUDIO — White cards with coloured tops  -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <section class="audience-studio">
+    <div class="audience-studio-inner">
+
+      <!-- Header -->
+      <div class="audience-studio-header">
+        {block.props?.eyebrow && (
+          <p class="audience-studio-eyebrow">
+            {block.props.eyebrow}
+          </p>
+        )}
+        <h2 class="audience-studio-title">
+          {block.props?.title ?? block.title}
+        </h2>
+        {introParagraphs.length > 0 && (
+          <div class="audience-studio-body">
+            {introParagraphs.map((p) => <p>{p}</p>)}
+          </div>
+        )}
+      </div>
+
+      <!-- Card grid -->
+      <div class="audience-studio-grid">
+        {segments.map((seg, i) => {
+          const accent = studioAccents[i] ?? 'var(--color_cta_primary)';
+          const ctaHref  = seg.cta?.href  ?? seg.cta_href;
+          const ctaLabel = seg.cta?.label ?? seg.cta_label;
+          const bodyText = seg.description ?? seg.body;
+          return (
+            <div
+              class="audience-studio-card"
+              style={`border-top: 4px solid ${accent};`}
+              onmouseover="this.style.transform='translateY(-4px)';this.style.boxShadow='var(--shadow_lg)'"
+              onmouseout="this.style.transform='';this.style.boxShadow='var(--shadow_sm)'"
+            >
+              <div class="audience-studio-card-bar" style={`background: ${accent};`}></div>
+              <h3 class="audience-studio-card-title">
+                {seg.title}
+              </h3>
+              {bodyText && (
+                <p class="audience-studio-card-body">
+                  {bodyText}
+                </p>
+              )}
+              {ctaHref && ctaLabel && (
+                <a
+                  href={ctaHref}
+                  class="audience-studio-card-cta"
+                  style={`color: ${accent};`}
+                >
+                  {ctaLabel} →
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+    </div>
+  </section>
+
+) : (
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- REMIX — Track-coloured panels with icons        -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <section style={`background: ${block.props?.background ?? 'var(--color_white)'}`}>
+    <div class="rm-audience-grid" style="max-width: 1200px; margin-inline: auto; padding: 40px 48px; display: grid; grid-template-columns: 28% 1fr 1fr; gap: 32px; align-items: start;">
+
+      <!-- LEFT COLUMN: eyebrow + heading + intro -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        {block.props?.eyebrow && (
+          <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0;">
+            {block.props.eyebrow}
+          </p>
+        )}
+        <h2 style="font-family: var(--font_heading); font-size: 32px; font-weight: 700; color: var(--color_text_heading); margin: 0; line-height: 1.1;">
+          {block.props?.title ?? block.title}
+        </h2>
+        <div style="width: 40px; height: 3px; background: var(--color_cta_primary); border-radius: 2px;"></div>
+        {introParagraphs.map((p) => (
+          <p style="font-size: 15px; color: var(--color_text_secondary); margin: 0 0 8px; line-height: 1.6;">{p}</p>
+        ))}
+      </div>
+
+      <!-- SEGMENT PANELS -->
+      {segments.map((seg) => {
+        const track     = seg.track ?? seg.icon;
+        if (!track) return null;
+        const isApplier = track === 'applier' || track === 'appliers';
+        const trackVar  = isApplier ? 'var(--color_track_applier)' : 'var(--color_track_builder)';
+        const panelBg   = `color-mix(in srgb, ${trackVar} 15%, white)`;
+        const borderCol = `color-mix(in srgb, ${trackVar} 40%, transparent)`;
+        const shadowCol = `color-mix(in srgb, ${trackVar} 12%, transparent)`;
+        const badgeLabel = seg.badge ?? seg.subtitle;
+        const bodyText = seg.body ?? seg.description;
+        const ctaHref  = seg.cta_href  ?? seg.cta?.href;
+        const ctaLabel = seg.cta_label ?? seg.cta?.label;
+        return (
+          <div
+            style={`background: ${panelBg}; border-radius: 8px; border: 1px solid ${borderCol}; box-shadow: 0 2px 8px ${shadowCol}; padding: 32px 28px; display: flex; flex-direction: column; gap: 16px;`}
+          >
+            <!-- Panel header: icon badge + heading/subtitle row -->
+            <div style="display: flex; flex-direction: row; align-items: center; gap: 16px; margin-bottom: 4px;">
+              <div style={`width: 56px; height: 56px; border-radius: 50%; background: ${trackVar}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: white;`}>
+                {isApplier ? (
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="7" r="4"/>
+                    <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+                  </svg>
+                ) : (
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 18 22 12 16 6"/>
+                    <polyline points="8 6 2 12 8 18"/>
+                  </svg>
+                )}
+              </div>
+              <div>
+                {badgeLabel && (
+                  <p style={`font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 4px; color: ${trackVar};`}>{badgeLabel}</p>
+                )}
+                <h3 style={`font-family: var(--font_heading); font-size: 22px; font-weight: 700; margin: 0; line-height: 1.2; color: ${trackVar};`}>{seg.title}</h3>
+              </div>
+            </div>
+
+            {bodyText && (
+              <p style="font-size: 13px; color: var(--color_text_primary); margin: 0; line-height: 1.5;">{bodyText}</p>
+            )}
+
+            {seg.checklist && seg.checklist.length > 0 && (
+              <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; flex: 1;">
+                {seg.checklist.map((item) => (
+                  <li style="display: flex; align-items: flex-start; gap: 10px; font-size: 14px; color: var(--color_text_primary); line-height: 1.5;">
+                    <div style={`width: 18px; height: 18px; border-radius: 50%; background: color-mix(in srgb, ${trackVar} 20%, transparent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; color: ${trackVar};`}>
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="2 6 5 9 10 3"/>
+                      </svg>
+                    </div>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {ctaHref && ctaLabel && (
+              <a href={ctaHref} style={`font-size: 14px; font-weight: 500; text-decoration: none; margin-top: auto; padding-top: 8px; color: ${trackVar};`}>{ctaLabel}</a>
+            )}
+
+          </div>
+        );
+      })}
+
+    </div>
+  </section>
+
+)}
+
+<style>
+  /* ═══════════════════════════════════════════════════════ */
+  /* SIGNAL STUDIO — AudienceSegmentsBlock                   */
+  /* ═══════════════════════════════════════════════════════ */
+  .audience-studio {
+    padding-block: var(--layout_padding_y);
+  }
+  .audience-studio-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+  }
+  .audience-studio-header {
+    margin-bottom: var(--gap_lg);
+  }
+  .audience-studio-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+    margin: 0 0 var(--space_sm);
+  }
+  .audience-studio-title {
+    font-family: var(--font_heading);
+    font-size: clamp(1.75rem, 3vw, 2.25rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0 0 var(--space_sm);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+  }
+  .audience-studio-body {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    margin: 0;
+    max-width: 52ch;
+    line-height: var(--leading_relaxed);
+  }
+  .audience-studio-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--gap_md);
+    align-items: start;
+  }
+  .audience-studio-card {
+    background: var(--color_surface_alt, #FFFFFF);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_lg);
+    padding: var(--space_lg);
+    box-shadow: var(--shadow_sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_sm);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .audience-studio-card-bar {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+  }
+  .audience-studio-card-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    margin: 0;
+    line-height: var(--leading_tight);
+  }
+  .audience-studio-card-body {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    margin: 0;
+    line-height: var(--leading_relaxed);
+  }
+  .audience-studio-card-cta {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    text-decoration: none;
+    margin-top: auto;
+    padding-top: var(--space_xs);
+  }
+
+  @media (max-width: 768px) {
+    .audience-studio {
+      padding-block: var(--layout_padding_y_sm);
+    }
+    .audience-studio-grid {
+      grid-template-columns: 1fr;
+    }
+    .audience-studio-card {
+      padding: var(--space_md);
+    }
+    .rm-audience-grid {
+      grid-template-columns: 1fr !important;
+      padding: 2rem 1.25rem !important;
+    }
+  }
+</style>

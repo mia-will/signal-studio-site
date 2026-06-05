@@ -1,0 +1,456 @@
+---
+import type { PageBlock, Offer, OfferGroup } from '../../types/content';
+
+interface Props {
+  block: PageBlock;
+  offers: Offer[];
+  offerGroups?: OfferGroup[];
+}
+
+const { block, offers, offerGroups = [] } = Astro.props;
+
+const sourceTable   = block.source_table as string | undefined;
+const isOfferGroups = sourceTable === 'offer_groups';
+const showDescription = block.layout !== 'stacked_no_desc';
+
+const ctaPrimary    = block.props?.cta_primary;
+const ctaSecondary  = block.props?.cta_secondary;
+const ctaPrimaryHref = (block.props?.cta_primary as any)?.href as string | null | undefined;
+const cardLinkBase   = ctaPrimaryHref ? ctaPrimaryHref.split('#')[0] : null;
+---
+
+<section class="offers section animate-on-scroll" aria-labelledby="offers-heading">
+  <div class="container">
+    <header class="offers-header">
+      <h2 id="offers-heading" style="font-family: var(--font_heading);">{block.title}</h2>
+      {block.body && <p class="offers-intro">{block.body}</p>}
+    </header>
+
+    {isOfferGroups && offerGroups.length > 0 ? (
+      <div class="ogc-stack">
+        {offerGroups.map((group) => {
+          const features = (Array.isArray(group.card_features) ? group.card_features : []) as { label?: string; description?: string }[];
+          const steps = (Array.isArray((group as any).steps) ? (group as any).steps : []) as { step_number: number; name: string; short_description?: string }[];
+          const hasSecondary = Boolean(group.cta_secondary_label && group.cta_secondary_href);
+          const hasTertiary  = Boolean(group.cta_tertiary_label && group.cta_tertiary_href);
+          return (
+            <article class="ogc-card">
+              <div class="ogc-left">
+                {group.eyebrow && <p class="ogc-eyebrow">{group.eyebrow}</p>}
+                <h3 class="ogc-title">{group.title}</h3>
+                {group.tagline && <p class="ogc-tagline">{group.tagline}</p>}
+                <div class="ogc-divider" />
+                {features.length > 0 && (
+                  <ul class="ogc-features">
+                    {features.map((f) => (
+                      <li class="ogc-feature">
+                        <span class="ogc-feature-dot" />
+                        <span class="ogc-feature-text">
+                          {f.label && <strong class="ogc-feature-label">{f.label}</strong>}
+                          {f.description && <span class="ogc-feature-desc">{f.description}</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div class="ogc-ctas">
+                  <a href={`/offers/${group.slug}`} class="btn btn--primary ogc-btn">
+                    {group.cta_label ?? 'Learn more'}
+                  </a>
+                  {hasSecondary && (
+                    <a href={group.cta_secondary_href!} class="btn btn--outline ogc-btn">
+                      {group.cta_secondary_label}
+                    </a>
+                  )}
+                  {hasTertiary && (
+                    <a href={group.cta_tertiary_href!} class="ogc-tertiary">
+                      {group.cta_tertiary_label}
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              <div class="ogc-right">
+                {steps.map((step, i) => (
+                  <details class="ogc-step">
+                    <summary class="ogc-step-header">
+                      <span class="ogc-step-number">{String(i + 1).padStart(2, '0')}</span>
+                      <span class="ogc-step-name">{step.name}</span>
+                      <span class="ogc-step-link">See what's included ›</span>
+                    </summary>
+                    {step.short_description && (
+                      <p class="ogc-step-desc">{step.short_description}</p>
+                    )}
+                  </details>
+                ))}
+                {group.scope_tag && (
+                  <p class="ogc-scope">{group.scope_tag}</p>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    ) : (
+      <ol class="offers-list" role="list">
+        {offers.map((offer, i) => {
+          const offerCtaHref = (offer as any).cta_href as string | null | undefined;
+          const cardHref     = offerCtaHref ?? (cardLinkBase ? `${cardLinkBase}#${offer.slug}` : null);
+          const label        = offer.group_label ?? offer.eyebrow ?? offer.offer_type;
+          const description  = offer.first_step_description ?? offer.short_description;
+          return (
+            <li class="offer-item" id={offer.slug}>
+              {cardHref ? (
+                <a href={cardHref} class="offer-link" aria-label={offer.name}>
+                  <div class="offer-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</div>
+                  <div class="offer-body">
+                    <div class="offer-meta">{label && <span class="offer-type">{label}</span>}</div>
+                    <h3 class="offer-name">{offer.name}</h3>
+                    {offer.hero_line && <p class="offer-hero-line">{offer.hero_line}</p>}
+                    {showDescription && description && <p class="offer-desc">{description}</p>}
+                  </div>
+                  <div class="offer-cta-col" aria-hidden="true">{offer.cta_label} →</div>
+                </a>
+              ) : (
+                <div class="offer-link">
+                  <div class="offer-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</div>
+                  <div class="offer-body">
+                    <div class="offer-meta">{label && <span class="offer-type">{label}</span>}</div>
+                    <h3 class="offer-name">{offer.name}</h3>
+                    {offer.hero_line && <p class="offer-hero-line">{offer.hero_line}</p>}
+                    {showDescription && description && <p class="offer-desc">{description}</p>}
+                  </div>
+                  <div class="offer-cta-col" aria-hidden="true">{offer.cta_label}</div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    )}
+
+    {!isOfferGroups && (
+      <div class="offers-ctas">
+        {ctaPrimary && <a href={ctaPrimary.href} class="btn btn--primary">{ctaPrimary.label}</a>}
+        {ctaSecondary && <a href={ctaSecondary.href} class="btn btn--outline">{ctaSecondary.label}</a>}
+      </div>
+    )}
+  </div>
+</section>
+
+<style>
+  .offers {
+    border-top: 1px solid var(--color_border);
+  }
+
+  .offers-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space_2xl);
+    align-items: start;
+    margin-bottom: var(--space_2xl);
+  }
+
+  .offers-header h2 {
+    font-size: clamp(var(--text_3xl), 3.5vw, var(--text_4xl));
+  }
+
+  .offers-intro {
+    font-size: var(--text_lg);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    align-self: end;
+    max-width: 46ch;
+  }
+
+  /* Stacked cards */
+  .ogc-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_lg);
+    margin-bottom: var(--space_2xl);
+  }
+
+  .ogc-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: white;
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_lg);
+    overflow: hidden;
+  }
+
+  .ogc-left {
+    padding: var(--gap_xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+  }
+
+  .ogc-right {
+    padding: var(--gap_xl);
+    border-left: 1px solid var(--color_border);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ogc-eyebrow {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow, 0.1em);
+    text-transform: uppercase;
+    color: var(--color_accent);
+    margin: 0;
+  }
+
+  .ogc-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_2xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    margin: 0;
+  }
+
+  .ogc-tagline {
+    font-size: var(--text_base);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+
+  .ogc-divider {
+    height: 1px;
+    background: var(--color_border);
+    margin-block: var(--gap_xs);
+  }
+
+  .ogc-features {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+    flex: 1;
+  }
+
+  .ogc-feature {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--gap_sm);
+  }
+
+  .ogc-feature-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid var(--color_accent, #2dd4a0);
+    background: transparent;
+    flex-shrink: 0;
+    margin-top: 3px;
+    display: block;
+  }
+
+  .ogc-feature-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .ogc-feature-label {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading);
+  }
+
+  .ogc-feature-desc {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+  }
+
+  .ogc-ctas {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_sm);
+    margin-top: var(--gap_md);
+  }
+
+  .ogc-btn {
+    text-align: center;
+    box-sizing: border-box;
+  }
+
+  .ogc-tertiary {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    text-decoration: none;
+    text-align: center;
+  }
+
+  /* Steps */
+  .ogc-step {
+    padding-block: var(--gap_md);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .ogc-step:last-of-type {
+    border-bottom: none;
+  }
+
+  .ogc-step-header {
+    display: flex;
+    align-items: center;
+    gap: var(--gap_sm);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .ogc-step-header::-webkit-details-marker {
+    display: none;
+  }
+
+  .ogc-step-number {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_bold);
+    background: var(--color_accent, #2dd4a0);
+    color: white;
+    border-radius: 4px;
+    padding: 2px 7px;
+    flex-shrink: 0;
+    display: inline-block;
+    min-width: 28px;
+    text-align: center;
+  }
+
+  .ogc-step-name {
+    font-size: var(--text_base);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading);
+    flex: 1;
+  }
+
+  .ogc-step-link {
+    font-size: var(--text_xs);
+    color: var(--color_accent);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .ogc-step-desc {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: var(--gap_xs) 0 0 0;
+  }
+
+  .ogc-scope {
+    font-size: var(--text_xs);
+    color: var(--color_text_secondary);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_full, 999px);
+    padding: 0.3em var(--gap_md);
+    margin-top: var(--gap_md);
+    align-self: flex-start;
+  }
+
+  /* Flat list */
+  .offers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 0;
+  }
+
+  .offer-item {
+    border-top: 1px solid var(--color_border);
+  }
+
+  .offer-link {
+    display: grid;
+    grid-template-columns: 80px 1fr 200px;
+    gap: var(--space_2xl);
+    align-items: center;
+    padding-block: var(--space_2xl);
+    text-decoration: none;
+    color: inherit;
+    transition: background var(--ease);
+    border-radius: var(--radius_md);
+    padding-inline: var(--gap_sm);
+    margin-inline: calc(-1 * var(--gap_sm));
+  }
+
+  .offer-link:hover {
+    background: var(--color_surface);
+  }
+
+  .offer-number {
+    font-family: var(--font_heading);
+    font-size: var(--text_5xl);
+    line-height: 1;
+    font-weight: var(--font_weight_bold);
+    color: color-mix(in srgb, var(--color_cta_primary) 18%, transparent);
+    min-width: 80px;
+  }
+
+  .offer-body { min-width: 0; }
+
+  .offer-cta-col {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_cta_primary);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .offer-meta { margin-bottom: var(--space_xs); }
+
+  .offer-type {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color_cta_primary);
+  }
+
+  .offer-name {
+    font-family: var(--font_heading);
+    font-size: var(--text_2xl);
+    font-weight: var(--font_weight_bold);
+    margin-bottom: var(--space_sm);
+    color: var(--color_text_heading);
+  }
+
+  .offer-hero-line {
+    font-size: var(--text_lg);
+    font-weight: var(--font_weight_medium);
+    color: var(--color_text_secondary);
+    margin-bottom: var(--space_sm);
+  }
+
+  .offer-desc {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin-bottom: var(--space_md);
+    max-width: 52ch;
+  }
+
+  .offers-ctas {
+    display: flex;
+    gap: var(--space_sm);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  @media (max-width: 768px) {
+    .offers-header { grid-template-columns: 1fr; gap: var(--space_sm); }
+    .ogc-card { grid-template-columns: 1fr; }
+    .ogc-right { border-left: none; border-top: 1px solid var(--color_border); }
+    .offer-link { grid-template-columns: 48px 1fr; gap: 20px; padding-block: var(--space_lg); }
+    .offer-cta-col { display: none; }
+    .offer-number { font-size: 36px; min-width: 48px; }
+    .offers-ctas { justify-content: flex-start; }
+  }
+</style>

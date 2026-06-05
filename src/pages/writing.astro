@@ -1,0 +1,8 @@
+---
+import MichelleWriting from '../sites/michelle/pages/writing.astro';
+
+const SITE_SLUG = process.env.SITE_SLUG;
+if (SITE_SLUG !== 'michelle') return Astro.redirect('/404');
+---
+
+<MichelleWriting />

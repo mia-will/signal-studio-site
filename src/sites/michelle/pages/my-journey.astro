@@ -1,0 +1,68 @@
+---
+import MichelleLayout from '../Layout.astro';
+import MichelleHeader from '../Header.astro';
+import MichelleFooter from '../Footer.astro';
+import BlockRenderer from '../components/BlockRenderer.astro';
+import { loadMichellePage } from '../pageData';
+
+const PAGE_SLUG = 'my-journey';
+
+const { isPreview } = Astro.locals;
+
+const {
+  site,
+  blocks,
+  seo,
+  navHeader,
+  navFooter,
+  tokens,
+  mediaAssets,
+  rawTokenCSS,
+  canonicalUrl,
+  robots,
+  jsonld,
+} = await loadMichellePage(PAGE_SLUG, 'My Journey page', isPreview);
+
+if (!seo?.seo_title_override) throw new Error('My Journey page: missing page_seo.seo_title_override');
+if (!seo.seo_description_override) throw new Error('My Journey page: missing page_seo.seo_description_override');
+
+const expectedBlocks = [
+  [3600, 'hero'],
+  [3610, 'page_intro'],
+  [3620, 'page_intro'],
+  [3625, 'page_intro'],
+  [3627, 'page_intro'],
+  [3640, 'page_intro'],
+  [3650, 'cta_primary'],
+] as const;
+
+for (const [sortOrder, blockType] of expectedBlocks) {
+  const block = blocks.find((item) => item.sort_order === sortOrder);
+  if (!block) throw new Error(`My Journey page: missing enabled block at sort_order=${sortOrder}`);
+  if (block.block_type_key !== blockType) {
+    throw new Error(`My Journey page: expected ${blockType} at sort_order=${sortOrder}, found ${block.block_type_key}`);
+  }
+}
+
+---
+
+<MichelleLayout
+  title={seo.seo_title_override}
+  siteName={site.name}
+  description={seo.seo_description_override}
+  canonical={canonicalUrl}
+  robots={robots}
+  jsonld={jsonld}
+  aeoSummary={seo.aeo_summary ?? undefined}
+  rawTokenCSS={rawTokenCSS}
+>
+  <MichelleHeader site={site} navItems={navHeader} />
+
+  <main id="main-content">
+    {blocks.map((block) => (
+      <BlockRenderer block={block} mediaAssets={mediaAssets} />
+    ))}
+  </main>
+
+  <MichelleFooter site={site} footerItems={navFooter} tokens={tokens} />
+</MichelleLayout>

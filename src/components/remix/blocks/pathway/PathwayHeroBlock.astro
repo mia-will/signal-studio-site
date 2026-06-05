@@ -1,0 +1,493 @@
+---
+interface Props {
+  block?: any;
+  pathway: any;
+}
+
+const { pathway } = Astro.props;
+
+// ── Capability stage data from page-level join ────────────────
+const capStageRaw = (pathway as any).capability_stages ?? null;
+const capStage    = Array.isArray(capStageRaw) ? (capStageRaw[0] ?? null) : capStageRaw;
+const badgeLabel  = capStage?.badge_label  ?? null;
+const badgeColour = capStage?.badge_colour ?? null;
+
+// ── Delivery mode: data-derived mapping only ──────────────────
+const DELIVERY_DISPLAY: Record<string, string> = {
+  in_person: 'In Person',
+  online:    'Online',
+  hybrid:    'Hybrid',
+};
+
+// ── Price fields: block from detail_fields rendering ──────────
+const PRICE_FIELDS = new Set(['price_label', 'price_amount']);
+
+// ── Shared field formatters (same logic as PathwayDetailsBlock) ─
+function normalizeFields(value: unknown): string[] {
+  if (Array.isArray(value))
+    return value.filter((f): f is string => typeof f === 'string');
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((f): f is string => typeof f === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function toDisplayLabel(field: string): string {
+  return field
+    .replace(/_label$/, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function toDisplayValue(field: string, val: unknown): string | null {
+  if (val === null || val === undefined || val === '') return null;
+  if (field === 'delivery_mode' && typeof val === 'string')
+    return DELIVERY_DISPLAY[val] ?? val;
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'string') {
+    if (!val.includes(' ') && val.includes('_'))
+      return val.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    return val;
+  }
+  return String(val);
+}
+
+// ── Lifecycle status ──────────────────────────────────────────
+const pathwayStatus: string | null = pathway.pathway_status ?? null;
+const isOpen       = pathwayStatus === 'open';
+const isComingSoon = pathwayStatus === 'coming_soon';
+
+// ── Price: status-gated, never via detail_fields ──────────────
+const priceDisplay: string | null =
+  isOpen && pathway.price_amount != null
+    ? `$${Number(pathway.price_amount).toLocaleString()}`
+    : null;
+
+// ── CTA: open only; stripe_payment_link_url first, cta_link second ─
+const ctaHref: string | null =
+  pathway.stripe_payment_link_url ?? pathway.cta_link ?? null;
+const showCta = isOpen && !!pathway.cta_label && !!ctaHref;
+
+// ── Capture form: coming_soon + panel_capture_label required ──
+const showCapture = isComingSoon && !!pathway.panel_capture_label;
+
+// ── Bullet points ─────────────────────────────────────────────
+const bullets: string[] = Array.isArray(pathway.bullet_points)
+  ? (pathway.bullet_points as string[])
+  : [];
+
+// ── Detail fields: source of truth for non-price rows ─────────
+type DetailRow = { label: string; value: string };
+
+const cleanFields = normalizeFields(pathway.detail_fields)
+  .filter((f) => !PRICE_FIELDS.has(f));
+
+const detailRows: DetailRow[] = cleanFields
+  .map((field) => ({
+    label: toDisplayLabel(field),
+    value: toDisplayValue(field, (pathway as any)[field]),
+  }))
+  .filter((r): r is DetailRow => r.value != null);
+
+// ── Panel rows: detail rows + price (if open) ─────────────────
+const panelRows: DetailRow[] = [
+  ...detailRows,
+  ...(priceDisplay && pathway.price_row_label ? [{ label: pathway.price_row_label as string, value: priceDisplay }] : []),
+];
+
+---
+
+<section class="ph">
+  <div class="ph-inner">
+
+    <!-- Left column -->
+    <div class="ph-left">
+
+      {(pathway.label || badgeLabel) && (
+        <div class="ph-eyebrow-row">
+          {pathway.label && <span class="ph-label">{pathway.label}</span>}
+          {badgeLabel && (
+            <span
+              class="ph-badge"
+              style={badgeColour ? `background:${badgeColour}` : undefined}
+            >{badgeLabel}</span>
+          )}
+        </div>
+      )}
+
+      {pathway.title && <h1 class="ph-title">{pathway.title}</h1>}
+
+      {pathway.audience && <p class="ph-audience">{pathway.audience}</p>}
+
+      {pathway.short_description && (
+        <p class="ph-description">{pathway.short_description}</p>
+      )}
+
+      {bullets.length > 0 && (
+        <ul class="ph-bullets">
+          {bullets.map((bullet) => (
+            <li class="ph-bullet">{bullet}</li>
+          ))}
+        </ul>
+      )}
+
+    </div>
+
+    <!-- Right details panel -->
+    <div class="ph-panel">
+
+      {panelRows.length > 0 && (
+        <dl class="ph-panel-rows">
+          {panelRows.map((row) => (
+            <div class="ph-panel-row">
+              <dt class="ph-panel-key">{row.label}</dt>
+              <dd class="ph-panel-val">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {showCapture && (
+        <div class="ph-capture">
+          <p class="ph-capture-label">{pathway.panel_capture_label}</p>
+          <form
+            class="ph-capture-form"
+            data-source={pathway.panel_capture_source ?? ''}
+            data-success={pathway.panel_capture_success ?? ''}
+            data-error={pathway.panel_capture_error ?? ''}
+            novalidate
+          >
+            <div class="ph-capture-field-row">
+              <input
+                type="email"
+                class="ph-capture-input"
+                placeholder={pathway.panel_capture_placeholder ?? ''}
+                autocomplete="email"
+                aria-label={pathway.panel_capture_label}
+              />
+              <button type="submit" class="ph-capture-btn" aria-label={pathway.panel_capture_label}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
+            {pathway.panel_capture_note && (
+              <p class="ph-capture-note">{pathway.panel_capture_note}</p>
+            )}
+          </form>
+          <p class="ph-capture-success" aria-live="polite" hidden></p>
+          <p class="ph-capture-error" aria-live="assertive" hidden></p>
+        </div>
+      )}
+
+      {showCta && (
+        <div class="ph-cta-wrap">
+          <a href={ctaHref!} class="ph-cta-btn">{pathway.cta_label}</a>
+        </div>
+      )}
+
+    </div>
+
+  </div>
+
+
+</section>
+
+<style>
+  .ph {
+    padding-top: var(--layout_padding_y);
+  }
+
+  .ph-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+    padding-bottom: var(--layout_padding_y);
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: var(--gap_xl, 48px);
+    align-items: start;
+  }
+
+  /* ── Left column ── */
+  .ph-eyebrow-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space_sm);
+    margin-bottom: var(--space_md);
+  }
+
+  .ph-label {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    color: var(--color_text_secondary);
+  }
+
+  .ph-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 12px;
+    border-radius: var(--btn_radius_pill);
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_heading);
+    background: var(--color_surface, #f3f3f1);
+  }
+
+  .ph-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_4xl);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--space_md);
+  }
+
+  .ph-audience {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    margin: 0 0 var(--space_sm);
+  }
+
+  .ph-description {
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: 0 0 var(--space_lg);
+  }
+
+  .ph-bullets {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_sm);
+  }
+
+  .ph-bullet {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space_sm);
+    font-size: var(--text_base);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_snug);
+  }
+
+  .ph-bullet::before {
+    content: '✓';
+    color: var(--color_cta_primary);
+    font-weight: var(--font_weight_bold);
+    flex-shrink: 0;
+  }
+
+  /* ── Right panel ── */
+  .ph-panel {
+    background: var(--color_white);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_md);
+    overflow: hidden;
+  }
+
+  .ph-panel-rows {
+    margin: 0;
+    padding: var(--gap_md);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .ph-panel-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--gap_sm);
+    padding-block: var(--space_sm);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .ph-panel-row:last-child {
+    border-bottom: 0;
+  }
+
+  .ph-panel-key {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_secondary);
+    text-transform: uppercase;
+    letter-spacing: var(--letter_spacing_eyebrow);
+    flex-shrink: 0;
+  }
+
+  .ph-panel-val {
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    text-align: right;
+    margin: 0;
+  }
+
+  /* ── Capture form ── */
+  .ph-capture {
+    padding: var(--gap_md);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .ph-capture-label {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    color: var(--color_text_secondary);
+    text-transform: uppercase;
+    letter-spacing: var(--letter_spacing_eyebrow);
+    margin: 0 0 var(--space_sm);
+  }
+
+  .ph-capture-field-row {
+    display: flex;
+    gap: var(--space_xs);
+  }
+
+  .ph-capture-input {
+    flex: 1;
+    height: 40px;
+    padding: 0 var(--space_sm);
+    font-size: var(--text_sm);
+    font-family: var(--font_body);
+    border: 1.5px solid var(--color_border);
+    border-radius: var(--radius_sm);
+    background: var(--color_white);
+    color: var(--color_text_primary);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .ph-capture-input::placeholder {
+    color: var(--color_text_secondary);
+    opacity: 0.5;
+  }
+
+  .ph-capture-input:focus {
+    border-color: var(--color_cta_primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color_cta_primary) 12%, transparent);
+  }
+
+  .ph-capture-btn {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    border: none;
+    border-radius: var(--radius_sm);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity 0.15s;
+  }
+
+  .ph-capture-btn:hover:not(:disabled) { opacity: var(--hover_opacity); }
+  .ph-capture-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .ph-capture-note {
+    font-size: var(--text_xs);
+    color: var(--color_text_secondary);
+    margin: var(--space_xs) 0 0;
+  }
+
+  .ph-capture-success {
+    font-size: var(--text_sm);
+    color: var(--color_cta_primary);
+    margin: var(--space_sm) 0 0;
+  }
+
+  .ph-capture-error {
+    font-size: var(--text_sm);
+    color: var(--color_error, #dc2626);
+    margin: var(--space_sm) 0 0;
+  }
+
+  /* ── CTA ── */
+  .ph-cta-wrap {
+    padding: var(--gap_md);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .ph-cta-btn {
+    display: block;
+    width: 100%;
+    padding: var(--btn_padding);
+    font-size: var(--text_sm);
+    font-weight: var(--font_weight_semibold);
+    font-family: var(--font_body);
+    background: var(--color_cta_primary);
+    color: var(--color_text_on_dark);
+    border-radius: var(--btn_radius_pill);
+    text-align: center;
+    text-decoration: none;
+    transition: opacity 0.15s;
+  }
+
+  .ph-cta-btn:hover { opacity: var(--hover_opacity); }
+
+  /* ── Responsive ── */
+  @media (max-width: 960px) {
+    .ph-inner {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .ph-title {
+      font-size: var(--text_3xl);
+    }
+  }
+</style>
+
+<script>
+  const form    = document.querySelector<HTMLFormElement>('.ph-capture-form');
+  const success = document.querySelector<HTMLElement>('.ph-capture-success');
+  const error   = document.querySelector<HTMLElement>('.ph-capture-error');
+  const input   = document.querySelector<HTMLInputElement>('.ph-capture-input');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = input?.value?.trim();
+    if (!email) { input?.focus(); return; }
+
+    const btn = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (btn) btn.disabled = true;
+
+    try {
+      const source = form.dataset.source ?? '';
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, source, site_slug: 'remix' }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        const msg = form.dataset.success ?? '';
+        if (form) form.hidden = true;
+        if (success) { success.textContent = msg; success.hidden = false; }
+      } else {
+        const msg = form.dataset.error ?? '';
+        if (btn) btn.disabled = false;
+        if (error) { error.textContent = msg; error.hidden = false; }
+      }
+    } catch {
+      const msg = form?.dataset.error ?? '';
+      if (btn) btn.disabled = false;
+      if (error) { error.textContent = msg; error.hidden = false; }
+    }
+  });
+</script>

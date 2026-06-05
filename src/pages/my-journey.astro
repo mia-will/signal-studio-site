@@ -1,0 +1,8 @@
+---
+import MichelleMyJourney from '../sites/michelle/pages/my-journey.astro';
+
+const SITE_SLUG = process.env.SITE_SLUG;
+if (SITE_SLUG !== 'michelle') return Astro.redirect('/404');
+---
+
+<MichelleMyJourney />

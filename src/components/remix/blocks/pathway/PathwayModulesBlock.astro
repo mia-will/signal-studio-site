@@ -1,0 +1,253 @@
+---
+interface Module {
+  id?: string;
+  week_number?: number | null;
+  module_order?: number | null;
+  module_title?: string | null;
+  module_summary?: string | null;
+  session_focus?: string | null;
+  activities?: string | string[] | null;
+  outcomes?: string | string[] | null;
+  home_practice?: string | null;
+  resources?: string | string[] | null;
+}
+
+interface Props {
+  block?: any;
+  pathway: any;
+  modules: Module[];
+}
+
+const { pathway, modules } = Astro.props;
+
+const sectionTitle: string | null = pathway.section_label_modules ?? null;
+const labelActivities: string | null    = pathway.module_label_activities ?? null;
+const labelOutcomes: string | null      = pathway.module_label_outcomes ?? null;
+const labelHomePractice: string | null  = pathway.module_label_home_practice ?? null;
+const labelResources: string | null     = pathway.module_label_resources ?? null;
+
+function toLines(val: string | string[] | number | null | undefined): string[] {
+  if (val == null || val === '') return [];
+  if (typeof val === 'number') return [String(val)];
+  if (Array.isArray(val)) return (val as string[]).map((v) => String(v).trim()).filter(Boolean);
+  return (val as string).split('\n\n').map((p) => p.trim()).filter(Boolean);
+}
+
+const rows = modules.map((mod) => ({
+  mod,
+  weekLines:     mod.week_number != null ? [String(mod.week_number)] : [],
+  titleLines:    toLines(mod.module_title),
+  summaryLines:  toLines(mod.module_summary),
+  focusLines:    toLines(mod.session_focus),
+  actLines:      toLines(mod.activities),
+  outcomeLines:  toLines(mod.outcomes),
+  practiceLines: toLines(mod.home_practice),
+  resourceLines: toLines(mod.resources),
+}));
+---
+
+{rows.length > 0 && (
+  <section class="pm">
+    <div class="pm-inner">
+
+      {sectionTitle && <h2 class="pm-section-title">{sectionTitle}</h2>}
+
+      <ol class="pm-list">
+        {rows.map(({ mod, weekLines, titleLines, summaryLines, focusLines, actLines, outcomeLines, practiceLines, resourceLines }) => (
+          <li class="pm-module">
+
+            {weekLines.length > 0 && (
+              <span class="pm-week">{weekLines[0]}</span>
+            )}
+
+            {titleLines.length > 0 && (
+              <h3 class="pm-title">{titleLines[0]}</h3>
+            )}
+
+            {summaryLines.length > 0 && (
+              <div class="pm-summary">
+                {summaryLines.map((p) => <p>{p}</p>)}
+              </div>
+            )}
+
+            {focusLines.length > 0 && (
+              <div class="pm-focus">
+                {focusLines.map((p) => <p>{p}</p>)}
+              </div>
+            )}
+
+            {actLines.length > 0 && (
+              <div class="pm-field">
+                {labelActivities && <h4 class="pm-field-label">{labelActivities}</h4>}
+                <ul class="pm-list-field">
+                  {actLines.map((item) => <li>{item}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {outcomeLines.length > 0 && (
+              <div class="pm-field">
+                {labelOutcomes && <h4 class="pm-field-label">{labelOutcomes}</h4>}
+                <ul class="pm-list-field">
+                  {outcomeLines.map((item) => <li>{item}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {practiceLines.length > 0 && (
+              <div class="pm-field">
+                {labelHomePractice && <h4 class="pm-field-label">{labelHomePractice}</h4>}
+                <div class="pm-practice">
+                  <p>{practiceLines[0]}</p>
+                </div>
+              </div>
+            )}
+
+            {resourceLines.length > 0 && (
+              <div class="pm-field pm-field--resources">
+                {labelResources && <h4 class="pm-field-label">{labelResources}</h4>}
+                <ul class="pm-list-field">
+                  {resourceLines.map((item) => <li>{item}</li>)}
+                </ul>
+              </div>
+            )}
+
+          </li>
+        ))}
+      </ol>
+
+    </div>
+  </section>
+)}
+
+<style>
+  .pm {
+    padding-block: var(--layout_padding_y_md);
+    border-top: 1px solid var(--color_border);
+  }
+
+  .pm-inner {
+    max-width: var(--layout_max_width);
+    margin-inline: auto;
+    padding-inline: var(--layout_padding_x);
+  }
+
+  .pm-section-title {
+    font-family: var(--font_heading);
+    font-size: clamp(1.4rem, 2.5vw, 1.875rem);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_tight);
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--gap_lg);
+  }
+
+  .pm-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap_md);
+    counter-reset: none;
+  }
+
+  .pm-module {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_sm);
+    padding: var(--gap_md);
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_md);
+    background: var(--color_white);
+  }
+
+  .pm-week {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--color_surface);
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_secondary);
+    flex-shrink: 0;
+    align-self: flex-start;
+  }
+
+  .pm-title {
+    font-family: var(--font_heading);
+    font-size: var(--text_lg);
+    font-weight: var(--font_weight_bold);
+    color: var(--color_text_heading);
+    line-height: var(--leading_snug);
+    margin: 0;
+  }
+
+  .pm-summary p,
+  .pm-practice p {
+    font-size: var(--text_base);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+
+  .pm-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--text_gap_lg);
+    padding-bottom: var(--space_xs);
+    border-bottom: 1px solid var(--color_border);
+  }
+
+  .pm-focus p {
+    font-size: var(--text_sm);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+    margin: 0;
+    font-style: italic;
+  }
+
+  .pm-list-field {
+    margin: 0;
+    padding-left: 1.25em;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_xs);
+  }
+
+  .pm-list-field li {
+    font-size: var(--text_sm);
+    line-height: var(--leading_relaxed);
+    color: var(--color_text_secondary);
+  }
+
+  .pm-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space_xs);
+  }
+
+  .pm-field--resources {
+    border-top: 1px solid var(--color_border);
+    padding-top: var(--space_xs);
+  }
+
+  .pm-field-label {
+    font-family: var(--font_heading);
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_bold);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color_text_secondary);
+    margin: 0;
+  }
+
+  @media (max-width: 640px) {
+    .pm-module {
+      padding: var(--gap_sm);
+    }
+  }
+</style>

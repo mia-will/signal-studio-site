@@ -1,0 +1,137 @@
+---
+export const prerender = false
+
+let loginError = false
+
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData()
+  const password = formData.get('password')?.toString() ?? ''
+  const adminSecret = import.meta.env.DASHBOARD_SECRET
+  const colletteSecret = import.meta.env.COLLETTE_SECRET
+
+  const cookieOpts = { httpOnly: true, sameSite: 'lax' as const, path: '/', maxAge: 60 * 60 * 24 * 7 }
+
+  if (password === adminSecret) {
+    Astro.cookies.set('dashboard_session', adminSecret, cookieOpts)
+    Astro.cookies.set('dashboard_role', 'admin', cookieOpts)
+    return Astro.redirect('/dashboard/agents')
+  } else if (colletteSecret && password === colletteSecret) {
+    Astro.cookies.set('dashboard_session', colletteSecret, cookieOpts)
+    Astro.cookies.set('dashboard_role', 'coordinator', cookieOpts)
+    return Astro.redirect('/dashboard/crm')
+  } else {
+    loginError = true
+  }
+}
+---
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Signal OS — Dashboard Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #FFFCF8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .card {
+      background: #FFFFFF;
+      border: 1px solid rgba(47,47,47,0.12);
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(17,17,17,0.10);
+      padding: 48px;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .wordmark {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #2F2F2F;
+      text-transform: uppercase;
+      font-variant: small-caps;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 22px;
+      font-weight: 600;
+      color: #2F2F2F;
+      margin-bottom: 28px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #505050;
+      margin-bottom: 6px;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      border: 1px solid rgba(47,47,47,0.2);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      color: #2F2F2F;
+      outline: none;
+      margin-bottom: 16px;
+      transition: border-color 0.15s;
+    }
+
+    input[type="password"]:focus {
+      border-color: #3C8A7E;
+    }
+
+    .error {
+      font-size: 13px;
+      color: #C0392B;
+      margin-bottom: 12px;
+    }
+
+    button[type="submit"] {
+      width: 100%;
+      background: #FF8A33;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button[type="submit"]:hover {
+      background: #E07020;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="wordmark">The Signal OS</div>
+    <h1>Dashboard Access</h1>
+    <form method="POST">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" autofocus />
+      {loginError && <p class="error">Incorrect password</p>}
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>

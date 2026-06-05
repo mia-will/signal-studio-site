@@ -1,0 +1,79 @@
+---
+import MichelleLayout from '../Layout.astro';
+import MichelleHeader from '../Header.astro';
+import MichelleFooter from '../Footer.astro';
+import BlockRenderer from '../components/BlockRenderer.astro';
+import { supabase } from '../../../lib/supabase';
+import { loadMichellePage } from '../pageData';
+
+const PAGE_SLUG = 'writing';
+
+const { isPreview } = Astro.locals;
+
+const [pageData, postsResult] = await Promise.all([
+  loadMichellePage(PAGE_SLUG, 'Writing page', isPreview),
+  supabase
+    .from('posts')
+    .select('id, title, slug, summary, published_at')
+    .contains('site_show', ['michelle'])
+    .eq('status', 'published')
+    .order('published_at', { ascending: false })
+    .limit(12),
+]);
+
+const {
+  site,
+  blocks,
+  seo,
+  navHeader,
+  navFooter,
+  tokens,
+  mediaAssets,
+  rawTokenCSS,
+  canonicalUrl,
+  robots,
+  jsonld,
+} = pageData;
+
+if (postsResult.error) throw new Error(`Writing page: failed to load posts: ${postsResult.error.message}`);
+
+if (!seo?.seo_title_override) throw new Error('Writing page: missing page_seo.seo_title_override');
+if (!seo.seo_description_override) throw new Error('Writing page: missing page_seo.seo_description_override');
+
+const expectedBlocks = [
+  [3310, 'page_intro'],
+  [3320, 'posts_editorial_feed'],
+  [3330, 'cta_primary'],
+] as const;
+
+for (const [sortOrder, blockType] of expectedBlocks) {
+  const block = blocks.find((item) => item.sort_order === sortOrder);
+  if (!block) throw new Error(`Writing page: missing enabled block at sort_order=${sortOrder}`);
+  if (block.block_type_key !== blockType) {
+    throw new Error(`Writing page: expected ${blockType} at sort_order=${sortOrder}, found ${block.block_type_key}`);
+  }
+}
+
+const posts = postsResult.data ?? [];
+---
+
+<MichelleLayout
+  title={seo.seo_title_override}
+  siteName={site.name}
+  description={seo.seo_description_override}
+  canonical={canonicalUrl}
+  robots={robots}
+  jsonld={jsonld}
+  aeoSummary={seo.aeo_summary ?? undefined}
+  rawTokenCSS={rawTokenCSS}
+>
+  <MichelleHeader site={site} navItems={navHeader} />
+
+  <main id="main-content">
+    {blocks.map((block) => (
+      <BlockRenderer block={block} mediaAssets={mediaAssets} posts={posts} />
+    ))}
+  </main>
+
+  <MichelleFooter site={site} footerItems={navFooter} tokens={tokens} />
+</MichelleLayout>

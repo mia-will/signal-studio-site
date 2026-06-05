@@ -1,0 +1,77 @@
+---
+import type { PageBlock } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const eyebrow = block.eyebrow     ?? block.props?.eyebrow;
+const title   = block.props?.title ?? block.title;
+const intro   = block.props?.intro ?? block.props?.subtitle;
+const items   = (block.props?.items ?? []) as {
+  title: string;
+  explanation?: string;
+  what_this_means?: string;
+}[];
+---
+
+<section style="padding: 64px 0;">
+  <div style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+    <div style="margin-bottom: 40px;">
+      {eyebrow && (
+        <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_track_applier); margin: 0 0 8px;">
+          {eyebrow}
+        </p>
+      )}
+      {title && (
+        <h2 style="font-family: var(--font_heading); font-size: 32px; font-weight: 700; color: var(--color_text_heading); margin: 0 0 8px; line-height: 1.1;">
+          {title}
+        </h2>
+      )}
+      <div style="width: 40px; height: 3px; background: var(--color_track_applier); border-radius: 2px; margin-bottom: 12px;"></div>
+      {intro && (
+        <p style="font-size: 15px; color: var(--color_text_secondary); margin: 0; max-width: 520px; line-height: 1.6;">
+          {intro}
+        </p>
+      )}
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      {items.map((item, i) => (
+        <div style="border: var(--card_border); border-left: 4px solid var(--color_track_applier); padding: 28px 32px; background: var(--card_bg); display: grid; grid-template-columns: 32px 1fr 1fr; gap: 28px; align-items: start;">
+
+          <span style="font-size: 20px; font-weight: 700; color: var(--color_track_applier); line-height: 1; margin-top: 4px;">
+            {i + 1}
+          </span>
+
+          <div>
+            <h3 style="font-family: var(--font_heading); font-size: 16px; font-weight: 700; color: var(--color_text_heading); margin: 0 0 8px; line-height: 1.3;">
+              {item.title}
+            </h3>
+            {item.explanation && (
+              <p style="font-size: 14px; color: var(--color_text_secondary); margin: 0; line-height: 1.6;">
+                {item.explanation}
+              </p>
+            )}
+          </div>
+
+          {item.what_this_means && (
+            <div style="border-left: 2px solid var(--color_track_applier); padding-left: 16px;">
+              <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color_track_applier); margin: 0 0 6px;">
+                What this means
+              </p>
+              <p style="font-size: 14px; color: var(--color_text_primary); margin: 0; line-height: 1.55; font-weight: 500;">
+                {item.what_this_means}
+              </p>
+            </div>
+          )}
+
+        </div>
+      ))}
+    </div>
+
+  </div>
+</section>

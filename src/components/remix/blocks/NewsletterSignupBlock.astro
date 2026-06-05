@@ -1,0 +1,12 @@
+---
+import MailingListInviteBlock from '../../blocks/MailingListInviteBlock.astro';
+import type { PageBlock } from '../../../types/content';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+---
+
+<MailingListInviteBlock block={block} />

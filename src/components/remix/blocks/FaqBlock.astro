@@ -1,0 +1,144 @@
+---
+import type { PageBlock } from '../../../types/content';
+import { supabase } from '../../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+}
+
+const { block } = Astro.props;
+
+const eyebrow  = block.eyebrow  ?? block.props?.eyebrow;
+const title    = block.title    ?? block.props?.title;
+const subtitle = block.subtitle ?? block.props?.subtitle;
+
+let items: Array<{ question: string; answer: string }> = [];
+const pageSlug = block.props?.page_slug as string | undefined;
+const limitRaw = Number(block.props?.limit ?? 10);
+const limit = Number.isFinite(limitRaw) ? limitRaw : 10;
+
+if (pageSlug) {
+  const { data } = await supabase
+    .from('faq_items')
+    .select('id, question, answer')
+    .eq('site_key', 'the_remix')
+    .eq('status', 'published')
+    .contains('page_slugs', [pageSlug])
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  items = (data ?? []).map((row: any) => ({ question: row.question, answer: row.answer }));
+}
+---
+
+{items.length > 0 && (
+<section style="padding: 48px 0;">
+  <div style="max-width: 1280px; margin-inline: auto; padding-inline: 48px;">
+
+    {(eyebrow || title || subtitle) && (
+      <div style="margin-bottom: 40px; max-width: 600px;">
+        {eyebrow && (
+          <p style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 12px;">
+            {eyebrow}
+          </p>
+        )}
+        {title && (
+          <h2 style="font-family: var(--font_heading); font-size: clamp(1.8rem, 3vw, 2.4rem); font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; color: var(--color_text_heading); margin: 0 0 12px;">
+            {title}
+          </h2>
+        )}
+        {subtitle && (
+          <p style="font-size: 16px; line-height: 1.6; color: var(--color_text_secondary); margin: 0;">
+            {subtitle}
+          </p>
+        )}
+      </div>
+    )}
+
+    {items.length > 0 && (
+      <div class="faq-list">
+        {items.map((item, i) => (
+          <details class="faq-item" open={i === 0 || undefined}>
+            <summary class="faq-question">
+              <span style="font-size: 16px; font-weight: 500; color: var(--color_text_primary); line-height: 1.4;">
+                {item.question}
+              </span>
+              <span class="faq-icon" aria-hidden="true" style="color: var(--color_cta_primary); font-size: 20px; font-weight: 400; flex-shrink: 0; line-height: 1; width: 24px; text-align: center;">+</span>
+            </summary>
+            <div class="faq-answer">
+              <p style="font-size: 15px; line-height: 1.7; color: var(--color_text_secondary); margin: 0;">
+                {item.answer}
+              </p>
+            </div>
+          </details>
+        ))}
+      </div>
+    )}
+
+  </div>
+</section>
+)}
+
+<style>
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-width: 760px;
+  }
+
+  .faq-item {
+    background: var(--color_surface_panel);
+    border-radius: 12px;
+    border: 1px solid rgba(31, 26, 23, 0.08);
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: background 0.15s;
+  }
+
+  .faq-item[open] {
+    background: var(--color_surface_panel_soft);
+  }
+
+  .faq-question {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .faq-question::-webkit-details-marker {
+    display: none;
+  }
+
+  .faq-item[open] .faq-icon {
+    transform: rotate(45deg);
+  }
+
+  .faq-icon {
+    transition: transform 0.2s ease;
+    display: inline-block;
+  }
+
+  .faq-answer {
+    padding: 0 20px 20px;
+  }
+</style>
+
+<script>
+  const details = document.querySelectorAll<HTMLDetailsElement>('.faq-item');
+
+  details.forEach((el) => {
+    el.addEventListener('toggle', () => {
+      if (el.open) {
+        details.forEach((other) => {
+          if (other !== el && other.open) other.open = false;
+        });
+      }
+    });
+  });
+</script>

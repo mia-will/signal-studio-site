@@ -1,0 +1,258 @@
+---
+import type { PageBlock } from '../../types/content';
+import { supabase } from '../../lib/supabase';
+
+interface Props {
+  block: PageBlock;
+  posts?: any[]; // kept for BlockRenderer compat — ignored when filters present
+}
+
+const { block } = Astro.props;
+
+// ── Read all config from block props ───────────────────────
+const filters      = block.props?.filters as Record<string, any> | undefined;
+const siteId       = filters?.site_id   as string | undefined;
+const siteShow     = filters?.site_show as string | string[] | undefined;
+const status       = filters?.status    as string ?? 'published';
+const limit        = Number(block.limit ?? block.props?.limit ?? 4);
+const supportCount = Number(block.props?.support_count ?? 3);
+const showDate     = block.props?.show_date     !== false;
+const showAudience = block.props?.show_audience_badge === true;
+const showCategory = block.props?.show_category_badge !== false;
+
+const blockTitle  = block.props?.title    ?? block.title    ?? null;
+const blockSub    = block.props?.subtitle ?? block.subtitle ?? null;
+const eyebrow     = block.props?.eyebrow  ?? block.eyebrow  ?? null;
+const ctaPrimary  = block.props?.cta_primary ?? null;
+
+// ── Fetch posts from Supabase ───────────────────────────────
+let posts: any[] = [];
+let brandKey = Array.isArray(siteShow) ? siteShow[0] : siteShow;
+
+if (!brandKey && siteId) {
+  // Resolve site_id → brand_key, then filter posts by site_show array
+  const { data: siteRow } = await supabase
+    .from('sites')
+    .select('site_show_key')
+    .eq('id', siteId)
+    .maybeSingle();
+
+  brandKey = siteRow?.site_show_key as string | undefined;
+}
+
+if (brandKey) {
+  const audienceValues = Array.isArray(filters?.audience_primary)
+    ? (filters.audience_primary as string[])
+    : null;
+
+  let postsQuery = supabase
+    .from('posts')
+    .select('id, title, slug, summary, published_at, hero_media_asset_id, audience_primary, category')
+    .contains('site_show', [brandKey])
+    .eq('status', status)
+    .order('published_at', { ascending: false })
+    .limit(limit);
+
+  if (audienceValues?.length) {
+    postsQuery = postsQuery.in('audience_primary', audienceValues);
+  }
+
+  const { data } = await postsQuery;
+  posts = data ?? [];
+
+  // ── Resolve hero images ───────────────────────────────
+  const imageIds = posts.map((p: any) => p.hero_media_asset_id).filter(Boolean);
+  if (imageIds.length > 0) {
+    const { data: assets } = await supabase
+      .from('media_assets')
+      .select('id, image_url, alt_text')
+      .in('id', imageIds);
+    if (assets) {
+      const mediaMap: Record<string, { image_url: string; alt_text: string | null }> =
+        Object.fromEntries((assets as any[]).map((a) => [a.id, a]));
+      posts = posts.map((p: any) => ({
+        ...p,
+        image_url: p.hero_media_asset_id ? (mediaMap[p.hero_media_asset_id]?.image_url ?? null) : null,
+        image_alt: p.hero_media_asset_id ? (mediaMap[p.hero_media_asset_id]?.alt_text  ?? null) : null,
+      }));
+    }
+  }
+}
+
+// ── Graceful empty state ─────────────────────────────────
+const hasContent = posts.length > 0;
+const [featured, ...allRest] = posts;
+const secondary = allRest.slice(0, supportCount);
+
+// ── Helpers ──────────────────────────────────────────────
+function formatDate(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
+}
+
+function formatLabel(val: string | null | undefined): string {
+  if (!val) return '';
+  return val.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+---
+
+{hasContent && (
+  <section style="padding-block: var(--layout_padding_y); border-top: 1px solid var(--color_border);">
+    <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
+
+      <!-- ── Section header ── -->
+      {(eyebrow || blockTitle || blockSub || (ctaPrimary?.label && ctaPrimary?.href)) && (
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: var(--gap_md); margin-bottom: var(--gap_lg); flex-wrap: wrap;">
+          <div>
+            {eyebrow && (
+              <p style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color_cta_primary); margin: 0 0 var(--gap_sm);">
+                {eyebrow}
+              </p>
+            )}
+            {blockTitle && (
+              <h2 style="font-family: var(--font_heading); font-size: var(--text_3xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); margin: 0; line-height: var(--leading_tight);">
+                {blockTitle}
+              </h2>
+            )}
+            {blockSub && (
+              <p style="font-size: var(--text_base); color: var(--color_text_secondary); margin: var(--gap_sm) 0 0; line-height: var(--leading_relaxed); max-width: none;">
+                {blockSub}
+              </p>
+            )}
+          </div>
+          {ctaPrimary && (
+            <a
+              href={ctaPrimary.href}
+              style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); text-decoration: none; white-space: nowrap; flex-shrink: 0;"
+            >
+              {ctaPrimary.label} <span aria-hidden="true">→</span>
+            </a>
+          )}
+        </div>
+      )}
+
+      <!-- ── Two-column grid ── -->
+      <div class="lp-posts-grid" style="display: grid; grid-template-columns: 55fr 45fr; gap: var(--gap_lg); align-items: start;">
+
+        <!-- ── Featured post (left, wider) ── -->
+        {featured && (
+          <article style="display: flex; flex-direction: column; border: 1px solid var(--color_border); border-radius: var(--radius_lg); overflow: hidden; background: var(--color_surface_alt);">
+            {featured.image_url && (
+              <a
+                href={`/latest/${featured.slug}`}
+                tabindex="-1"
+                aria-hidden="true"
+                style="display: block; overflow: hidden; aspect-ratio: 16 / 9; flex-shrink: 0;"
+              >
+                <img
+                  src={featured.image_url}
+                  alt={featured.image_alt ?? featured.title}
+                  loading="lazy"
+                  decoding="async"
+                  style="width: 100%; height: 100%; object-fit: cover; display: block;"
+                />
+              </a>
+            )}
+            <div style="padding: var(--gap_md); display: flex; flex-direction: column; gap: var(--gap_sm); flex: 1;">
+              <div style="display: flex; align-items: center; gap: var(--gap_sm); flex-wrap: wrap;">
+                {showCategory && featured.category && (
+                  <span class="lp-category-pill">
+                    {formatLabel(featured.category)}
+                  </span>
+                )}
+                {showAudience && featured.audience_primary && (
+                  <span style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.08em; text-transform: uppercase; background: var(--color_cta_primary); color: var(--color_surface_alt); padding: 2px 8px; border-radius: var(--radius_sm);">
+                    {formatLabel(featured.audience_primary)}
+                  </span>
+                )}
+                {showDate && featured.published_at && (
+                  <time datetime={featured.published_at} style="font-size: var(--text_xs); color: var(--color_text_secondary);">
+                    {formatDate(featured.published_at)}
+                  </time>
+                )}
+              </div>
+              <h3 style="font-family: var(--font_heading); font-size: var(--text_2xl); font-weight: var(--font_weight_bold); color: var(--color_text_heading); line-height: var(--leading_tight); margin: 0;">
+                <a href={`/latest/${featured.slug}`} style="color: inherit; text-decoration: none;">
+                  {featured.title}
+                </a>
+              </h3>
+              {featured.summary && (
+                <p style="font-size: var(--text_base); color: var(--color_text_secondary); line-height: var(--leading_relaxed); margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                  {featured.summary}
+                </p>
+              )}
+              <a
+                href={`/latest/${featured.slug}`}
+                style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); text-decoration: none; margin-top: auto;"
+              >
+                Read more →
+              </a>
+            </div>
+          </article>
+        )}
+
+        <!-- ── Secondary posts (right, stacked) ── -->
+        {secondary.length > 0 && (
+          <div style="display: flex; flex-direction: column;">
+            {secondary.map((post: any, i: number) => (
+              <article style={`display: flex; flex-direction: column; gap: var(--gap_sm); padding-block: var(--gap_md);${i > 0 ? ' border-top: 1px solid var(--color_border);' : ''}`}>
+                <div style="display: flex; align-items: center; gap: var(--gap_sm); flex-wrap: wrap;">
+                  {showCategory && post.category && (
+                    <span class="lp-category-pill">
+                      {formatLabel(post.category)}
+                    </span>
+                  )}
+                  {showAudience && post.audience_primary && (
+                    <span style="font-size: var(--text_xs); font-weight: var(--font_weight_semibold); letter-spacing: 0.08em; text-transform: uppercase; background: var(--color_cta_primary); color: var(--color_surface_alt); padding: 2px 8px; border-radius: var(--radius_sm);">
+                      {formatLabel(post.audience_primary)}
+                    </span>
+                  )}
+                  {showDate && post.published_at && (
+                    <time datetime={post.published_at} style="font-size: var(--text_xs); color: var(--color_text_secondary);">
+                      {formatDate(post.published_at)}
+                    </time>
+                  )}
+                </div>
+                <h3 style="font-family: var(--font_heading); font-size: var(--text_lg); font-weight: var(--font_weight_bold); color: var(--color_text_heading); line-height: var(--leading_tight); margin: 0;">
+                  <a href={`/latest/${post.slug}`} style="color: inherit; text-decoration: none;">
+                    {post.title}
+                  </a>
+                </h3>
+                <a
+                  href={`/latest/${post.slug}`}
+                  style="font-size: var(--text_sm); font-weight: var(--font_weight_semibold); color: var(--color_cta_primary); text-decoration: none;"
+                >
+                  Read →
+                </a>
+              </article>
+            ))}
+          </div>
+        )}
+
+      </div>
+    </div>
+  </section>
+)}
+
+<style>
+  .lp-category-pill {
+    font-size: var(--text_xs);
+    font-weight: var(--font_weight_semibold);
+    letter-spacing: var(--letter_spacing_eyebrow);
+    text-transform: uppercase;
+    background: var(--color_field_clay);
+    color: var(--color_field_clay_text);
+    padding: calc(var(--gap_sm) / 6) calc(var(--gap_sm) / 1.5);
+    border-radius: var(--radius_sm);
+  }
+
+  @media (max-width: 768px) {
+    .lp-posts-grid {
+      grid-template-columns: 1fr !important;
+      max-width: 100%;
+      overflow: hidden;
+    }
+  }
+</style>

@@ -1,0 +1,151 @@
+---
+interface NavItem {
+  label: string;
+  url: string;
+  open_in_new_tab?: boolean;
+}
+
+interface Props {
+  siteName: string;
+  homepageUrl: string;
+  navItems: NavItem[];
+  contactEmail?: string | null;
+}
+
+const { siteName, homepageUrl, navItems, contactEmail } = Astro.props;
+---
+
+<main class="not-found-page">
+  <div class="not-found-inner">
+    <p class="not-found-code">404</p>
+    <h1 class="not-found-heading">Page not found</h1>
+    <p class="not-found-message">The signal got lost. Let's get you back somewhere useful.</p>
+
+    <a href={homepageUrl} class="not-found-home-link">Back to {siteName}</a>
+
+    {navItems.length > 0 && (
+      <nav class="not-found-nav" aria-label="Helpful links">
+        <p class="not-found-nav-label">Or try one of these:</p>
+        <ul class="not-found-nav-list">
+          {navItems.map((item) => (
+            <li>
+              <a
+                href={item.url}
+                class="not-found-nav-link"
+                target={item.open_in_new_tab ? '_blank' : undefined}
+                rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+              >{item.label}</a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )}
+
+    {contactEmail && (
+      <p class="not-found-contact">
+        Need help? <a href={`mailto:${contactEmail}`} class="not-found-contact-link">{contactEmail}</a>
+      </p>
+    )}
+  </div>
+</main>
+
+<style>
+  .not-found-page {
+    min-height: 60vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 1.5rem;
+    text-align: center;
+  }
+
+  .not-found-inner {
+    max-width: 560px;
+    width: 100%;
+  }
+
+  .not-found-code {
+    font-size: 5rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--color-accent, currentColor);
+    margin: 0 0 0.5rem;
+    opacity: 0.25;
+  }
+
+  .not-found-heading {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    color: var(--color-text-primary, inherit);
+  }
+
+  .not-found-message {
+    font-size: 1.125rem;
+    margin: 0 0 2rem;
+    color: var(--color-text-secondary, inherit);
+    opacity: 0.8;
+  }
+
+  .not-found-home-link {
+    display: inline-block;
+    padding: 0.75rem 1.75rem;
+    background: var(--color-accent, #000);
+    color: var(--color-accent-contrast, #fff);
+    border-radius: var(--radius-md, 6px);
+    font-weight: 600;
+    text-decoration: none;
+    margin-bottom: 2.5rem;
+    transition: opacity 0.15s;
+  }
+
+  .not-found-home-link:hover {
+    opacity: 0.85;
+  }
+
+  .not-found-nav-label {
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.5;
+    margin: 0 0 0.75rem;
+    color: var(--color-text-primary, inherit);
+  }
+
+  .not-found-nav-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+
+  .not-found-nav-link {
+    display: inline-block;
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--color-border, currentColor);
+    border-radius: var(--radius-sm, 4px);
+    font-size: 0.9375rem;
+    text-decoration: none;
+    color: var(--color-text-primary, inherit);
+    transition: background 0.15s;
+  }
+
+  .not-found-nav-link:hover {
+    background: var(--color-surface-hover, rgba(0,0,0,0.05));
+  }
+
+  .not-found-contact {
+    font-size: 0.9375rem;
+    color: var(--color-text-secondary, inherit);
+    opacity: 0.7;
+    margin: 0;
+  }
+
+  .not-found-contact-link {
+    color: var(--color-accent, inherit);
+    text-decoration: underline;
+  }
+</style>
