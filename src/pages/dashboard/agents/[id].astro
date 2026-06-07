@@ -1,89 +1,180 @@
 ---
 export const prerender = false
 
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  import.meta.env.PUBLIC_SUPABASE_URL,
-  import.meta.env.PUBLIC_SUPABASE_ANON_KEY
-)
+// Server-side admin client — bypasses RLS for internal dashboard reads.
+// Safe because this file is SSR only (prerender = false).
+// Writes must go through server-side actions or Edge Functions, never directly
+// from browser code. See: src/lib/supabase-admin.ts
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
 
 const { id } = Astro.params
 
-const { data: agent } = await supabase
-  .from('v_agent_dashboard')
-  .select('*')
+// Individual agent page reads agents_registry directly (server-side, service role).
+// This is safe here because this is an SSR page and the service role never reaches
+// the browser. All fields including agent_key, workflow_id, requires_human_approval_for
+// are available — these are not in v_agent_dashboard (which is the dashboard overview view).
+//
+// FUTURE EDITING: When agent add/update forms are built, route writes through:
+//   POST /api/agents/update   → validates fields → calls supabaseAdmin.update()
+//   POST /api/agents/create   → validates fields → calls supabaseAdmin.insert()
+// Safe editable fields: name, purpose, status, phase, function_group, area, trigger,
+//   action, why, workflow_id, requires_human_approval_for, reads_from, writes_to,
+//   calls_external, notes, source_url, log_url
+// Protected fields (service role only, never browser): cronitor_key, forbidden_tables,
+//   allowed_read_tables, connected_to
+// Embed the linked workflow record directly using the FK on workflow_id.
+// This is more reliable than a separate query and avoids PostgREST schema-cache
+// race conditions that can cause the join to silently return null.
+const { data: agentRaw } = await supabase
+  .from('agents_registry')
+  .select('*, workflow_data:workflow_registry!workflow_id(id, name, purpose, status, version_label, area)')
   .eq('id', id)
   .maybeSingle()
 
-if (!agent) return Astro.redirect('/dashboard/agents')
+if (!agentRaw) return Astro.redirect('/dashboard/agents')
 
-const [decisionsResult, qaLogResult, runLogsResult, incidentsResult, workflowResult] = await Promise.all([
+const agent: any = agentRaw
+const workflow: any = agent.workflow_data ?? null
+
+// Run all queries in parallel. workflow_steps uses agent.workflow_id directly
+// so it no longer needs a second sequential round-trip after this block.
+const [
+  runLogsResult,
+  qaLogResult,
+  decisionsResult,
+  securityRecordResult,
+  openIncidentsResult,
+  securityChecksResult,
+  apiKeysResult,
+  automationsResult,
+  workflowStepsResult,
+] = await Promise.all([
+  // Run logs: agent_run_logs uses agent_key (not agent_id)
   supabase
-    .from('decisions')
-    .select('id, summary, decision_type, status, made_at, notes, affects_automations')
-    .or(`affects_automations.cs.{"${agent.function_name}"},affects_automations.cs.{"${agent.name}"}`)
-    .order('made_at', { ascending: false })
+    .from('agent_run_logs')
+    .select('*')
+    .eq('agent_key', agent.agent_key ?? '')
+    .order('run_started_at', { ascending: false })
     .limit(10),
+
   supabase
     .from('agent_qa_log')
     .select('*')
     .eq('agent_id', id)
     .order('tested_at', { ascending: false })
     .limit(5),
+
+  // Decisions linked to this agent by name or function_name
   supabase
-    .from('agent_run_logs')
-    .select('*')
-    .eq('agent_id', id)
-    .order('run_started_at', { ascending: false })
-    .limit(10),
+    .from('decisions')
+    .select('id, summary, decision_type, status, made_at, notes')
+    .or(`affects_automations.cs.{"${agent.function_name ?? ''}"},affects_automations.cs.{"${agent.name}"}`)
+    .order('made_at', { ascending: false })
+    .limit(5),
+
+  // workflow_security: select only safe summary fields.
+  // api_keys_referenced, api_keys_stored_in, security_notes are intentionally excluded —
+  // those fields are service-role-only for security audits.
+  supabase
+    .from('workflow_security')
+    .select('id, workflow_id, data_classification, who_can_trigger, who_can_modify, approved_by, approved_at, created_at, updated_at')
+    .eq('workflow_id', id)
+    .maybeSingle(),
+
+  // Open incidents (last 10; filter in JS by agent tables)
   supabase
     .from('incident_log')
-    .select('*')
+    .select('id, severity, type, description, status, detected_at, tables_affected, resolved_at')
     .order('detected_at', { ascending: false })
-    .limit(5),
+    .limit(10),
+
+  // Security checks for this agent
   supabase
-    .from('workflow_registry')
-    .select('id, name, purpose, status, area, version_label')
-    .eq('id', agent.workflow_id)
-    .maybeSingle(),
+    .from('security_checks')
+    .select('id, check_type, subject, status, detail, action_required, action_taken, resolved, check_date, due_date')
+    .eq('subject_id', id)
+    .order('check_date', { ascending: false })
+    .limit(5),
+
+  // API keys: use v_api_keys_safe — never query api_key_registry directly from
+  // dashboard pages. stored_in, exposed_to and notes are excluded from the safe view.
+  supabase
+    .from('v_api_keys_safe')
+    .select('key_name, service, environment, last_rotated_at, rotation_due_at, owner')
+    .limit(30),
+
+  // Automations linked by matching workflow_id
+  agent.workflow_id
+    ? supabase
+        .from('automations')
+        .select('id, name, trigger, status, last_run, last_status, function_name, lives_in')
+        .eq('workflow_id', agent.workflow_id)
+        .limit(3)
+    : Promise.resolve({ data: [] }),
+
+  // Workflow steps — moved here from a sequential await so it runs in parallel
+  agent.workflow_id
+    ? supabase
+        .from('workflow_steps')
+        .select('*')
+        .eq('workflow_id', agent.workflow_id)
+        .order('step_order')
+        .limit(20)
+    : Promise.resolve({ data: [] }),
 ])
 
-const decisions = decisionsResult.data ?? []
-const qaLog = qaLogResult.data ?? []
-const runLogs = runLogsResult.data ?? []
-const incidents = incidentsResult.data ?? []
-const workflow = workflowResult.data ?? null
+const runLogs      = runLogsResult.data ?? []
+const qaLog        = qaLogResult.data ?? []
+const decisions    = decisionsResult.data ?? []
+const secRecord    = securityRecordResult.data ?? null
+const allIncidents = openIncidentsResult.data ?? []
+const secChecks    = securityChecksResult.data ?? []
+const allApiKeys   = apiKeysResult.data ?? []
+const automations  = automationsResult.data ?? []
+const workflowSteps = workflowStepsResult.data ?? []
 
-const allTables = [...(agent.reads_from ?? []), ...(agent.writes_to ?? [])]
-const { data: dataGovRows } = allTables.length > 0
-  ? await supabase
-      .from('data_governance')
-      .select('table_name, classification_label, agent_access, rls_enabled, who_can_read, who_can_write')
-      .in('table_name', allTables)
-  : { data: [] }
-
-const dataGov = dataGovRows ?? []
-
-const { data: workflowStepsRaw } = workflow
-  ? await supabase
-      .from('workflow_steps')
-      .select('*')
-      .eq('workflow_id', workflow.id)
-      .order('step_order')
-  : { data: [] }
-
-const workflowSteps = workflowStepsRaw ?? []
-
+// Filter incidents that touch this agent's data tables
 const agentTables = new Set([...(agent.reads_from ?? []), ...(agent.writes_to ?? [])])
-const relevantIncidents = incidents.filter((inc: any) => {
+const relevantIncidents = allIncidents.filter((inc: any) => {
   const affected: string[] = inc.tables_affected ?? []
-  return affected.some((t: string) => agentTables.has(t))
+  return affected.some((t: string) => agentTables.has(t)) && !inc.resolved_at
 })
 
-function govFor(tableName: string) {
-  return dataGov.find((g: any) => g.table_name === tableName) ?? null
+// Filter API keys for services this agent calls
+const externalServices = new Set(
+  (agent.calls_external ?? []).map((s: string) => s.toLowerCase())
+)
+const relevantApiKeys = allApiKeys.filter((k: any) =>
+  externalServices.has((k.service ?? '').toLowerCase())
+)
+
+// Computed flags (replicate v_agent_dashboard logic)
+const live_without_qa       = agent.status === 'live' && agent.qa_status !== 'pass'
+const live_without_security = agent.status === 'live' && !agent.security_approved
+
+// Working status — evidence-based
+const latestLog = runLogs[0] ?? null
+function workingStatus(): string {
+  const lastSt = latestLog?.status ?? agent.last_status
+  if (lastSt === 'error' || lastSt === 'blocked') return 'Failing'
+  if (lastSt === 'success') return 'Confirmed'
+  if (!latestLog && agent.last_run && agent.last_status) return 'Confirmed'
+  if (!latestLog && !agent.last_run && (agent.calls_external?.length ?? 0) > 0) return 'Check source'
+  if (agent.status === 'live' || agent.status === 'active') return 'Unknown'
+  return '—'
 }
+const ws = workingStatus()
+
+const failedRunCount = runLogs.filter((l: any) => l.status === 'error' || l.status === 'blocked').length
+
+// Needs Michelle: aggregate
+const needsMichelleItems: string[] = []
+if (live_without_qa) needsMichelleItems.push('QA sign-off required')
+if (live_without_security) needsMichelleItems.push('Security approval required')
+if (agent.requires_human_approval_for?.length > 0) needsMichelleItems.push(`Human approval for: ${agent.requires_human_approval_for.join(', ')}`)
+if (relevantIncidents.length > 0) needsMichelleItems.push(`${relevantIncidents.length} open incident(s)`)
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
 
 function formatDate(ts: string | null): string {
   if (!ts) return '—'
@@ -101,15 +192,30 @@ function formatRelative(ts: string | null): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function statusDotColor(s: string | null): string {
-  if (s === 'live' || s === 'active') return '#7BBE9A'
-  if (s === 'not_tested') return '#FF8A33'
-  return '#C8C8C8'
+function formatDuration(start: string | null, end: string | null): string {
+  if (!start || !end) return '—'
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (ms < 1000) return `${ms}ms`
+  const s = Math.round(ms / 1000)
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
+function trunc(str: string | null, len: number): string {
+  if (!str) return '—'
+  return str.length > len ? str.slice(0, len) + '…' : str
 }
 
 function statusClass(s: string | null): string {
   if (!s) return 'status-draft'
   return `status-${s.replace(/[^a-z_]/g, '')}`
+}
+
+function workingBadgeCls(w: string): string {
+  if (w === 'Confirmed')    return 'badge-confirmed'
+  if (w === 'Check source') return 'badge-check'
+  if (w === 'Failing')      return 'badge-failing'
+  if (w === '—')            return ''
+  return 'badge-unknown'
 }
 
 function qaResultClass(r: string | null): string {
@@ -119,19 +225,26 @@ function qaResultClass(r: string | null): string {
 }
 
 function severityClass(s: string | null): string {
-  if (s === 'critical') return 'status-error'
-  if (s === 'high') return 'status-not_tested'
-  return 'status-draft'
+  if (s === 'critical' || s === 'high') return 'status-error'
+  return 'status-not_tested'
 }
 
-function formatDuration(start: string | null, end: string | null): string {
-  if (!start || !end) return '—'
-  const ms = new Date(end).getTime() - new Date(start).getTime()
-  if (ms < 1000) return `${ms}ms`
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s`
-  return `${Math.floor(s / 60)}m ${s % 60}s`
-}
+// Action button URLs — prefer explicit agent fields; fall back to derived URLs.
+// Set source_url, log_url, edit_url on the agent record via POST /api/agents/update
+// to override these defaults with agent-specific links.
+
+const editUrl = agent.edit_url
+  ?? 'https://supabase.com/dashboard/project/wkpqmwgtldrsgtgwdwpe/editor?table=agents_registry'
+
+const logUrl = agent.log_url
+  ?? (agent.function_name
+    ? `https://supabase.com/dashboard/project/wkpqmwgtldrsgtgwdwpe/functions/${agent.function_name}/logs`
+    : 'https://supabase.com/dashboard/project/wkpqmwgtldrsgtgwdwpe/logs')
+
+const sourceUrl = agent.source_url ?? null
+
+const hasLoops = (agent.calls_external ?? []).includes('Loops')
+const loopsUrl = 'https://app.loops.so'
 ---
 
 <html lang="en">
@@ -144,526 +257,355 @@ function formatDuration(start: string | null, end: string | null): string {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --color-bg: #F5F4F1;
-      --color-surface: #FFFFFF;
-      --color-text-primary: #2F2F2F;
-      --color-text-secondary: #505050;
-      --color-text-muted: #909090;
-      --color-border: rgba(47,47,47,0.08);
-      --color-teal: #3C8A7E;
-      --color-orange: #FF8A33;
-      --color-green: #7BBE9A;
-      --color-red: #C0392B;
-      --color-dark: #111111;
-      --font-heading: 'DM Sans', sans-serif;
-      --font-body: 'Inter', sans-serif;
-      --radius-card: 12px;
-      --shadow-sm: 0 1px 3px rgba(47,47,47,0.06);
+      --bg:             #F5F4F1;
+      --surface:        #FFFFFF;
+      --text-primary:   #2F2F2F;
+      --text-secondary: #505050;
+      --text-muted:     #909090;
+      --border:         rgba(47,47,47,0.08);
+      --teal:           #3C8A7E;
+      --orange:         #FF8A33;
+      --green:          #7BBE9A;
+      --red:            #C0392B;
+      --dark:           #111111;
+      --heading:        'DM Sans', sans-serif;
+      --body:           'Inter', sans-serif;
     }
 
-    body {
-      background: var(--color-bg);
-      color: var(--color-text-primary);
-      font-family: var(--font-body);
-    }
+    body { background: var(--bg); color: var(--text-primary); font-family: var(--body); }
 
-    .os-shell {
-      display: grid;
-      grid-template-columns: 220px 1fr;
-      min-height: 100vh;
-    }
+    .os-shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
 
-    /* ── SIDEBAR ─────────────────────────────── */
+    /* ── SIDEBAR ───────────────────────────────────────────────────── */
     .sidebar {
-      background: var(--color-surface);
-      border-right: 1px solid var(--color-border);
-      display: flex;
-      flex-direction: column;
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      overflow-y: auto;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
     }
-
     .sidebar-logo {
       padding: 20px 16px 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-family: var(--font-heading);
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      color: var(--color-text-primary);
-      border-bottom: 1px solid var(--color-border);
+      display: flex; align-items: center; gap: 8px;
+      font-family: var(--heading); font-size: 13px; font-weight: 700;
+      letter-spacing: 0.08em; color: var(--text-primary);
+      border-bottom: 1px solid var(--border);
     }
-
     .nav-section-label {
-      font-family: var(--font-body);
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--color-text-muted);
-      text-transform: uppercase;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+      color: var(--text-muted); text-transform: uppercase;
       padding: 20px 16px 4px;
     }
-
     .nav-item {
-      display: block;
-      font-family: var(--font-body);
-      font-size: 13px;
-      font-weight: 400;
-      color: var(--color-text-secondary);
-      padding: 6px 16px;
-      border-radius: 6px;
-      margin: 1px 8px;
-      text-decoration: none;
-      cursor: default;
+      display: block; font-size: 13px; color: var(--text-secondary);
+      padding: 6px 16px; border-radius: 6px; margin: 1px 8px; text-decoration: none;
     }
-
-    .nav-item.active {
-      background: rgba(60,138,126,0.10);
-      color: var(--color-teal);
-      font-weight: 500;
-    }
-
+    .nav-item.active { background: rgba(60,138,126,0.10); color: var(--teal); font-weight: 500; }
     .sidebar-footer {
-      margin-top: auto;
-      padding: 14px 16px;
-      border-top: 1px solid var(--color-border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      margin-top: auto; padding: 14px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
     }
-
     .avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: var(--color-teal);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 600;
-      flex-shrink: 0;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--teal); color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; flex-shrink: 0;
     }
+    .footer-name { font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
+    .footer-role { font-size: 11px; color: var(--text-muted); }
 
-    .footer-name {
-      font-family: var(--font-body);
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--color-text-primary);
-      line-height: 1.2;
-    }
+    /* ── MAIN ──────────────────────────────────────────────────────── */
+    .content { padding: 28px 32px; overflow-x: hidden; max-width: 960px; }
 
-    .footer-role {
-      font-family: var(--font-body);
-      font-size: 11px;
-      color: var(--color-text-muted);
-    }
-
-    /* ── MAIN CONTENT ────────────────────────── */
-    .content {
-      padding: 28px 32px;
-      overflow-x: hidden;
-    }
-
-    /* ── BACK LINK ───────────────────────────── */
     .back-link {
-      display: inline-block;
-      font-family: var(--font-body);
-      font-size: 13px;
-      color: var(--color-text-muted);
-      text-decoration: none;
-      margin-bottom: 16px;
+      display: inline-block; font-size: 13px;
+      color: var(--text-muted); text-decoration: none; margin-bottom: 16px;
     }
+    .back-link:hover { color: var(--text-secondary); }
 
-    .back-link:hover { color: var(--color-text-secondary); }
-
-    /* ── PAGE HEADER ─────────────────────────── */
+    /* ── PAGE HEADER ───────────────────────────────────────────────── */
     .page-header {
-      display: flex;
-      align-items: flex-start;
+      display: flex; align-items: flex-start;
       justify-content: space-between;
-      margin-bottom: 24px;
-      gap: 16px;
+      margin-bottom: 24px; gap: 16px;
     }
-
     .header-left { flex: 1; min-width: 0; }
-
-    .agent-name-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 6px;
+    .header-name-row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;
     }
-
-    .status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .page-header h1 {
-      font-family: var(--font-heading);
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--color-text-primary);
-      line-height: 1.1;
+      font-family: var(--heading); font-size: 26px; font-weight: 700;
+      color: var(--text-primary); line-height: 1.1;
     }
-
     .agent-purpose {
-      font-family: var(--font-body);
-      font-size: 14px;
-      color: var(--color-text-secondary);
-      margin-top: 2px;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
+      font-size: 13px; color: var(--text-secondary); margin-top: 2px;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
     }
-
     .header-badges {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding-top: 6px;
-      flex-shrink: 0;
+      display: flex; align-items: center; gap: 6px;
+      padding-top: 6px; flex-shrink: 0; flex-wrap: wrap;
+    }
+    .header-actions {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 10px; flex-wrap: wrap;
     }
 
-    /* ── STATUS BADGES ───────────────────────── */
-    .status-badge {
+    /* ── BUTTONS ───────────────────────────────────────────────────── */
+    .btn {
       display: inline-block;
-      border-radius: 20px;
-      padding: 2px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
       font-size: 12px;
       font-weight: 500;
-      font-family: var(--font-body);
-    }
-
-    .status-live, .status-active   { background: rgba(123,190,154,0.15); color: #2D5A35; }
-    .status-draft                  { background: rgba(47,47,47,0.08);    color: var(--color-text-secondary); }
-    .status-not_tested             { background: rgba(255,138,51,0.12);  color: #E07020; }
-    .status-pass                   { background: rgba(45,90,53,0.12);    color: #2D5A35; }
-    .status-fail, .status-error,
-    .status-blocked                { background: rgba(192,57,43,0.12);   color: var(--color-red); }
-    .status-pending                { background: rgba(255,138,51,0.12);  color: #E07020; }
-    .status-success                { background: rgba(123,190,154,0.15); color: #2D5A35; }
-
-    /* ── PANELS ──────────────────────────────── */
-    .panel {
-      background: var(--color-surface);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-card);
-      padding: 24px;
-      margin-bottom: 16px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .panel-header {
-      font-family: var(--font-heading);
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--color-text-primary);
-      border-bottom: 1px solid var(--color-border);
-      padding-bottom: 12px;
-      margin-bottom: 16px;
-    }
-
-    /* ── AGENT OVERVIEW ──────────────────────── */
-    .overview-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-    }
-
-    .meta-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--color-border);
-    }
-
-    .meta-row:last-child { border-bottom: none; }
-
-    .meta-key {
-      font-family: var(--font-body);
-      font-size: 12px;
-      color: var(--color-text-muted);
-      width: 100px;
-      flex-shrink: 0;
-    }
-
-    .meta-val {
-      font-family: var(--font-body);
-      font-size: 12px;
-      color: var(--color-text-secondary);
-    }
-
-    .mono {
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      background: rgba(47,47,47,0.04);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-
-    .right-col-field {
-      margin-bottom: 16px;
-    }
-
-    .right-col-label {
-      font-family: var(--font-body);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--color-text-muted);
-      margin-bottom: 4px;
-    }
-
-    .right-col-value {
-      font-family: var(--font-body);
-      font-size: 14px;
-      color: var(--color-text-secondary);
-      line-height: 1.5;
-    }
-
-    .right-col-value.risk {
-      color: #E07020;
-    }
-
-    /* ── DATA ACCESS ─────────────────────────── */
-    .data-access-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      margin-bottom: 16px;
-    }
-
-    .data-section-label {
-      font-family: var(--font-body);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--color-text-muted);
-      margin-bottom: 8px;
-    }
-
-    .table-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      padding: 6px 0;
-      border-bottom: 1px solid var(--color-border);
-    }
-
-    .table-row:last-child { border-bottom: none; }
-
-    .no-gov {
-      font-family: var(--font-body);
-      font-size: 12px;
-      color: #E07020;
-    }
-
-    .external-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .external-badge {
-      font-family: var(--font-body);
-      font-size: 12px;
-      background: rgba(47,47,47,0.06);
-      color: var(--color-text-secondary);
-      border-radius: 20px;
-      padding: 2px 10px;
-    }
-
-    /* ── WORKFLOW ────────────────────────────── */
-    .workflow-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-    }
-
-    .workflow-name {
-      font-family: var(--font-heading);
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--color-text-primary);
-    }
-
-    .workflow-purpose {
-      font-family: var(--font-body);
-      font-size: 13px;
-      color: var(--color-text-muted);
-      margin-bottom: 16px;
-    }
-
-    .step-item {
-      display: flex;
-      gap: 12px;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--color-border);
-    }
-
-    .step-item:last-child { border-bottom: none; }
-
-    .step-num {
-      font-family: var(--font-heading);
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--color-text-muted);
-      width: 20px;
-      flex-shrink: 0;
-      padding-top: 1px;
-    }
-
-    .step-body { flex: 1; }
-
-    .step-name {
-      font-family: var(--font-body);
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--color-text-primary);
-      margin-bottom: 2px;
-    }
-
-    .step-desc {
-      font-family: var(--font-body);
-      font-size: 13px;
-      color: var(--color-text-secondary);
-      margin-bottom: 6px;
-    }
-
-    .step-meta {
-      font-family: var(--font-body);
-      font-size: 12px;
-      color: var(--color-text-muted);
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .handoff-badge {
-      display: inline-block;
-      font-family: var(--font-body);
-      font-size: 11px;
-      font-weight: 500;
-      background: rgba(60,138,126,0.10);
-      color: var(--color-teal);
-      border-radius: 20px;
-      padding: 1px 8px;
-      margin-top: 4px;
-    }
-
-    .empty-italic {
-      font-family: var(--font-body);
-      font-size: 13px;
-      color: var(--color-text-muted);
-      font-style: italic;
-    }
-
-    /* ── TABLES ──────────────────────────────── */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-family: var(--font-body);
-      font-size: 13px;
-    }
-
-    thead th {
-      text-align: left;
-      padding: 8px 12px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--color-text-muted);
-      border-bottom: 1px solid var(--color-border);
+      color: var(--text-secondary);
+      background: var(--surface);
+      text-decoration: none;
+      cursor: pointer;
       white-space: nowrap;
     }
+    .btn:hover { background: rgba(47,47,47,0.04); }
+    .btn-dark {
+      background: var(--dark); color: white; border-color: var(--dark);
+    }
+    .btn-dark:hover { background: #333; }
+    .btn-disabled { opacity: 0.4; cursor: not-allowed; }
 
-    tbody td {
-      padding: 10px 12px;
-      color: var(--color-text-secondary);
-      border-bottom: 1px solid var(--color-border);
-      vertical-align: middle;
+    /* ── STATUS / WORKING BADGES ───────────────────────────────────── */
+    .badge {
+      display: inline-block; border-radius: 20px;
+      padding: 2px 9px; font-size: 11px; font-weight: 500;
+    }
+    .status-live, .status-active    { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .status-draft, .status-to_build { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+    .status-not_tested               { background: rgba(255,138,51,0.12);  color: #E07020; }
+    .status-pass                     { background: rgba(45,90,53,0.12);    color: #2D5A35; }
+    .status-fail, .status-error,
+    .status-blocked                  { background: rgba(192,57,43,0.12);   color: var(--red); }
+    .status-pending                  { background: rgba(255,138,51,0.12);  color: #E07020; }
+    .status-success                  { background: rgba(123,190,154,0.15); color: #2D5A35; }
+
+    .badge-confirmed { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .badge-check     { background: rgba(157,220,227,0.18); color: #1F7A82; }
+    .badge-unknown   { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+    .badge-failing   { background: rgba(192,57,43,0.12);   color: var(--red); }
+
+    /* ── PANELS ────────────────────────────────────────────────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(47,47,47,0.06);
+    }
+    .panel-title {
+      font-family: var(--heading); font-size: 14px; font-weight: 600;
+      color: var(--text-primary);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px; margin-bottom: 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .panel-title a { font-size: 12px; color: var(--teal); text-decoration: none; font-weight: 400; }
+
+    /* ── META ROWS ─────────────────────────────────────────────────── */
+    .meta-row {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 7px 0; border-bottom: 1px solid var(--border);
+    }
+    .meta-row:last-child { border-bottom: none; }
+    .meta-key {
+      font-size: 12px; color: var(--text-muted);
+      width: 120px; flex-shrink: 0; padding-top: 1px;
+    }
+    .meta-val { font-size: 13px; color: var(--text-secondary); flex: 1; line-height: 1.4; }
+
+    /* ── STATUS GRID ───────────────────────────────────────────────── */
+    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+    .status-cell {
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .status-cell:nth-last-child(-n+2) { border-bottom: none; }
+    .status-cell-label { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+    .status-cell-val { font-size: 13px; color: var(--text-secondary); }
+
+    /* ── STEP LIST ─────────────────────────────────────────────────── */
+    .step-item {
+      display: flex; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .step-item:last-child { border-bottom: none; }
+    .step-num {
+      font-family: var(--heading); font-size: 12px; font-weight: 700;
+      color: var(--text-muted); width: 18px; flex-shrink: 0; padding-top: 1px;
+    }
+    .step-body { flex: 1; }
+    .step-name { font-size: 13px; font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
+    .step-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+    .step-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+    .handoff-badge {
+      display: inline-block; font-size: 11px; font-weight: 500;
+      background: rgba(60,138,126,0.10); color: var(--teal);
+      border-radius: 20px; padding: 1px 8px; margin-top: 3px;
     }
 
+    /* ── TABLES ────────────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      text-align: left; padding: 8px 12px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--text-muted);
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    tbody td {
+      padding: 9px 12px; color: var(--text-secondary);
+      border-bottom: 1px solid var(--border); vertical-align: middle;
+    }
     tbody tr:last-child td { border-bottom: none; }
 
+    /* ── MISC ──────────────────────────────────────────────────────── */
+    .mono {
+      font-family: 'Courier New', monospace; font-size: 12px;
+      background: rgba(47,47,47,0.05); padding: 2px 6px; border-radius: 4px;
+    }
+    .empty-italic { font-size: 13px; color: var(--text-muted); font-style: italic; }
+    .chip {
+      display: inline-block; font-size: 12px;
+      background: rgba(47,47,47,0.06); color: var(--text-secondary);
+      border-radius: 20px; padding: 2px 10px; margin: 2px;
+    }
     .tick { color: #2D5A35; }
-    .cross { color: var(--color-red); }
-
-    .qa-summary-row {
-      display: flex;
-      gap: 24px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
+    .cross { color: var(--red); }
+    .needs-me-item {
+      padding: 7px 0; border-bottom: 1px solid var(--border);
+      font-size: 13px; color: var(--text-secondary);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .needs-me-item:last-child { border-bottom: none; }
+    .link-teal { color: var(--teal); text-decoration: none; font-size: 12px; }
+    .link-teal:hover { text-decoration: underline; }
+    .section-label {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;
     }
 
-    .qa-summary-item { }
+    /* ── CONTINUE BUILDING SLIDE-OVER ──────────────────────────────── */
+    .builder-overlay {
+      position: fixed;
+      top: 0; right: -560px; bottom: 0;
+      width: 560px;
+      background: var(--bg);
+      border-left: 1px solid var(--border);
+      box-shadow: -6px 0 24px rgba(47,47,47,0.08);
+      transition: right 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 200;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .builder-overlay.open { right: 0; }
 
-    .qa-summary-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--color-text-muted);
-      margin-bottom: 4px;
+    .builder-header {
+      padding: 16px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex; align-items: flex-start; gap: 10px;
+      flex-shrink: 0;
+    }
+    .builder-header h2 {
+      font-family: var(--heading); font-size: 15px; font-weight: 700;
+      color: var(--text-primary);
+    }
+    .builder-header p { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .btn-close-builder {
+      background: none; border: none; font-size: 16px;
+      color: var(--text-muted); cursor: pointer; padding: 2px 4px;
+      line-height: 1; flex-shrink: 0; margin-left: auto;
+    }
+    .btn-close-builder:hover { color: var(--text-primary); }
+
+    .builder-messages {
+      flex: 1; overflow-y: auto; padding: 18px 20px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .bld-msg {
+      max-width: 88%; font-size: 13px; line-height: 1.55;
+      border-radius: 10px; padding: 10px 14px;
+    }
+    .bld-msg-assistant {
+      background: var(--surface); color: var(--text-primary);
+      border: 1px solid var(--border); align-self: flex-start;
+      border-bottom-left-radius: 3px;
+    }
+    .bld-msg-user {
+      background: var(--dark); color: #fff;
+      align-self: flex-end; border-bottom-right-radius: 3px;
+    }
+    .bld-msg-system {
+      background: rgba(60,138,126,0.08); color: var(--teal);
+      border: 1px solid rgba(60,138,126,0.15);
+      align-self: center; font-size: 12px; border-radius: 6px;
     }
 
-    .qa-summary-val {
-      font-size: 13px;
-      color: var(--color-text-secondary);
+    .builder-footer {
+      padding: 12px 20px; border-top: 1px solid var(--border);
+      background: var(--surface); flex-shrink: 0;
     }
+    .builder-input-row { display: flex; gap: 8px; align-items: flex-end; }
+    .builder-input {
+      flex: 1; border: 1px solid var(--border); border-radius: 8px;
+      padding: 9px 12px; font-size: 13px; font-family: var(--body);
+      color: var(--text-primary); background: var(--bg);
+      resize: none; min-height: 38px; max-height: 100px; line-height: 1.4;
+    }
+    .builder-input:focus { outline: none; border-color: var(--teal); }
+    .builder-input:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-bld-send {
+      background: var(--dark); color: white; border: none;
+      border-radius: 8px; padding: 9px 16px;
+      font-family: var(--heading); font-size: 13px; font-weight: 600;
+      cursor: pointer; height: 38px; flex-shrink: 0;
+    }
+    .btn-bld-send:hover { background: #2a2a2a; }
+    .btn-bld-send:disabled { opacity: 0.4; cursor: not-allowed; }
+    .save-status {
+      margin-top: 8px; font-size: 12px; padding: 7px 11px; border-radius: 6px;
+    }
+    .save-status-pending { background: rgba(47,47,47,0.06); color: var(--text-muted); }
+    .save-status-success { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .save-status-error   { background: rgba(192,57,43,0.10); color: var(--red); }
   </style>
 </head>
 <body>
 <div class="os-shell">
 
-  <!-- ── SIDEBAR ────────────────────────────── -->
+  <!-- ── SIDEBAR ───────────────────────────────────────────────────── -->
   <nav class="sidebar">
     <div class="sidebar-logo">
       <span>✦</span>
       <span>THE SIGNAL OS</span>
     </div>
-
     <div style="padding: 8px 0;">
       <span class="nav-item">🏠 Snapshot</span>
-
       <div class="nav-section-label">Relationships</div>
-      <span class="nav-item">CRM</span>
+      <a href="/dashboard/crm" class="nav-item">CRM</a>
       <span class="nav-item">Growth</span>
       <span class="nav-item">Clients</span>
-
       <div class="nav-section-label">Delivery</div>
       <span class="nav-item">Projects</span>
       <span class="nav-item">Pathways</span>
       <span class="nav-item">Events</span>
-
       <div class="nav-section-label">Content</div>
       <span class="nav-item">Content</span>
       <span class="nav-item">Campaigns</span>
       <span class="nav-item">EDMs</span>
-
       <div class="nav-section-label">Operations</div>
       <span class="nav-item">Finance</span>
       <a href="/dashboard/governance" class="nav-item">Governance</a>
       <span class="nav-item">Automations</span>
-      <span class="nav-item active">Agents</span>
+      <a href="/dashboard/agents" class="nav-item active">Agents</a>
     </div>
-
     <div class="sidebar-footer">
       <div class="avatar">M</div>
       <div>
@@ -673,194 +615,145 @@ function formatDuration(start: string | null, end: string | null): string {
     </div>
   </nav>
 
-  <!-- ── MAIN ──────────────────────────────── -->
+  <!-- ── MAIN ──────────────────────────────────────────────────────── -->
   <main class="content">
 
     <a href="/dashboard/agents" class="back-link">← Back to Agents</a>
 
-    <!-- Page header -->
+    <!-- ── HEADER ────────────────────────────────────────────────────── -->
     <header class="page-header">
       <div class="header-left">
-        <div class="agent-name-row">
-          <div class="status-dot" style={`background: ${statusDotColor(agent.status)};`}></div>
+        <div class="header-name-row">
+          <div
+            class="status-dot"
+            style={`background: ${
+              agent.status === 'live' || agent.status === 'active' ? '#7BBE9A'
+              : agent.status === 'draft' ? '#C8C8C8' : '#C8C8C8'
+            };`}
+          ></div>
           <h1>{agent.name}</h1>
         </div>
         {(agent.why || agent.purpose) && (
           <p class="agent-purpose">{agent.why ?? agent.purpose}</p>
         )}
-      </div>
-      <div class="header-badges">
-        <span class={`status-badge ${statusClass(agent.status)}`}>{agent.status ?? '—'}</span>
-        <span class={`status-badge ${statusClass(agent.qa_status)}`}>{agent.qa_status ?? 'not_tested'}</span>
-        {agent.security_approved
-          ? <span class="status-badge status-pass">✓ Approved</span>
-          : <span class="status-badge status-error">✕ Not approved</span>
-        }
+
+        <!-- Badges row -->
+        <div class="header-badges">
+          <span class={`badge ${statusClass(agent.status)}`}>{agent.status ?? '—'}</span>
+          {ws !== '—' && (
+            <span class={`badge ${workingBadgeCls(ws)}`}>{ws}</span>
+          )}
+          {agent.can_it_break && (
+            <span class="badge" style="background: rgba(255,138,51,0.12); color: #E07020;">
+              Risk: {trunc(agent.can_it_break, 24)}
+            </span>
+          )}
+          <span class={`badge ${agent.qa_status ? statusClass(agent.qa_status) : 'status-not_tested'}`}>
+            QA: {agent.qa_status ?? 'not tested'}
+          </span>
+        </div>
+
+        <!-- Action buttons -->
+        <!--
+          FUTURE EDITING — when an edit form is added, it should:
+          1. Render a form with only the safe editable fields (see ALLOWED_FIELDS in /api/agents/update.ts)
+          2. Submit via fetch() to POST /api/agents/update with { id, ...fields }
+          3. Refresh the page or update the relevant panel on success
+          Fields like cronitor_key, security_approved, agent_key must NOT appear in edit forms.
+          Sensitive/security changes (workflow_security, api_key_registry) need separate routes.
+        -->
+        <div class="header-actions">
+          <button id="btn-continue-building" class="btn btn-dark">Continue building</button>
+          {workflow && (
+            <a href="#workflow" class="btn">Open workflow</a>
+          )}
+          {sourceUrl && (
+            <a href={sourceUrl} target="_blank" class="btn">Open source ↗</a>
+          )}
+          <a href={editUrl} target="_blank" class="btn">Open Supabase row ↗</a>
+          <a href={logUrl}  target="_blank" class="btn">Open logs ↗</a>
+          {hasLoops && (
+            <a href={loopsUrl} target="_blank" class="btn">Open Loops ↗</a>
+          )}
+        </div>
       </div>
     </header>
 
-    <!-- 1. Agent Overview -->
+    <!-- ── 1. STATUS + HEALTH ─────────────────────────────────────── -->
     <div class="panel">
-      <div class="panel-header">Agent Overview</div>
-      <div class="overview-grid">
-        <div>
-          <div class="meta-row">
-            <span class="meta-key">Type</span>
-            <span class="meta-val">{agent.type ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Lives in</span>
-            <span class="meta-val">{agent.lives_in ? <span class="mono">{agent.lives_in}</span> : '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Function</span>
-            <span class="meta-val">{agent.function_name ? <span class="mono">{agent.function_name}</span> : '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Area</span>
-            <span class="meta-val">{agent.area ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Phase</span>
-            <span class="meta-val">{agent.phase ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Monitored by</span>
-            <span class="meta-val">{agent.monitored_by ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Last run</span>
-            <span class="meta-val">{formatRelative(agent.last_run)}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Last result</span>
-            <span class="meta-val">
-              {agent.last_status
-                ? <span class={`status-badge ${statusClass(agent.last_status)}`}>{agent.last_status}</span>
-                : '—'}
-            </span>
+      <div class="panel-title">Status + Health</div>
+      <div class="status-grid">
+        <div class="status-cell">
+          <div class="status-cell-label">Status</div>
+          <div class="status-cell-val">
+            <span class={`badge ${statusClass(agent.status)}`}>{agent.status ?? '—'}</span>
           </div>
         </div>
-
-        <div>
-          <div class="right-col-field">
-            <div class="right-col-label">Trigger</div>
-            <div class="right-col-value">{agent.trigger ?? '—'}</div>
+        <div class="status-cell">
+          <div class="status-cell-label">Working</div>
+          <div class="status-cell-val">
+            {ws !== '—'
+              ? <span class={`badge ${workingBadgeCls(ws)}`}>{ws}</span>
+              : <span style="color: var(--text-muted);">—</span>
+            }
           </div>
-          <div class="right-col-field">
-            <div class="right-col-label">Action</div>
-            <div class="right-col-value">{agent.action ?? '—'}</div>
+        </div>
+        <div class="status-cell">
+          <div class="status-cell-label">Last activity</div>
+          <div class="status-cell-val">{formatRelative(agent.last_run)}</div>
+        </div>
+        <div class="status-cell">
+          <div class="status-cell-label">Last result</div>
+          <div class="status-cell-val">
+            {agent.last_status
+              ? <span class={`badge ${statusClass(agent.last_status)}`}>{agent.last_status}</span>
+              : <span style="color: var(--text-muted);">—</span>
+            }
           </div>
-          <div class="right-col-field">
-            <div class="right-col-label">Risk</div>
-            <div class={`right-col-value${agent.can_it_break ? ' risk' : ''}`}>
-              {agent.can_it_break ?? '—'}
-            </div>
+        </div>
+        <div class="status-cell">
+          <div class="status-cell-label">Failed runs</div>
+          <div class="status-cell-val">
+            {failedRunCount > 0
+              ? <span style="color: var(--red); font-weight: 600;">{failedRunCount}</span>
+              : runLogs.length > 0 ? '0' : '—'
+            }
           </div>
-          <div class="right-col-field">
-            <div class="right-col-label">How to test</div>
-            <div class="right-col-value">{agent.how_to_test ?? '—'}</div>
+        </div>
+        <div class="status-cell">
+          <div class="status-cell-label">Needs Michelle</div>
+          <div class="status-cell-val">
+            {needsMichelleItems.length === 0
+              ? <span style="color: var(--text-muted);">—</span>
+              : needsMichelleItems.map((m: string) => (
+                  <div class="needs-me-item">
+                    <span style="color: var(--orange);">●</span>
+                    {m}
+                  </div>
+                ))
+            }
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 2. Data Access -->
-    <div class="panel">
-      <div class="panel-header">Data Access</div>
-      <div class="data-access-grid">
-        <div>
-          <div class="data-section-label">Reads from</div>
-          {(agent.reads_from ?? []).length === 0
-            ? <p class="empty-italic">None</p>
-            : (agent.reads_from as string[]).map((table: string) => {
-                const gov = govFor(table)
-                return (
-                  <div class="table-row">
-                    <span class="mono">{table}</span>
-                    {gov ? (
-                      <>
-                        {gov.classification_label && (
-                          <span class="status-badge status-draft">{gov.classification_label}</span>
-                        )}
-                        {gov.agent_access && (
-                          <span style="font-size: 12px; color: var(--color-text-muted);">{gov.agent_access}</span>
-                        )}
-                        <span title="RLS enabled">
-                          {gov.rls_enabled
-                            ? <span class="tick">✓ RLS</span>
-                            : <span class="cross">✕ RLS</span>}
-                        </span>
-                      </>
-                    ) : (
-                      <span class="no-gov">⚠ No governance record</span>
-                    )}
-                  </div>
-                )
-              })
-          }
-        </div>
+    <!-- ── 2. AGENT LOGIC ─────────────────────────────────────────── -->
+    <div class="panel" id="workflow">
+      <div class="panel-title">Agent Logic</div>
 
-        <div>
-          <div class="data-section-label">Writes to</div>
-          {(agent.writes_to ?? []).length === 0
-            ? <p class="empty-italic">None</p>
-            : (agent.writes_to as string[]).map((table: string) => {
-                const gov = govFor(table)
-                return (
-                  <div class="table-row">
-                    <span class="mono">{table}</span>
-                    {gov ? (
-                      <>
-                        {gov.classification_label && (
-                          <span class="status-badge status-draft">{gov.classification_label}</span>
-                        )}
-                        {gov.agent_access && (
-                          <span style="font-size: 12px; color: var(--color-text-muted);">{gov.agent_access}</span>
-                        )}
-                        <span title="RLS enabled">
-                          {gov.rls_enabled
-                            ? <span class="tick">✓ RLS</span>
-                            : <span class="cross">✕ RLS</span>}
-                        </span>
-                      </>
-                    ) : (
-                      <span class="no-gov">⚠ No governance record</span>
-                    )}
-                  </div>
-                )
-              })
-          }
-        </div>
-      </div>
-
-      {(agent.calls_external ?? []).length > 0 && (
-        <div>
-          <div class="data-section-label">External systems</div>
-          <div class="external-badges">
-            {(agent.calls_external as string[]).map((ext: string) => (
-              <span class="external-badge">{ext}</span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-
-    <!-- 3. Workflow -->
-    <div class="panel">
-      <div class="panel-header">Workflow</div>
       {workflow ? (
         <>
-          <div class="workflow-header">
-            <span class="workflow-name">{workflow.name}</span>
-            <span class={`status-badge ${statusClass(workflow.status)}`}>{workflow.status}</span>
-            {workflow.version_label && (
-              <span style="font-size: 12px; color: var(--color-text-muted);">{workflow.version_label}</span>
-            )}
+          <div style="margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <span style="font-family: var(--heading); font-size: 14px; font-weight: 600;">{workflow.name}</span>
+              <span class={`badge ${statusClass(workflow.status)}`}>{workflow.status}</span>
+              {workflow.version_label && (
+                <span style="font-size: 12px; color: var(--text-muted);">{workflow.version_label}</span>
+              )}
+            </div>
+            {workflow.purpose && <p style="font-size: 13px; color: var(--text-muted);">{workflow.purpose}</p>}
           </div>
-          {workflow.purpose && (
-            <div class="workflow-purpose">{workflow.purpose}</div>
-          )}
+
           {workflowSteps.length > 0 ? (
             workflowSteps.map((step: any, i: number) => (
               <div class="step-item">
@@ -869,113 +762,146 @@ function formatDuration(start: string | null, end: string | null): string {
                   <div class="step-name">{step.name}</div>
                   {step.description && <div class="step-desc">{step.description}</div>}
                   <div class="step-meta">
-                    {step.performed_by && <span>Performed by: {step.performed_by}</span>}
+                    {step.performed_by && <span>By: {step.performed_by}</span>}
                     {step.tool && <span>Tool: {step.tool}</span>}
                   </div>
-                  {step.is_agent_handoff && (
-                    <span class="handoff-badge">Agent handoff</span>
-                  )}
+                  {step.is_agent_handoff && <span class="handoff-badge">Agent handoff</span>}
                 </div>
               </div>
             ))
           ) : (
-            <p class="empty-italic" style="margin-top: 12px;">No steps recorded for this workflow</p>
+            <p class="empty-italic">No steps recorded for this workflow.</p>
           )}
         </>
       ) : (
-        <p class="empty-italic">No workflow record linked to this agent yet</p>
-      )}
-    </div>
-
-    <!-- 4. Governance & Decisions -->
-    <div class="panel">
-      <div class="panel-header">Decisions</div>
-      {decisions.length === 0 ? (
-        <p class="empty-italic">No decisions recorded for this agent</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Summary</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {decisions.map((d: any) => (
-              <tr>
-                <td>{d.summary ?? '—'}</td>
-                <td>{d.decision_type ?? '—'}</td>
-                <td>
-                  {d.status ? (
-                    <span class={`status-badge ${statusClass(d.status)}`}>{d.status}</span>
-                  ) : '—'}
-                </td>
-                <td style="white-space: nowrap; color: var(--color-text-muted);">{formatDate(d.made_at)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-
-    <!-- 5. QA Record -->
-    <div class="panel">
-      <div class="panel-header">QA Record</div>
-      {qaLog.length > 0 ? (
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Tested by</th>
-              <th>Result</th>
-              <th>Signed off by</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {qaLog.map((qa: any) => (
-              <tr>
-                <td style="white-space: nowrap; color: var(--color-text-muted);">{formatDate(qa.tested_at)}</td>
-                <td>{qa.tested_by ?? '—'}</td>
-                <td>
-                  <span class={`status-badge ${qaResultClass(qa.result)}`}>{qa.result ?? '—'}</span>
-                </td>
-                <td>{qa.signed_off_by ?? '—'}</td>
-                <td style="color: var(--color-text-muted);">{qa.notes ?? '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
         <>
-          <div class="qa-summary-row">
-            <div class="qa-summary-item">
-              <div class="qa-summary-label">QA status</div>
-              <div class="qa-summary-val">
-                <span class={`status-badge ${statusClass(agent.qa_status)}`}>{agent.qa_status ?? 'not_tested'}</span>
-              </div>
-            </div>
-            <div class="qa-summary-item">
-              <div class="qa-summary-label">Last tested</div>
-              <div class="qa-summary-val">{agent.qa_last_tested ? formatDate(agent.qa_last_tested) : 'Never'}</div>
-            </div>
-            <div class="qa-summary-item">
-              <div class="qa-summary-label">Signed off by</div>
-              <div class="qa-summary-val">{agent.qa_signed_off_by ?? '—'}</div>
-            </div>
-          </div>
-          <p class="empty-italic">No QA test records logged yet</p>
+          {(agent.trigger || agent.action) ? (
+            <>
+              {agent.trigger && (
+                <div class="meta-row">
+                  <span class="meta-key">Trigger</span>
+                  <span class="meta-val">{agent.trigger}</span>
+                </div>
+              )}
+              {agent.action && (
+                <div class="meta-row">
+                  <span class="meta-key">Action</span>
+                  <span class="meta-val">{agent.action}</span>
+                </div>
+              )}
+              {agent.context && (
+                <div class="meta-row">
+                  <span class="meta-key">Context</span>
+                  <span class="meta-val">{agent.context}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <p class="empty-italic">No workflow or logic recorded yet.</p>
+          )}
         </>
       )}
+
+      {decisions.length > 0 && (
+        <div style="margin-top: 16px;">
+          <div class="section-label">Decision rules</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Summary</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {decisions.slice(0, 5).map((d: any) => (
+                <tr>
+                  <td>{d.summary ?? '—'}</td>
+                  <td style="color: var(--text-muted); white-space: nowrap;">{d.decision_type ?? '—'}</td>
+                  <td>
+                    {d.status
+                      ? <span class={`badge ${statusClass(d.status)}`}>{d.status}</span>
+                      : '—'}
+                  </td>
+                  <td style="color: var(--text-muted); white-space: nowrap;">{formatDate(d.made_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
 
-    <!-- 6. Recent Activity -->
+    <!-- ── 3. AUTOMATIONS UNDERNEATH ─────────────────────────────── -->
     <div class="panel">
-      <div class="panel-header">Recent Activity</div>
+      <div class="panel-title">Automations</div>
+      {automations.length === 0 ? (
+        <p class="empty-italic">
+          {agent.workflow_id
+            ? 'No automations linked to this workflow yet.'
+            : 'No workflow linked — automations appear here once a workflow is connected.'}
+        </p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Automation</th>
+              <th>Trigger</th>
+              <th>Status</th>
+              <th>Last fired</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {automations.map((a: any) => (
+              <tr>
+                <td style="font-weight: 500;">{a.name}</td>
+                <td style="color: var(--text-muted); font-size: 12px;">{trunc(a.trigger, 30)}</td>
+                <td>
+                  <span class={`badge ${statusClass(a.status)}`}>{a.status ?? '—'}</span>
+                </td>
+                <td style="color: var(--text-muted); font-size: 12px;">{formatRelative(a.last_run)}</td>
+                <td>
+                  {a.last_status
+                    ? <span class={`badge ${statusClass(a.last_status)}`}>{a.last_status}</span>
+                    : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+
+    <!-- ── 4. RUNS + LOGS ─────────────────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-title">
+        Runs + Logs
+        {(agent.calls_external?.length ?? 0) > 0 && ws === 'Check source' && (
+          <div style="display: flex; gap: 8px;">
+            {hasLoops && (
+              <a href={loopsUrl} target="_blank" class="link-teal">Open Loops →</a>
+            )}
+            <a href={logUrl} target="_blank" class="link-teal">Open edge logs →</a>
+          </div>
+        )}
+      </div>
+
       {runLogs.length === 0 ? (
-        <p class="empty-italic">No run logs recorded yet — logs will appear here once the agent starts running</p>
+        <div>
+          <p class="empty-italic" style="margin-bottom: 12px;">
+            No run logs recorded yet.
+            {(agent.calls_external?.length ?? 0) > 0
+              ? ' This agent logs externally — check the source links above.'
+              : ' Logs will appear here once the agent starts running.'}
+          </p>
+          {agent.function_name && (
+            <a href={logUrl} target="_blank" class="link-teal">
+              Open edge function logs → {agent.function_name}
+            </a>
+          )}
+        </div>
       ) : (
         <table>
           <thead>
@@ -984,19 +910,23 @@ function formatDuration(start: string | null, end: string | null): string {
               <th>Action</th>
               <th>Result</th>
               <th>Duration</th>
+              <th>Records</th>
             </tr>
           </thead>
           <tbody>
             {runLogs.map((log: any) => (
               <tr>
-                <td style="white-space: nowrap; color: var(--color-text-muted);">{formatRelative(log.run_started_at)}</td>
-                <td>{log.action_summary ?? '—'}</td>
+                <td style="white-space: nowrap; color: var(--text-muted);">{formatRelative(log.run_started_at)}</td>
+                <td>{trunc(log.action_summary, 40)}</td>
                 <td>
-                  {log.status
-                    ? <span class={`status-badge ${statusClass(log.status)}`}>{log.status}</span>
-                    : '—'}
+                  {log.human_approval_required && !log.human_approved
+                    ? <span class="badge status-pending">Awaiting approval</span>
+                    : log.status
+                      ? <span class={`badge ${statusClass(log.status)}`}>{log.status}</span>
+                      : '—'}
                 </td>
-                <td style="color: var(--color-text-muted);">{formatDuration(log.run_started_at, log.run_ended_at)}</td>
+                <td style="color: var(--text-muted);">{formatDuration(log.run_started_at, log.run_completed_at)}</td>
+                <td style="color: var(--text-muted);">—</td>
               </tr>
             ))}
           </tbody>
@@ -1004,40 +934,448 @@ function formatDuration(start: string | null, end: string | null): string {
       )}
     </div>
 
-    <!-- 7. Incidents (only if relevant) -->
-    {relevantIncidents.length > 0 && (
-      <div class="panel">
-        <div class="panel-header">Incidents</div>
+    <!-- ── 5. QA + TESTING ────────────────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-title">QA + Testing</div>
+
+      <!-- QA summary from agent fields -->
+      <div style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border);">
+        <div>
+          <div class="status-cell-label">QA status</div>
+          <div style="margin-top: 3px;">
+            <span class={`badge ${agent.qa_status ? statusClass(agent.qa_status) : 'status-not_tested'}`}>
+              {agent.qa_status ?? 'not tested'}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div class="status-cell-label">Last tested</div>
+          <div style="margin-top: 3px; font-size: 13px; color: var(--text-secondary);">
+            {(agent.qa_last_tested || agent.last_tested)
+              ? formatDate(agent.qa_last_tested ?? agent.last_tested)
+              : 'Never'}
+          </div>
+        </div>
+        <div>
+          <div class="status-cell-label">Signed off by</div>
+          <div style="margin-top: 3px; font-size: 13px; color: var(--text-secondary);">
+            {agent.qa_signed_off_by ?? '—'}
+          </div>
+        </div>
+        <div>
+          <div class="status-cell-label">How to test</div>
+          <div style="margin-top: 3px; font-size: 13px; color: var(--text-secondary);">
+            {trunc(agent.how_to_test, 80)}
+          </div>
+        </div>
+      </div>
+
+      {qaLog.length > 0 ? (
         <table>
           <thead>
             <tr>
               <th>Date</th>
-              <th>Severity</th>
-              <th>Description</th>
-              <th>Status</th>
+              <th>Tested by</th>
+              <th>Result</th>
+              <th>Approved by</th>
+              <th>Notes</th>
             </tr>
           </thead>
           <tbody>
-            {relevantIncidents.map((inc: any) => (
+            {qaLog.map((qa: any) => (
               <tr>
-                <td style="white-space: nowrap; color: var(--color-text-muted);">{formatDate(inc.detected_at)}</td>
+                <td style="white-space: nowrap; color: var(--text-muted);">{formatDate(qa.tested_at)}</td>
+                <td>{qa.tested_by ?? '—'}</td>
                 <td>
-                  <span class={`status-badge ${severityClass(inc.severity)}`}>{inc.severity ?? '—'}</span>
+                  <span class={`badge ${qaResultClass(qa.result)}`}>{qa.result ?? '—'}</span>
                 </td>
-                <td>{inc.description ?? '—'}</td>
-                <td>
-                  {inc.status
-                    ? <span class={`status-badge ${statusClass(inc.status)}`}>{inc.status}</span>
-                    : '—'}
-                </td>
+                <td>{qa.signed_off_by ?? '—'}</td>
+                <td style="color: var(--text-muted);">{trunc(qa.notes, 60)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      ) : (
+        <p class="empty-italic">No QA test records logged yet.</p>
+      )}
+    </div>
+
+    <!-- ── 6. SAFETY + PERMISSIONS ───────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-title">Safety + Permissions</div>
+
+      <!-- Data access -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);">
+        <div>
+          <div class="section-label">Reads from</div>
+          {(agent.reads_from ?? []).length === 0
+            ? <p class="empty-italic">None</p>
+            : (agent.reads_from as string[]).map((t: string) => (
+                <div style="padding: 4px 0; border-bottom: 1px solid var(--border);">
+                  <span class="mono">{t}</span>
+                </div>
+              ))
+          }
+        </div>
+        <div>
+          <div class="section-label">Writes to</div>
+          {(agent.writes_to ?? []).length === 0
+            ? <p class="empty-italic">None</p>
+            : (agent.writes_to as string[]).map((t: string) => (
+                <div style="padding: 4px 0; border-bottom: 1px solid var(--border);">
+                  <span class="mono">{t}</span>
+                </div>
+              ))
+          }
+        </div>
       </div>
-    )}
+
+      <!-- Key fields row -->
+      {(agent.calls_external ?? []).length > 0 && (
+        <div class="meta-row">
+          <span class="meta-key">External services</span>
+          <span class="meta-val">
+            {(agent.calls_external as string[]).map((ext: string) => (
+              <span class="chip">{ext}</span>
+            ))}
+          </span>
+        </div>
+      )}
+
+      {relevantApiKeys.length > 0 && (
+        <div class="meta-row">
+          <span class="meta-key">API keys used</span>
+          <span class="meta-val">
+            {relevantApiKeys.map((k: any) => (
+              <div style="margin-bottom: 4px;">
+                <span class="chip">{k.key_name}</span>
+                <span style="font-size: 12px; color: var(--text-muted);"> {k.service} · {k.stored_in ?? 'unknown location'}</span>
+              </div>
+            ))}
+          </span>
+        </div>
+      )}
+
+      {(agent.requires_human_approval_for ?? []).length > 0 && (
+        <div class="meta-row">
+          <span class="meta-key">Approval required</span>
+          <span class="meta-val">
+            {(agent.requires_human_approval_for as string[]).join(', ')}
+          </span>
+        </div>
+      )}
+
+      <div class="meta-row">
+        <span class="meta-key">Risk level</span>
+        <span class="meta-val" style={agent.can_it_break ? 'color: #E07020;' : ''}>
+          {agent.can_it_break ?? '—'}
+        </span>
+      </div>
+
+      <div class="meta-row">
+        <span class="meta-key">Security check</span>
+        <span class="meta-val">
+          {secRecord
+            ? <>
+                {secRecord.approved_by ?? '—'} · {formatDate(secRecord.approved_at)}
+                {secRecord.data_classification && (
+                  <span style="margin-left: 8px;" class="chip">{secRecord.data_classification}</span>
+                )}
+              </>
+            : <span style="color: var(--text-muted);">—</span>
+          }
+        </span>
+      </div>
+
+      {agent.security_approved !== null && (
+        <div class="meta-row">
+          <span class="meta-key">Approved</span>
+          <span class="meta-val">
+            {agent.security_approved
+              ? <span class="tick">✓ Approved</span>
+              : <span class="cross">✕ Not approved</span>}
+          </span>
+        </div>
+      )}
+
+      {secChecks.length > 0 && (
+        <div style="margin-top: 14px;">
+          <div class="section-label">Security checks</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Check</th>
+                <th>Status</th>
+                <th>Action required</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {secChecks.map((sc: any) => (
+                <tr>
+                  <td>{sc.check_type ?? '—'}</td>
+                  <td>
+                    <span class={`badge ${statusClass(sc.status)}`}>{sc.status ?? '—'}</span>
+                  </td>
+                  <td style="color: var(--text-muted);">{trunc(sc.action_required, 40)}</td>
+                  <td style="color: var(--text-muted); white-space: nowrap;">{formatDate(sc.check_date)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {relevantIncidents.length > 0 && (
+        <div style="margin-top: 14px;">
+          <div class="section-label">Open incidents</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Severity</th>
+                <th>Description</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relevantIncidents.map((inc: any) => (
+                <tr>
+                  <td style="white-space: nowrap; color: var(--text-muted);">{formatDate(inc.detected_at)}</td>
+                  <td>
+                    <span class={`badge ${severityClass(inc.severity)}`}>{inc.severity ?? '—'}</span>
+                  </td>
+                  <td>{inc.description ?? '—'}</td>
+                  <td>
+                    {inc.status
+                      ? <span class={`badge ${statusClass(inc.status)}`}>{inc.status}</span>
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
 
   </main>
 </div>
+
+<!-- ── CONTINUE BUILDING SLIDE-OVER ──────────────────────────────────────── -->
+<div id="builder-overlay" class="builder-overlay" aria-hidden="true">
+  <div class="builder-header">
+    <div style="flex:1; min-width:0;">
+      <h2>Continue Building</h2>
+      <p>Claude asks about missing fields, one at a time. Confirms before saving.</p>
+    </div>
+    <button id="btn-close-builder" class="btn-close-builder" aria-label="Close">✕</button>
+  </div>
+  <div class="builder-messages" id="builder-messages"></div>
+  <div class="builder-footer">
+    <div class="builder-input-row">
+      <textarea
+        id="builder-input"
+        class="builder-input"
+        rows="2"
+        placeholder="Type your answer… (Enter to send)"
+      ></textarea>
+      <button id="builder-send" class="btn-bld-send">Send</button>
+    </div>
+    <div id="builder-save-status" class="save-status" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- Agent data island: safe editable fields only — no keys or secrets -->
+<script is:inline type="application/json" id="agent-ctx">{JSON.stringify({
+  id:                   agent.id,
+  name:                 agent.name ?? '',
+  purpose:              agent.purpose ?? '',
+  trigger:              agent.trigger ?? '',
+  reads_from:           agent.reads_from ?? [],
+  writes_to:            agent.writes_to ?? [],
+  calls_external:       agent.calls_external ?? [],
+  how_to_test:          agent.how_to_test ?? '',
+  can_it_break:         agent.can_it_break ?? '',
+  phase:                agent.phase ?? null,
+  area:                 agent.area ?? '',
+  workflow_steps_count: workflowSteps.length,
+})}</script>
+
+<script is:inline>
+  // ── SLIDE-OVER OPEN / CLOSE ──────────────────────────────────────────────
+  const overlay  = document.getElementById('builder-overlay')
+  const btnOpen  = document.getElementById('btn-continue-building')
+  const btnClose = document.getElementById('btn-close-builder')
+
+  const agentCtxEl = document.getElementById('agent-ctx')
+  const agentCtx = agentCtxEl ? JSON.parse(agentCtxEl.textContent || '{}') : {}
+
+  let chatInitialised = false
+
+  btnOpen.addEventListener('click', () => {
+    overlay.classList.add('open')
+    overlay.setAttribute('aria-hidden', 'false')
+    if (!chatInitialised) {
+      initBuilderChat()
+      chatInitialised = true
+    }
+    const inp = document.getElementById('builder-input')
+    if (inp) inp.focus()
+  })
+
+  btnClose.addEventListener('click', () => {
+    overlay.classList.remove('open')
+    overlay.setAttribute('aria-hidden', 'true')
+  })
+
+  // ── CHAT STATE ─────────────────────────────────────────────────────────
+  const FIRST_MSG = 'I can see ' + (agentCtx.name || 'this agent') + ' is already set up. Let me help you fill in any missing details or add new workflow steps.\n\nWhat would you like to work on first?'
+
+  const messages = [{ role: 'assistant', content: FIRST_MSG }]
+  let isStreaming = false
+
+  function initBuilderChat() {
+    appendMsg('assistant', FIRST_MSG)
+  }
+
+  document.getElementById('builder-send').addEventListener('click', sendMsg)
+  document.getElementById('builder-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg() }
+  })
+  document.getElementById('builder-input').addEventListener('input', function() {
+    this.style.height = 'auto'
+    this.style.height = Math.min(this.scrollHeight, 100) + 'px'
+  })
+
+  async function sendMsg() {
+    if (isStreaming) return
+    const input   = document.getElementById('builder-input')
+    const sendBtn = document.getElementById('builder-send')
+    const text = input.value.trim()
+    if (!text) return
+
+    input.value = ''
+    input.style.height = 'auto'
+    input.disabled  = true
+    sendBtn.disabled = true
+    isStreaming = true
+
+    messages.push({ role: 'user', content: text })
+    appendMsg('user', text)
+    const bubble = appendMsg('assistant', '')
+
+    try {
+      const res = await fetch('/api/agents/builder-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, mode: 'edit', agent_data: agentCtx }),
+      })
+
+      if (!res.ok || !res.body) {
+        bubble.textContent = 'Error — could not reach the builder.'
+        return
+      }
+
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let fullText  = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (!data || data === '[DONE]') continue
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.type === 'content_block_delta' && parsed.delta && parsed.delta.text) {
+              fullText += parsed.delta.text
+              bubble.innerHTML = renderText(fullText)
+              scrollMsgs()
+            }
+          } catch (err) { /* ignore malformed SSE lines */ }
+        }
+      }
+
+      messages.push({ role: 'assistant', content: fullText })
+
+      const match = fullText.match(/<AGENT_READY>([\s\S]*?)<\/AGENT_READY>/)
+      if (match) {
+        bubble.innerHTML = renderText(fullText)
+        try {
+          await saveAgentUpdates(JSON.parse(match[1].trim()))
+        } catch (err) {
+          showSaveStatus('Could not parse the update — ask Claude to try again.', 'error')
+        }
+      }
+    } finally {
+      isStreaming = false
+      input.disabled  = false
+      sendBtn.disabled = false
+      input.focus()
+    }
+  }
+
+  function renderText(raw) {
+    return raw
+      .replace(/<AGENT_READY>[\s\S]*?<\/AGENT_READY>/g, '')
+      .replace(/<AGENT_READY>[\s\S]*$/, '')
+      .trim()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')
+  }
+
+  function appendMsg(role, text) {
+    const container = document.getElementById('builder-messages')
+    const el = document.createElement('div')
+    el.className = 'bld-msg bld-msg-' + role
+    if (text) el.innerHTML = renderText(text)
+    container.appendChild(el)
+    scrollMsgs()
+    return el
+  }
+
+  function scrollMsgs() {
+    const c = document.getElementById('builder-messages')
+    c.scrollTop = c.scrollHeight
+  }
+
+  async function saveAgentUpdates(updates) {
+    showSaveStatus('Saving…', 'pending')
+    try {
+      const res = await fetch('/api/agents/builder-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ id: agentCtx.id }, updates)),
+      })
+      const result = await res.json()
+      if (res.ok && result.success) {
+        const stepsMsg = result.steps_inserted ? ' ' + result.steps_inserted + ' step(s) added.' : ''
+        showSaveStatus('Saved.' + stepsMsg + ' Refresh to see changes.', 'success')
+        const sys = document.createElement('div')
+        sys.className = 'bld-msg bld-msg-system'
+        sys.textContent = 'Agent updated.' + stepsMsg
+        document.getElementById('builder-messages').appendChild(sys)
+        scrollMsgs()
+      } else {
+        showSaveStatus('Error: ' + (result.error || 'Unknown error'), 'error')
+      }
+    } catch (err) {
+      showSaveStatus('Network error — changes not saved. Try again.', 'error')
+    }
+  }
+
+  function showSaveStatus(html, type) {
+    const el = document.getElementById('builder-save-status')
+    el.innerHTML = html
+    el.className = 'save-status save-status-' + type
+    el.style.display = ''
+  }
+</script>
+
 </body>
 </html>

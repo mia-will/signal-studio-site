@@ -13,6 +13,7 @@ import type {
   Event,
   Testimonial,
   FaqItem,
+  Pathway,
 } from '../types/content';
 
 export async function getPageData(siteSlug: string, pageSlug: string) {
@@ -323,6 +324,20 @@ export async function getHomepageEvents(limit = 3): Promise<Event[]> {
     ...event,
     resolved_image_url: event.featured_image_asset_id ? imageMap[event.featured_image_asset_id] ?? null : null,
   })) as Event[];
+}
+
+export async function getHomepagePathways(siteId: string, limit = 3): Promise<Pathway[]> {
+  const { data, error } = await supabase
+    .from('pathways')
+    .select('id, slug, sort_order, label, title, short_description, start_date, start_label, cta_label, cta_link, topic, audience, pathway_status, status')
+    .eq('site_id', siteId)
+    .in('status', ['active', 'live'])
+    .eq('pathway_status', 'open')
+    .order('start_date', { ascending: true, nullsFirst: false })
+    .limit(limit);
+
+  if (error || !data) return [];
+  return data as Pathway[];
 }
 
 // Temporary: fetches builder + both-track events including past, for layout review

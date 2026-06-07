@@ -1,62 +1,96 @@
 ---
 export const prerender = false
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
 
-import { createClient } from '@supabase/supabase-js'
+// ── QUERIES ───────────────────────────────────────────────────────────────────
 
-const supabase = createClient(
-  import.meta.env.PUBLIC_SUPABASE_URL,
-  import.meta.env.PUBLIC_SUPABASE_ANON_KEY
-)
+const [
+  activeAgentsResult,
+  attentionAgentsResult,
+  qaLogFailResult,
+  automationsResult,
+  toBuildResult,
+] = await Promise.all([
 
-const [agentsResult, logsResult] = await Promise.all([
-  supabase.from('v_agent_dashboard').select('*'),
-  supabase.from('agent_run_logs')
-    .select('*')
-    .order('run_started_at', { ascending: false })
+  supabase
+    .from('agents_registry')
+    .select('id, name, status, area, last_run, last_status, qa_status')
+    .in('status', ['active', 'in_progress', 'to_build'])
+    .limit(30),
+
+  supabase
+    .from('agents_registry')
+    .select('id, name, status, qa_status, security_approved, last_status')
+    .or('qa_status.eq.fail,last_status.eq.error,and(security_approved.eq.false,status.eq.active)'),
+
+  supabase
+    .from('agent_qa_log')
+    .select('id, agent_id, result')
+    .eq('result', 'fail')
+    .limit(10),
+
+  supabase
+    .from('automations')
+    .select('id, name, status, last_run, last_status')
+    .order('last_run', { ascending: false, nullsFirst: false })
     .limit(20),
+
+  supabase
+    .from('agents_registry')
+    .select('id, name, area, phase')
+    .eq('status', 'to_build')
+    .order('phase', { ascending: true, nullsFirst: false })
+    .limit(10),
 ])
 
-const agents = agentsResult.data ?? []
-const logs = logsResult.data ?? []
+// ── DERIVED ───────────────────────────────────────────────────────────────────
 
-const liveCount = agents.filter((a: any) => a.status === 'live').length
-const activeCount = agents.filter((a: any) => a.status === 'active').length
-const draftCount = agents.filter((a: any) => a.status === 'draft').length
-const inTestingCount = agents.filter((a: any) => a.qa_status === 'not_tested' && a.status !== 'draft').length
-const needsReviewCount = agents.filter((a: any) => a.live_without_qa || a.live_without_security).length
-const blockedCount = agents.filter((a: any) => a.last_status === 'error' || a.last_status === 'blocked').length
+const STATUS_ORDER: Record<string, number> = { active: 1, in_progress: 2, to_build: 3 }
+const activeAgents = (activeAgentsResult.data ?? [])
+  .sort((a, b) => (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99))
+  .slice(0, 10)
 
-const today = new Date()
-const runsToday = logs.filter((l: any) => {
-  const d = new Date(l.run_started_at)
-  return d.toDateString() === today.toDateString()
-}).length
-
-const needsApproval = logs.filter((l: any) => l.human_approval_required && !l.human_approved)
-const liveWithoutQA = agents.filter((a: any) => a.live_without_qa)
-const liveWithoutSecurity = agents.filter((a: any) => a.live_without_security)
-
-const needsMichelleItems: { label: string; priority: string }[] = [
-  ...liveWithoutQA.map((a: any) => ({ label: `QA sign-off needed: ${a.name}`, priority: 'medium' })),
-  ...liveWithoutSecurity.map((a: any) => ({ label: `Security approval needed: ${a.name}`, priority: 'medium' })),
-  ...needsApproval.map((l: any) => ({ label: l.action_summary ?? 'Agent run awaiting approval', priority: 'high' })),
-]
-
-const focusAgent: any = agents.find((a: any) => a.status === 'live' || a.status === 'active') ?? null
-
-const toBuild = agents.filter((a: any) => a.status === 'draft')
-const inTesting = agents.filter((a: any) => a.qa_status === 'not_tested' && a.status !== 'draft')
-const safeActive = agents.filter((a: any) => a.qa_status === 'pass' || a.status === 'live')
-
-const liveAgents = agents.filter((a: any) => a.status === 'live' || a.status === 'active').slice(0, 5)
-
-const runningAgents = agents.filter((a: any) => a.status === 'live' || a.status === 'active')
-const draftAgents = agents.filter((a: any) => a.status !== 'live' && a.status !== 'active')
-
-function formatTime(ts: string | null): string {
-  if (!ts) return '—'
-  return new Date(ts).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })
+type AttentionItem = {
+  label: string
+  agentName: string
+  agentId: string
+  priority: 'high' | 'medium'
 }
+const seen = new Set<string>()
+const attentionItems: AttentionItem[] = []
+
+for (const a of attentionAgentsResult.data ?? []) {
+  if (seen.has(a.id)) continue
+  seen.add(a.id)
+  if (a.last_status === 'error') {
+    attentionItems.push({ label: 'Run error', agentName: a.name, agentId: a.id, priority: 'high' })
+  } else if (a.qa_status === 'fail') {
+    attentionItems.push({ label: 'QA failed', agentName: a.name, agentId: a.id, priority: 'high' })
+  } else if (!a.security_approved && a.status === 'active') {
+    attentionItems.push({ label: 'Security not approved', agentName: a.name, agentId: a.id, priority: 'medium' })
+  }
+}
+
+const allKnownAgents = [...(activeAgentsResult.data ?? []), ...(attentionAgentsResult.data ?? [])]
+for (const log of qaLogFailResult.data ?? []) {
+  if (seen.has(log.agent_id)) continue
+  const agent = allKnownAgents.find(a => a.id === log.agent_id)
+  if (agent) {
+    attentionItems.push({ label: 'QA log fail', agentName: agent.name, agentId: agent.id, priority: 'high' })
+    seen.add(agent.id)
+  }
+}
+
+const needsAttention = attentionItems.slice(0, 10)
+
+const automations = (automationsResult.data ?? [])
+  .filter(a => a.status === 'active' || a.last_run !== null)
+  .slice(0, 10)
+
+const toBuild = toBuildResult.data ?? []
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
 
 function formatRelative(ts: string | null): string {
   if (!ts) return 'Never'
@@ -69,80 +103,50 @@ function formatRelative(ts: string | null): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function joinArr(arr: string[] | null): string {
-  if (!arr || arr.length === 0) return '—'
-  return arr.join(', ')
-}
-
-function trunc(str: string | null, len: number): string {
-  if (!str) return '—'
-  return str.length > len ? str.slice(0, len) + '…' : str
-}
-
-function statusClass(s: string | null): string {
-  if (!s) return 'status-draft'
-  return `status-${s.replace(/[^a-z_]/g, '')}`
-}
-
-function resultBadge(log: any): { cls: string; label: string } {
-  if (log.human_approval_required && !log.human_approved) return { cls: 'status-pending', label: 'Review' }
-  if (log.status === 'success') return { cls: 'status-success', label: 'Success' }
-  if (log.status === 'error') return { cls: 'status-error', label: 'Error' }
-  return { cls: 'status-pending', label: 'Pending' }
+function areaLabel(a: string | null): string {
+  return a ? a.replace(/_/g, ' ') : '—'
 }
 ---
 
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Signal OS — Agents</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
+<DashboardLayout title="The Signal OS — Agents">
+<style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #F5F4F1;
-      --surface: #FFFFFF;
-      --text-primary: #2F2F2F;
+      --bg:             #F5F4F1;
+      --surface:        #FFFFFF;
+      --text-primary:   #2F2F2F;
       --text-secondary: #505050;
-      --text-muted: #909090;
-      --border: rgba(47,47,47,0.08);
-      --teal: #3C8A7E;
-      --orange: #FF8A33;
-      --green: #7BBE9A;
-      --aqua: #9DDCE3;
-      --violet: #6F4BA2;
-      --red: #C0392B;
-      --dark: #111111;
-      --heading: 'DM Sans', sans-serif;
-      --body: 'Inter', sans-serif;
+      --text-muted:     #909090;
+      --border:         rgba(47,47,47,0.08);
+      --teal:           #3C8A7E;
+      --orange:         #FF8A33;
+      --green:          #7BBE9A;
+      --red:            #C0392B;
+      --dark:           #111111;
+      --heading:        'DM Sans', sans-serif;
+      --body:           'Inter', sans-serif;
     }
 
-    body {
-      background: var(--bg);
-      color: var(--text-primary);
-      font-family: var(--body);
-    }
+    html, body { height: 100vh; overflow: hidden; background: var(--bg); color: var(--text-primary); font-family: var(--body); }
 
+    /* ── SHELL ─────────────────────────────────────────────────────────── */
     .os-shell {
       display: grid;
       grid-template-columns: 220px 1fr;
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
     }
 
-    /* ── SIDEBAR ─────────────────────────────── */
+    /* ── SIDEBAR ───────────────────────────────────────────────────────── */
     .sidebar {
       background: var(--surface);
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      position: sticky;
-      top: 0;
       height: 100vh;
       overflow-y: auto;
     }
-
     .sidebar-logo {
       padding: 20px 16px 16px;
       display: flex;
@@ -154,10 +158,9 @@ function resultBadge(log: any): { cls: string; label: string } {
       letter-spacing: 0.08em;
       color: var(--text-primary);
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
-
     .nav-section-label {
-      font-family: var(--body);
       font-size: 10px;
       font-weight: 600;
       letter-spacing: 0.08em;
@@ -165,26 +168,16 @@ function resultBadge(log: any): { cls: string; label: string } {
       text-transform: uppercase;
       padding: 20px 16px 4px;
     }
-
     .nav-item {
       display: block;
-      font-family: var(--body);
       font-size: 13px;
-      font-weight: 400;
       color: var(--text-secondary);
       padding: 6px 16px;
       border-radius: 6px;
       margin: 1px 8px;
       text-decoration: none;
-      cursor: default;
     }
-
-    .nav-item.active {
-      background: rgba(60,138,126,0.10);
-      color: var(--teal);
-      font-weight: 500;
-    }
-
+    .nav-item.active { background: rgba(60,138,126,0.10); color: var(--teal); font-weight: 500; }
     .sidebar-footer {
       margin-top: auto;
       padding: 14px 16px;
@@ -192,42 +185,33 @@ function resultBadge(log: any): { cls: string; label: string } {
       display: flex;
       align-items: center;
       gap: 10px;
-    }
-
-    .avatar {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: var(--teal);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 600;
       flex-shrink: 0;
     }
+    .avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--teal); color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; flex-shrink: 0;
+    }
+    .footer-name { font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
+    .footer-role { font-size: 11px; color: var(--text-muted); }
 
-    .footer-name {
-      font-family: var(--body);
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-primary);
-      line-height: 1.2;
+    /* ── MAIN AREA (flex row — houses dashboard + slide-over panel) ──── */
+    .main-area {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
     }
 
-    .footer-role {
-      font-family: var(--body);
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-
-    /* ── MAIN CONTENT ────────────────────────── */
-    .content {
+    /* ── DASHBOARD CONTENT ─────────────────────────────────────────────── */
+    .dashboard-content {
+      flex: 1;
+      min-width: 0;
+      overflow-y: auto;
       padding: 28px 32px;
-      overflow-x: hidden;
     }
 
+    /* ── PAGE HEADER ───────────────────────────────────────────────────── */
     .page-header {
       display: flex;
       align-items: flex-start;
@@ -235,51 +219,15 @@ function resultBadge(log: any): { cls: string; label: string } {
       margin-bottom: 24px;
       gap: 16px;
     }
-
     .page-header h1 {
       font-family: var(--heading);
-      font-size: 32px;
+      font-size: 28px;
       font-weight: 700;
       color: var(--text-primary);
       line-height: 1.1;
     }
-
-    .page-header p {
-      font-family: var(--body);
-      font-size: 14px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-      padding-top: 4px;
-    }
-
-    .search-mock {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 7px 12px;
-      font-family: var(--body);
-      font-size: 13px;
-      color: var(--text-muted);
-      background: var(--surface);
-      width: 180px;
-    }
-
-    .btn-icon {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text-secondary);
-      padding: 7px 10px;
-      font-size: 14px;
-      cursor: default;
-    }
-
+    .page-header p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-top: 4px; }
     .btn-dark {
       background: var(--dark);
       color: white;
@@ -289,262 +237,61 @@ function resultBadge(log: any): { cls: string; label: string } {
       font-family: var(--heading);
       font-size: 13px;
       font-weight: 600;
-      cursor: default;
+      cursor: pointer;
     }
+    .btn-dark:hover { background: #2a2a2a; }
 
-    /* ── STAT CARDS ──────────────────────────── */
-    .stat-cards {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 12px;
-      margin-bottom: 20px;
-    }
+    /* ── LAYOUT ROWS ───────────────────────────────────────────────────── */
+    .row-2-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .row-half { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 
-    .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 1px 3px rgba(47,47,47,0.06);
-    }
-
-    .stat-icon {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 12px;
-      font-size: 15px;
-    }
-
-    .stat-value {
-      font-family: var(--heading);
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--text-primary);
-      line-height: 1;
-    }
-
-    .stat-label {
-      font-family: var(--body);
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-
-    /* ── LAYOUT ──────────────────────────────── */
-    .two-col {
-      display: grid;
-      grid-template-columns: 55fr 45fr;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
-
+    /* ── PANELS ────────────────────────────────────────────────────────── */
     .panel {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
       overflow: hidden;
+      box-shadow: 0 1px 3px rgba(47,47,47,0.06);
     }
-
     .panel-header {
-      padding: 14px 20px;
+      padding: 12px 16px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       gap: 8px;
     }
-
     .panel-header h2 {
       font-family: var(--heading);
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--text-primary);
     }
-
     .panel-header a {
       margin-left: auto;
-      font-family: var(--body);
       font-size: 12px;
       color: var(--teal);
       text-decoration: none;
     }
-
     .badge-count {
       background: var(--orange);
       color: white;
-      font-family: var(--body);
       font-size: 11px;
       font-weight: 600;
       border-radius: 20px;
       padding: 1px 7px;
     }
-
-    /* ── STATUS BADGES ───────────────────────── */
-    .status-badge {
-      display: inline-block;
-      border-radius: 20px;
-      padding: 2px 10px;
-      font-size: 12px;
-      font-weight: 500;
-      font-family: var(--body);
-    }
-
-    .status-live, .status-active   { background: rgba(123,190,154,0.15); color: #2D5A35; }
-    .status-draft                  { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
-    .status-not_tested             { background: rgba(255,138,51,0.12);  color: #E07020; }
-    .status-pass                   { background: rgba(45,90,53,0.12);    color: #2D5A35; }
-    .status-error, .status-blocked { background: rgba(192,57,43,0.12);  color: var(--red); }
-    .status-pending                { background: rgba(255,138,51,0.12);  color: #E07020; }
-    .status-success                { background: rgba(123,190,154,0.15); color: #2D5A35; }
-
-    /* ── NEEDS MICHELLE ──────────────────────── */
-    .needs-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px 20px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .needs-item:last-child { border-bottom: none; }
-
-    .needs-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .needs-label {
-      font-family: var(--body);
-      font-size: 13px;
-      color: var(--text-secondary);
-      flex: 1;
-    }
-
-    .priority-high   { font-family: var(--body); font-size: 12px; font-weight: 500; color: var(--orange); }
-    .priority-medium { font-family: var(--body); font-size: 12px; font-weight: 500; color: var(--text-muted); }
-
     .empty-state {
-      padding: 24px 20px;
-      font-family: var(--body);
+      padding: 20px 16px;
       font-size: 13px;
       color: var(--text-muted);
       font-style: italic;
     }
 
-    /* ── AGENT DETAIL ────────────────────────── */
-    .agent-detail-col {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .agent-detail-body { padding: 16px 20px; }
-
-    .agent-name-row {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin-bottom: 3px;
-    }
-
-    .agent-name-row span {
-      font-family: var(--heading);
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .agent-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .agent-why {
-      font-family: var(--body);
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-bottom: 14px;
-    }
-
-    .detail-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
-      gap: 12px;
-    }
-
-    .detail-row:last-child { border-bottom: none; }
-
-    .detail-key {
-      font-family: var(--body);
-      font-size: 12px;
-      color: var(--text-muted);
-      flex-shrink: 0;
-      width: 90px;
-    }
-
-    .detail-val {
-      font-family: var(--body);
-      font-size: 12px;
-      color: var(--text-secondary);
-      text-align: right;
-    }
-
-    /* ── READINESS BOARD ─────────────────────── */
-    .readiness-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      padding: 16px 20px;
-    }
-
-    .readiness-col-label {
-      font-family: var(--body);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-    }
-
-    .agent-chip {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-family: var(--heading);
-      font-size: 12px;
-      color: var(--text-secondary);
-      padding: 3px 0;
-    }
-
-    .chip-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    /* ── TABLES ──────────────────────────────── */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-family: var(--body);
-      font-size: 13px;
-    }
-
+    /* ── TABLES ────────────────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
     thead th {
       text-align: left;
-      padding: 10px 16px;
+      padding: 8px 16px;
       font-size: 11px;
       font-weight: 600;
       letter-spacing: 0.04em;
@@ -553,406 +300,598 @@ function resultBadge(log: any): { cls: string; label: string } {
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-
     tbody td {
-      padding: 10px 16px;
+      padding: 9px 16px;
       color: var(--text-secondary);
       border-bottom: 1px solid var(--border);
       vertical-align: middle;
     }
-
     tbody tr:last-child td { border-bottom: none; }
+    tbody tr.clickable { cursor: pointer; }
+    tbody tr.clickable:hover td { background: rgba(60,138,126,0.03); }
 
-    .tick { color: #2D5A35; }
-    .dash { color: var(--text-muted); }
+    /* ── STATUS BADGES ─────────────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      border-radius: 20px;
+      padding: 2px 9px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .status-active, .status-live       { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .status-in_progress                { background: rgba(157,220,227,0.18); color: #1F7A82; }
+    .status-to_build, .status-draft    { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+    .status-error, .status-blocked     { background: rgba(192,57,43,0.12);   color: var(--red); }
+    .status-success                    { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .status-not_tested, .status-pending { background: rgba(255,138,51,0.12); color: #E07020; }
+    .status-pass, .status-in_progress-qa { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .status-fail                       { background: rgba(192,57,43,0.12);   color: var(--red); }
+
+    /* ── ATTENTION LABEL ───────────────────────────────────────────────── */
+    .attention-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 4px;
+      padding: 2px 7px;
+    }
+    .attention-high   { background: rgba(192,57,43,0.10); color: var(--red); }
+    .attention-medium { background: rgba(255,138,51,0.10); color: #E07020; }
+
+    /* ── LINK STYLE ────────────────────────────────────────────────────── */
+    .link-teal { color: var(--teal); text-decoration: none; font-size: 12px; }
+    .link-teal:hover { text-decoration: underline; }
+
+    /* ── BUILDER SLIDE-OVER PANEL ──────────────────────────────────────── */
+    .builder-panel {
+      width: 0;
+      flex-shrink: 0;
+      overflow: hidden;
+      background: var(--bg);
+      border-left: 0 solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .main-area.panel-open .builder-panel {
+      width: 50%;
+      border-left-width: 1px;
+    }
+
+    .builder-inner {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .builder-header {
+      padding: 16px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .builder-header h2 {
+      font-family: var(--heading);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      flex: 1;
+    }
+    .builder-header p {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    .btn-close-panel {
+      background: none;
+      border: none;
+      font-size: 16px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 4px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .btn-close-panel:hover { color: var(--text-primary); }
+
+    .builder-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bld-msg {
+      max-width: 88%;
+      font-size: 13px;
+      line-height: 1.55;
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .bld-msg-assistant {
+      background: var(--surface);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      align-self: flex-start;
+      border-bottom-left-radius: 3px;
+    }
+    .bld-msg-user {
+      background: var(--dark);
+      color: #FFFFFF;
+      align-self: flex-end;
+      border-bottom-right-radius: 3px;
+    }
+    .bld-msg-system {
+      background: rgba(60,138,126,0.08);
+      color: var(--teal);
+      border: 1px solid rgba(60,138,126,0.15);
+      align-self: center;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+
+    .builder-footer {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .builder-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+    .builder-input {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-family: var(--body);
+      color: var(--text-primary);
+      background: var(--bg);
+      resize: none;
+      min-height: 38px;
+      max-height: 100px;
+      line-height: 1.4;
+    }
+    .builder-input:focus { outline: none; border-color: var(--teal); }
+    .builder-input:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-send {
+      background: var(--dark);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 9px 16px;
+      font-family: var(--heading);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      height: 38px;
+      flex-shrink: 0;
+    }
+    .btn-send:hover { background: #2a2a2a; }
+    .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+    .save-status {
+      margin-top: 8px;
+      font-size: 12px;
+      padding: 7px 11px;
+      border-radius: 6px;
+    }
+    .save-status-pending { background: rgba(47,47,47,0.06); color: var(--text-muted); }
+    .save-status-success { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .save-status-error   { background: rgba(192,57,43,0.10); color: var(--red); }
   </style>
-</head>
-<body>
-<div class="os-shell">
 
-  <!-- ── SIDEBAR ────────────────────────────── -->
-  <nav class="sidebar">
-    <div class="sidebar-logo">
-      <span>✦</span>
-      <span>THE SIGNAL OS</span>
-    </div>
+  <!-- ── MAIN AREA ─────────────────────────────────────────────────────── -->
+  <div id="main-area" class="main-area">
 
-    <div style="padding: 8px 0;">
-      <span class="nav-item">🏠 Snapshot</span>
+    <!-- Dashboard content -->
+    <div class="dashboard-content">
 
-      <div class="nav-section-label">Relationships</div>
-      <span class="nav-item">CRM</span>
-      <span class="nav-item">Growth</span>
-      <span class="nav-item">Clients</span>
-
-      <div class="nav-section-label">Delivery</div>
-      <span class="nav-item">Projects</span>
-      <span class="nav-item">Pathways</span>
-      <span class="nav-item">Events</span>
-
-      <div class="nav-section-label">Content</div>
-      <span class="nav-item">Content</span>
-      <span class="nav-item">Campaigns</span>
-      <span class="nav-item">EDMs</span>
-
-      <div class="nav-section-label">Operations</div>
-      <span class="nav-item">Finance</span>
-      <a href="/dashboard/governance" class="nav-item">Governance</a>
-      <span class="nav-item">Automations</span>
-      <span class="nav-item active">Agents</span>
-    </div>
-
-    <div class="sidebar-footer">
-      <div class="avatar">M</div>
-      <div>
-        <div class="footer-name">Michelle</div>
-        <div class="footer-role">System Operator</div>
-      </div>
-    </div>
-  </nav>
-
-  <!-- ── MAIN ──────────────────────────────── -->
-  <main class="content">
-
-    <!-- Page header -->
-    <header class="page-header">
-      <div>
-        <h1>Agents Dashboard</h1>
-        <p>Visibility over agents, permissions, activity, risk and approvals</p>
-      </div>
-      <div class="header-actions">
-        <div class="search-mock">Search agents… ⌘K</div>
-        <button class="btn-icon" disabled>⚙</button>
-        <button class="btn-dark" disabled>+ New Agent</button>
-      </div>
-    </header>
-
-    <!-- Stat cards -->
-    <section class="stat-cards">
-      <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(123,190,154,0.12);">
-          <span style="color: #7BBE9A;">●</span>
+      <header class="page-header">
+        <div>
+          <h1>Agents</h1>
+          <p>Active agents, attention items, automations, and build queue.</p>
         </div>
-        <div class="stat-value">{liveCount + activeCount}</div>
-        <div class="stat-label">Active Agents</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(157,220,227,0.12);">
-          <span style="color: #9DDCE3;">●</span>
+        <div class="header-actions">
+          <button id="btn-new-agent" class="btn-dark">+ New Agent</button>
         </div>
-        <div class="stat-value">{inTestingCount}</div>
-        <div class="stat-label">In Testing</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(60,138,126,0.12);">
-          <span style="color: #3C8A7E;">●</span>
-        </div>
-        <div class="stat-value">{draftCount}</div>
-        <div class="stat-label">Draft Agents</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(255,138,51,0.12);">
-          <span style="color: #FF8A33;">●</span>
-        </div>
-        <div class="stat-value">{needsReviewCount}</div>
-        <div class="stat-label">Needs Review</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(111,75,162,0.12);">
-          <span style="color: #6F4BA2;">●</span>
-        </div>
-        <div class="stat-value">{runsToday}</div>
-        <div class="stat-label">Runs Today</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(192,57,43,0.12);">
-          <span style="color: #C0392B;">●</span>
-        </div>
-        <div class="stat-value">{blockedCount}</div>
-        <div class="stat-label">Blocked</div>
-      </div>
-    </section>
+      </header>
 
-    <!-- Agent Registry -->
-    <div class="panel" style="margin-bottom: 16px;">
-      <div class="panel-header">
-        <h2>Agent Registry</h2>
-        <a href="#" style="margin-left: auto;">View all →</a>
-      </div>
-      {agents.length === 0 ? (
-        <div class="empty-state">No agents found</div>
-      ) : (
-        <div style="max-height: 320px; overflow-y: auto;">
-          <table>
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Status</th>
-                <th>Last run</th>
-                <th style="width: 32px;"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {runningAgents.map((agent: any) => (
-                <tr style="cursor: pointer;" onclick={`location.href='/dashboard/agents/${agent.id}'`}>
-                  <td style="font-weight: 500;">{agent.name}</td>
-                  <td><span class={`status-badge ${statusClass(agent.status)}`}>{agent.status}</span></td>
-                  <td style="color: var(--text-muted);">{formatRelative(agent.last_run)}</td>
-                  <td style="color: var(--text-muted); text-align: center;">›</td>
-                </tr>
-              ))}
-              {draftAgents.length > 0 && (
-                <tr>
-                  <td colspan="4" style="padding: 6px 16px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #909090; background: #F5F4F1; border-top: 1px solid rgba(47,47,47,0.08);">
-                    Draft · {draftAgents.length}
-                  </td>
-                </tr>
-              )}
-              {draftAgents.map((agent: any) => (
-                <tr style="opacity: 0.65; cursor: pointer;" onclick={`location.href='/dashboard/agents/${agent.id}'`}>
-                  <td style="font-weight: 500;">{agent.name}</td>
-                  <td><span class={`status-badge ${statusClass(agent.status)}`}>{agent.status}</span></td>
-                  <td style="color: var(--text-muted);">{formatRelative(agent.last_run)}</td>
-                  <td style="color: var(--text-muted); text-align: center;">›</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+      <!-- ── ROW 1: Active agents + Needs attention ─────────────────── -->
+      <div class="row-2-3">
 
-    <!-- Row 1: Needs Michelle + Agent Detail col -->
-    <div class="two-col">
-
-      <!-- Needs Michelle -->
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Needs Michelle</h2>
-          {needsMichelleItems.length > 0 && (
-            <span class="badge-count">{needsMichelleItems.length}</span>
-          )}
-        </div>
-        {needsMichelleItems.length === 0 ? (
-          <div class="empty-state">No items awaiting approval</div>
-        ) : (
-          needsMichelleItems.map((item) => (
-            <div class="needs-item">
-              <div
-                class="needs-dot"
-                style={`background: ${item.priority === 'high' ? '#FF8A33' : '#909090'};`}
-              ></div>
-              <span class="needs-label">{item.label}</span>
-              <span class={item.priority === 'high' ? 'priority-high' : 'priority-medium'}>
-                {item.priority === 'high' ? 'High priority' : 'Medium priority'}
-              </span>
-              <span style="color: var(--text-muted); font-size: 14px;">›</span>
-            </div>
-          ))
-        )}
-      </div>
-
-      <!-- Agent Detail col (stacked) -->
-      <div class="agent-detail-col">
-
-        <!-- Agent Detail -->
+        <!-- Active Agents -->
         <div class="panel">
           <div class="panel-header">
-            <h2>Agent Detail</h2>
+            <h2>Active Agents</h2>
+            {activeAgents.length > 0 && <span class="badge-count">{activeAgents.length}</span>}
           </div>
-          {focusAgent ? (
-            <div class="agent-detail-body">
-              <div class="agent-name-row">
-                <div
-                  class="agent-dot"
-                  style={`background: ${focusAgent.status === 'live' || focusAgent.status === 'active' ? '#7BBE9A' : '#C8C8C8'};`}
-                ></div>
-                <span>{focusAgent.name}</span>
-              </div>
-              <div class="agent-why">{focusAgent.why ?? '—'}</div>
-
-              <div class="detail-row">
-                <span class="detail-key">Status</span>
-                <span class={`status-badge ${statusClass(focusAgent.status)}`}>{focusAgent.status}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-key">Risk level</span>
-                <span class="detail-val" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  {focusAgent.can_it_break ? (
-                    <span class="status-badge status-not_tested">{trunc(focusAgent.can_it_break, 30)}</span>
-                  ) : '—'}
-                </span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-key">Last run</span>
-                <span class="detail-val">{formatRelative(focusAgent.last_run)}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-key">Last result</span>
-                <span class="detail-val">
-                  {focusAgent.last_status ? (
-                    <span class={`status-badge ${statusClass(focusAgent.last_status)}`}>{focusAgent.last_status}</span>
-                  ) : '—'}
-                </span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-key">📋 Reads from</span>
-                <span class="detail-val">{joinArr(focusAgent.reads_from)}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-key">✏️ Writes to</span>
-                <span class="detail-val">{joinArr(focusAgent.writes_to)}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-key">🌐 External</span>
-                <span class="detail-val">{joinArr(focusAgent.calls_external)}</span>
-              </div>
-              <div class="detail-row">
-                <span class="detail-key">👤 Notes</span>
-                <span class="detail-val">{trunc(focusAgent.notes, 60)}</span>
-              </div>
-            </div>
+          {activeAgents.length === 0 ? (
+            <div class="empty-state">No active, in-progress, or to-build agents found.</div>
           ) : (
-            <div class="empty-state">No live or active agents</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Status</th>
+                  <th>Area</th>
+                  <th>Last run</th>
+                  <th>Last status</th>
+                  <th>QA</th>
+                  <th style="width:48px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeAgents.map((agent: any) => (
+                  <tr
+                    class="clickable"
+                    onclick={`location.href='/dashboard/agents/${agent.id}'`}
+                  >
+                    <td style="font-weight:500; color:var(--text-primary);">{agent.name}</td>
+                    <td>
+                      <span class={`badge status-${(agent.status ?? '').replace(/[^a-z_]/g, '')}`}>
+                        {agent.status?.replace(/_/g, ' ') ?? '—'}
+                      </span>
+                    </td>
+                    <td style="font-size:12px; color:var(--text-muted);">{areaLabel(agent.area)}</td>
+                    <td style="font-size:12px; color:var(--text-muted);">{formatRelative(agent.last_run)}</td>
+                    <td>
+                      {agent.last_status ? (
+                        <span class={`badge status-${agent.last_status.replace(/[^a-z_]/g, '')}`}>
+                          {agent.last_status}
+                        </span>
+                      ) : <span style="color:var(--text-muted); font-size:12px;">—</span>}
+                    </td>
+                    <td>
+                      {agent.qa_status ? (
+                        <span class={`badge status-${agent.qa_status.replace(/[^a-z_]/g, '')}`}>
+                          {agent.qa_status.replace(/_/g, ' ')}
+                        </span>
+                      ) : <span style="color:var(--text-muted); font-size:12px;">—</span>}
+                    </td>
+                    <td>
+                      <a href={`/dashboard/agents/${agent.id}`} class="link-teal">Open →</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
 
-        <!-- Readiness Board -->
+        <!-- Needs Attention -->
         <div class="panel">
           <div class="panel-header">
-            <h2>Agent Readiness Board</h2>
+            <h2>Needs Attention</h2>
+            {needsAttention.length > 0 && <span class="badge-count">{needsAttention.length}</span>}
           </div>
-          <div class="readiness-grid">
-            <div>
-              <div class="readiness-col-label">To Build</div>
-              {toBuild.length === 0 ? (
-                <div class="agent-chip" style="color: var(--text-muted); font-style: italic;">None</div>
-              ) : toBuild.map((a: any) => (
-                <div class="agent-chip">
-                  <div class="chip-dot" style="background: #C8C8C8;"></div>
-                  {a.name}
-                </div>
-              ))}
-            </div>
-            <div>
-              <div class="readiness-col-label">In Testing</div>
-              {inTesting.length === 0 ? (
-                <div class="agent-chip" style="color: var(--text-muted); font-style: italic;">None</div>
-              ) : inTesting.map((a: any) => (
-                <div class="agent-chip">
-                  <div class="chip-dot" style="background: #9DDCE3;"></div>
-                  {a.name}
-                </div>
-              ))}
-            </div>
-            <div>
-              <div class="readiness-col-label">Safe / Active</div>
-              {safeActive.length === 0 ? (
-                <div class="agent-chip" style="color: var(--text-muted); font-style: italic;">None</div>
-              ) : safeActive.map((a: any) => (
-                <div class="agent-chip">
-                  <div class="chip-dot" style="background: #7BBE9A;"></div>
-                  {a.name}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Row 2: Recent Activity + Permissions -->
-    <div class="two-col">
-
-      <!-- Recent Agent Activity -->
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Recent Agent Activity</h2>
-          <a href="#">View all →</a>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Agent</th>
-              <th>Action</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.length === 0 ? (
-              <tr>
-                <td colspan="4" style="color: var(--text-muted); font-style: italic; text-align: center;">
-                  No agent activity recorded yet
-                </td>
-              </tr>
-            ) : logs.map((log: any) => {
-              const badge = resultBadge(log)
-              return (
+          {needsAttention.length === 0 ? (
+            <div class="empty-state">Nothing flagged — all clear.</div>
+          ) : (
+            <table>
+              <thead>
                 <tr>
-                  <td style="color: var(--text-muted); white-space: nowrap;">{formatTime(log.run_started_at)}</td>
-                  <td style="font-weight: 500;">{log.agent_key}</td>
-                  <td style="color: var(--text-muted);">{trunc(log.action_summary, 40)}</td>
-                  <td><span class={`status-badge ${badge.cls}`}>{badge.label}</span></td>
+                  <th>Issue</th>
+                  <th>Agent</th>
+                  <th style="width:48px;"></th>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {needsAttention.map((item: any) => (
+                  <tr class="clickable" onclick={`location.href='/dashboard/agents/${item.agentId}'`}>
+                    <td>
+                      <span class={`attention-label attention-${item.priority}`}>
+                        {item.label}
+                      </span>
+                    </td>
+                    <td style="font-size:12px; color:var(--text-secondary);">{item.agentName}</td>
+                    <td>
+                      <a href={`/dashboard/agents/${item.agentId}`} class="link-teal">View →</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
       </div>
 
-      <!-- Permissions + Safety -->
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Permissions + Safety</h2>
-          <a href="#">View all →</a>
+      <!-- ── ROW 2: Automations firing + Next to build ──────────────── -->
+      <div class="row-half">
+
+        <!-- Automations Firing -->
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Automations Firing</h2>
+            {automations.length > 0 && <span class="badge-count">{automations.length}</span>}
+          </div>
+          {automations.length === 0 ? (
+            <div class="empty-state">No active automations or recent runs.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Automation</th>
+                  <th>Last run</th>
+                  <th>Last status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {automations.map((a: any) => (
+                  <tr>
+                    <td style="font-weight:500; color:var(--text-primary);">{a.name}</td>
+                    <td style="font-size:12px; color:var(--text-muted);">{formatRelative(a.last_run)}</td>
+                    <td>
+                      {a.last_status ? (
+                        <span class={`badge status-${a.last_status.replace(/[^a-z_]/g, '')}`}>
+                          {a.last_status}
+                        </span>
+                      ) : <span style="color:var(--text-muted); font-size:12px;">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Agent</th>
-              <th>Can Read</th>
-              <th>Can Write</th>
-              <th>Approval Req.</th>
-            </tr>
-          </thead>
-          <tbody>
-            {liveAgents.length === 0 ? (
-              <tr>
-                <td colspan="4" style="color: var(--text-muted); font-style: italic; text-align: center;">
-                  No live agents
-                </td>
-              </tr>
-            ) : liveAgents.map((agent: any) => (
-              <tr>
-                <td style="font-weight: 500;">{agent.name}</td>
-                <td>
-                  {agent.reads_from && agent.reads_from.length > 0
-                    ? <span class="tick">✓</span>
-                    : <span class="dash">—</span>
-                  }
-                </td>
-                <td>
-                  {agent.writes_to && agent.writes_to.length > 0
-                    ? <span class="tick">✓</span>
-                    : <span class="dash">—</span>
-                  }
-                </td>
-                <td>
-                  <span class={agent.security_approved ? 'status-badge status-pass' : 'status-badge status-not_tested'}>
-                    {agent.security_approved ? 'No' : 'Yes'}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+        <!-- Next to Build -->
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Next to Build</h2>
+            {toBuild.length > 0 && <span class="badge-count">{toBuild.length}</span>}
+          </div>
+          {toBuild.length === 0 ? (
+            <div class="empty-state">No agents in the build queue.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Phase</th>
+                  <th>Area</th>
+                </tr>
+              </thead>
+              <tbody>
+                {toBuild.map((agent: any) => (
+                  <tr class="clickable" onclick={`location.href='/dashboard/agents/${agent.id}'`}>
+                    <td style="font-weight:500; color:var(--text-primary);">{agent.name}</td>
+                    <td style="font-size:12px; color:var(--text-muted);">{agent.phase ?? '—'}</td>
+                    <td style="font-size:12px; color:var(--text-muted);">{areaLabel(agent.area)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
       </div>
 
     </div>
+    <!-- /dashboard-content -->
 
-  </main>
-</div>
-</body>
-</html>
+    <!-- ── BUILDER SLIDE-OVER ─────────────────────────────────────────── -->
+    <div id="builder-panel" class="builder-panel" aria-hidden="true">
+      <div class="builder-inner">
+
+        <div class="builder-header">
+          <div style="flex:1; min-width:0;">
+            <h2>Agent Builder</h2>
+            <p>Claude asks questions one at a time. Answer each in turn — it will confirm before saving.</p>
+          </div>
+          <button id="btn-close-panel" class="btn-close-panel" aria-label="Close panel">✕</button>
+        </div>
+
+        <div class="builder-messages" id="builder-messages"></div>
+
+        <div class="builder-footer">
+          <div class="builder-input-row">
+            <textarea
+              id="builder-input"
+              class="builder-input"
+              rows="2"
+              placeholder="Type your answer… (Enter to send)"
+            ></textarea>
+            <button id="builder-send" class="btn-send">Send</button>
+          </div>
+          <div id="builder-save-status" class="save-status" style="display:none;"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+  <!-- /main-area -->
+
+
+<script>
+  // ── PANEL TOGGLE ────────────────────────────────────────────────────────────
+  const mainArea    = document.getElementById('main-area')!
+  const builderPanel = document.getElementById('builder-panel')!
+  const btnOpen     = document.getElementById('btn-new-agent')!
+  const btnClose    = document.getElementById('btn-close-panel')!
+
+  let chatInitialised = false
+
+  btnOpen.addEventListener('click', () => {
+    mainArea.classList.add('panel-open')
+    builderPanel.setAttribute('aria-hidden', 'false')
+    if (!chatInitialised) {
+      initBuilderChat()
+      chatInitialised = true
+    }
+    document.getElementById('builder-input')?.focus()
+  })
+
+  btnClose.addEventListener('click', () => {
+    mainArea.classList.remove('panel-open')
+    builderPanel.setAttribute('aria-hidden', 'true')
+  })
+
+  // ── AGENT BUILDER CHAT ──────────────────────────────────────────────────────
+  const FIRST_MSG = "Let's register a new agent. What's the name?"
+  const messages: { role: string; content: string }[] = [
+    { role: 'assistant', content: FIRST_MSG },
+  ]
+  let isStreaming = false
+
+  function initBuilderChat() {
+    appendMsg('assistant', FIRST_MSG)
+  }
+
+  document.getElementById('builder-send')!.addEventListener('click', sendMsg)
+  document.getElementById('builder-input')!.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMsg()
+    }
+  })
+  document.getElementById('builder-input')!.addEventListener('input', function(this: HTMLTextAreaElement) {
+    this.style.height = 'auto'
+    this.style.height = `${Math.min(this.scrollHeight, 100)}px`
+  })
+
+  async function sendMsg() {
+    if (isStreaming) return
+    const input   = document.getElementById('builder-input')   as HTMLTextAreaElement
+    const sendBtn = document.getElementById('builder-send')    as HTMLButtonElement
+    const text = input.value.trim()
+    if (!text) return
+
+    input.value = ''
+    input.style.height = 'auto'
+    input.disabled  = true
+    sendBtn.disabled = true
+    isStreaming = true
+
+    messages.push({ role: 'user', content: text })
+    appendMsg('user', text)
+    const bubble = appendMsg('assistant', '')
+
+    try {
+      const res = await fetch('/api/agents/builder-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages }),
+      })
+
+      if (!res.ok || !res.body) {
+        bubble.textContent = 'Error — could not reach the builder.'
+        return
+      }
+
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let fullText  = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (!data || data === '[DONE]') continue
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+              fullText += parsed.delta.text as string
+              bubble.innerHTML = renderText(fullText)
+              scrollMsgs()
+            }
+          } catch { /* ignore malformed SSE lines */ }
+        }
+      }
+
+      messages.push({ role: 'assistant', content: fullText })
+
+      const match = fullText.match(/<AGENT_READY>([\s\S]*?)<\/AGENT_READY>/)
+      if (match) {
+        bubble.innerHTML = renderText(fullText)
+        try {
+          await createAgent(JSON.parse(match[1].trim()))
+        } catch {
+          showSaveStatus('Could not parse agent data — ask Claude to try again.', 'error')
+        }
+      }
+    } finally {
+      isStreaming = false
+      input.disabled  = false
+      sendBtn.disabled = false
+      input.focus()
+    }
+  }
+
+  function renderText(raw: string): string {
+    return raw
+      .replace(/<AGENT_READY>[\s\S]*?<\/AGENT_READY>/g, '')
+      .replace(/<AGENT_READY>[\s\S]*$/, '')
+      .trim()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')
+  }
+
+  function appendMsg(role: string, text: string): HTMLElement {
+    const container = document.getElementById('builder-messages')!
+    const el = document.createElement('div')
+    el.className = `bld-msg bld-msg-${role}`
+    if (text) el.innerHTML = renderText(text)
+    container.appendChild(el)
+    scrollMsgs()
+    return el
+  }
+
+  function scrollMsgs() {
+    const c = document.getElementById('builder-messages')!
+    c.scrollTop = c.scrollHeight
+  }
+
+  async function createAgent(agentData: Record<string, unknown>) {
+    showSaveStatus('Saving agent…', 'pending')
+    try {
+      const res = await fetch('/api/agents/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(agentData),
+      })
+      const result = await res.json() as { success?: boolean; agent_id?: string; error?: string }
+      if (res.ok && result.success && result.agent_id) {
+        showSaveStatus(
+          `Agent registered — <a href="/dashboard/agents/${result.agent_id}" style="color:#2D5A35;font-weight:600;">View agent →</a>`,
+          'success',
+        )
+        const sys = document.createElement('div')
+        sys.className = 'bld-msg bld-msg-system'
+        sys.textContent = 'Agent saved to agents_registry with status: to_build.'
+        document.getElementById('builder-messages')!.appendChild(sys)
+        scrollMsgs()
+      } else {
+        showSaveStatus(`Error: ${result.error ?? 'Unknown error'}`, 'error')
+      }
+    } catch {
+      showSaveStatus('Network error — agent not saved. Try again.', 'error')
+    }
+  }
+
+  function showSaveStatus(html: string, type: 'pending' | 'success' | 'error') {
+    const el = document.getElementById('builder-save-status') as HTMLElement
+    el.innerHTML = html
+    el.className = `save-status save-status-${type}`
+    el.style.display = ''
+  }
+</script>
+</DashboardLayout>

@@ -1,0 +1,898 @@
+---
+export const prerender = false
+
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+
+const { id } = Astro.params
+
+const { data: contact } = await supabase
+  .from('contacts_crm')
+  .select('*')
+  .eq('id', id)
+  .maybeSingle()
+
+if (!contact) return Astro.redirect('/dashboard/crm')
+
+const [activityRes, assessmentsRes, submissionsRes] = await Promise.all([
+  supabase
+    .from('contact_activity')
+    .select('id,activity_type,source,signal_strength,summary,created_at')
+    .eq('contact_id', id)
+    .order('created_at', { ascending: false }),
+  supabase
+    .from('contact_assessments')
+    .select('id,assessed_at,assessed_by,context,rating_facilitation,rating_ai_knowledge,rating_room_presence,rating_adaptability,rating_implementation,strengths,growth_areas')
+    .eq('contact_id', id)
+    .order('assessed_at', { ascending: false }),
+  supabase
+    .from('form_submissions')
+    .select('id,created_at,site_slug,source,page_path,enquiry_type,status')
+    .eq('crm_contact_id', id)
+    .order('created_at', { ascending: false }),
+])
+
+const activity    = activityRes.data    ?? []
+const assessments = assessmentsRes.data ?? []
+const submissions = submissionsRes.data ?? []
+
+function fullName(c: typeof contact): string {
+  return [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || '—'
+}
+
+function formatDate(ts: string | null): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function formatDateTime(ts: string | null): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function relativeDate(ts: string | null): string {
+  if (!ts) return '—'
+  const diff = Date.now() - new Date(ts).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1)  return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const h = Math.floor(mins / 60)
+  if (h < 24)    return `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 7)     return `${d}d ago`
+  if (d < 30)    return `${Math.floor(d / 7)}w ago`
+  return `${Math.floor(d / 30)}mo ago`
+}
+
+function trackBadgeClass(track: string | null): string {
+  if (!track) return 'badge-grey'
+  const map: Record<string, string> = { builder: 'badge-blue', applier: 'badge-green', both: 'badge-purple' }
+  return map[track.toLowerCase()] ?? 'badge-grey'
+}
+
+function trackLabel(track: string | null): string {
+  if (!track) return 'Unassigned'
+  const labels: Record<string, string> = { builder: 'Builder', applier: 'Applier', both: 'Both' }
+  return labels[track.toLowerCase()] ?? track
+}
+
+function signalDotColor(strength: number | null): string {
+  if (!strength || strength < 2) return '#C8C8C8'
+  if (strength >= 4) return '#7BBE9A'
+  return '#FF8A33'
+}
+---
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Signal OS — {fullName(contact)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #F5F4F1;
+      --surface: #FFFFFF;
+      --text-primary: #2F2F2F;
+      --text-secondary: #505050;
+      --text-muted: #909090;
+      --border: rgba(47,47,47,0.08);
+      --teal: #3C8A7E;
+      --orange: #FF8A33;
+      --green: #7BBE9A;
+      --aqua: #9DDCE3;
+      --violet: #6F4BA2;
+      --red: #C0392B;
+      --heading: 'DM Sans', sans-serif;
+      --body: 'Inter', sans-serif;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(47,47,47,0.06);
+    }
+
+    body { background: var(--bg); color: var(--text-primary); font-family: var(--body); }
+
+    .os-shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+
+    /* ── SIDEBAR ────────────────────────────── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-logo {
+      padding: 20px 16px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--heading);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text-primary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-section-label {
+      font-family: var(--body);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      padding: 20px 16px 4px;
+    }
+
+    .nav-item {
+      display: block;
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      padding: 6px 16px;
+      border-radius: 6px;
+      margin: 1px 8px;
+      text-decoration: none;
+      cursor: default;
+    }
+
+    .nav-item.active { background: rgba(60,138,126,0.10); color: var(--teal); font-weight: 500; }
+    .nav-item.link { cursor: pointer; }
+    .nav-item.link:hover { background: rgba(47,47,47,0.04); }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 14px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--teal);
+      color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; flex-shrink: 0;
+    }
+
+    .footer-name { font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
+    .footer-role { font-size: 11px; color: var(--text-muted); }
+
+    /* ── CONTENT ────────────────────────────── */
+    .content { padding: 28px 32px; overflow-x: hidden; }
+
+    .back-link {
+      display: inline-block;
+      font-size: 13px;
+      color: var(--text-muted);
+      text-decoration: none;
+      margin-bottom: 16px;
+    }
+    .back-link:hover { color: var(--text-secondary); }
+
+    /* ── HEADER ─────────────────────────────── */
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      gap: 16px;
+    }
+
+    .header-left { flex: 1; min-width: 0; }
+
+    .contact-name-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+      flex-wrap: wrap;
+    }
+
+    .page-header h1 {
+      font-family: var(--heading);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+
+    .contact-email {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-top: 8px;
+      flex-shrink: 0;
+    }
+
+    /* ── BADGES ─────────────────────────────── */
+    .badge {
+      display: inline-block;
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .badge-blue   { background: rgba(157,220,227,0.20); color: #1a6b75; }
+    .badge-green  { background: rgba(123,190,154,0.18); color: #2D5A35; }
+    .badge-purple { background: rgba(111,75,162,0.12);  color: #5a3a8a; }
+    .badge-grey   { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+    .badge-orange { background: rgba(255,138,51,0.12);  color: #E07020; }
+    .badge-teal   { background: rgba(60,138,126,0.12);  color: var(--teal); }
+
+    /* ── PANELS ─────────────────────────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel-header {
+      font-family: var(--heading);
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+
+    /* ── META GRID ──────────────────────────── */
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+
+    .meta-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .meta-row:last-child { border-bottom: none; }
+
+    .meta-key {
+      font-size: 12px;
+      color: var(--text-muted);
+      width: 110px;
+      flex-shrink: 0;
+    }
+
+    .meta-val {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    /* ── LOOPS STATUS ───────────────────────── */
+    .loops-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+    .loops-stat { padding: 12px 0; }
+
+    .loops-stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .loops-stat-val {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .loops-id {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      background: rgba(47,47,47,0.04);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text-secondary);
+    }
+
+    /* ── ACTIVITY FEED ──────────────────────── */
+    .activity-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .activity-item:last-child { border-bottom: none; }
+
+    .activity-dot-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 3px;
+      gap: 4px;
+    }
+
+    .activity-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .signal-num {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .activity-body { flex: 1; min-width: 0; }
+
+    .activity-type {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 2px;
+    }
+
+    .activity-summary {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      line-height: 1.4;
+    }
+
+    .activity-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* ── FORM SUBMISSIONS ───────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    thead th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 10px 12px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(60,138,126,0.03); }
+
+    /* ── NOTES ──────────────────────────────── */
+    .notes-textarea {
+      width: 100%;
+      min-height: 120px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: var(--body);
+      font-size: 13px;
+      color: var(--text-primary);
+      background: var(--bg);
+      resize: vertical;
+      outline: none;
+      line-height: 1.5;
+      transition: border-color 0.15s;
+    }
+
+    .notes-textarea:focus { border-color: var(--teal); background: var(--surface); }
+
+    .notes-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .notes-status {
+      font-size: 12px;
+      color: var(--text-muted);
+      min-width: 80px;
+    }
+
+    .btn-save {
+      background: var(--teal);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 7px 18px;
+      font-family: var(--body);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn-save:hover { opacity: 0.88; }
+    .btn-save:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── ASSESSMENTS ────────────────────────── */
+    .rating-row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .rating-item { text-align: center; min-width: 60px; }
+
+    .rating-num {
+      font-family: var(--heading);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+
+    .rating-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .empty-italic {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* ── ENGAGEMENT SCORE PILL ──────────────── */
+    .score-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(60,138,126,0.10);
+      color: var(--teal);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-family: var(--heading);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .score-pill span {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--teal);
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+<div class="os-shell">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <span>✦</span>
+      <span>THE SIGNAL OS</span>
+    </div>
+
+    <div style="padding: 8px 0;">
+      <span class="nav-item">🏠 Snapshot</span>
+
+      <div class="nav-section-label">Relationships</div>
+      <a href="/dashboard/crm" class="nav-item active link">CRM</a>
+      <span class="nav-item">Growth</span>
+      <span class="nav-item">Clients</span>
+
+      <div class="nav-section-label">Delivery</div>
+      <span class="nav-item">Projects</span>
+      <span class="nav-item">Pathways</span>
+      <span class="nav-item">Events</span>
+
+      <div class="nav-section-label">Content</div>
+      <span class="nav-item">Content</span>
+      <span class="nav-item">Campaigns</span>
+      <span class="nav-item">EDMs</span>
+
+      <div class="nav-section-label">Operations</div>
+      <span class="nav-item">Finance</span>
+      <a href="/dashboard/governance" class="nav-item link">Governance</a>
+      <span class="nav-item">Automations</span>
+      <a href="/dashboard/agents" class="nav-item link">Agents</a>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="avatar">M</div>
+      <div>
+        <div class="footer-name">Michelle</div>
+        <div class="footer-role">System Operator</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="content">
+
+    <a href="/dashboard/crm" class="back-link">← Back to CRM</a>
+
+    <!-- 1. Header -->
+    <header class="page-header">
+      <div class="header-left">
+        <div class="contact-name-row">
+          <h1>{fullName(contact)}</h1>
+          <span class={`badge ${trackBadgeClass(contact.audience_track)}`}>{trackLabel(contact.audience_track)}</span>
+          {contact.readiness_stage && (
+            <span class="badge badge-grey">{contact.readiness_stage}</span>
+          )}
+          {contact.signal_studio_lead && (
+            <span class="badge badge-orange">Signal Studio lead</span>
+          )}
+        </div>
+        {contact.email && (
+          <div class="contact-email">{contact.email}</div>
+        )}
+      </div>
+      <div class="header-meta">
+        {contact.engagement_score != null && (
+          <div class="score-pill">
+            {contact.engagement_score}
+            <span>engagement</span>
+          </div>
+        )}
+      </div>
+    </header>
+
+    <!-- 2. Contact details -->
+    <div class="panel">
+      <div class="panel-header">Contact</div>
+      <div class="meta-grid">
+        <div>
+          <div class="meta-row">
+            <span class="meta-key">Email</span>
+            <span class="meta-val">{contact.email ?? '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Phone</span>
+            <span class="meta-val">{contact.phone ?? '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Organisation</span>
+            <span class="meta-val">{contact.organisation ?? '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Job title</span>
+            <span class="meta-val">{contact.job_title ?? '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Location</span>
+            <span class="meta-val">
+              {[contact.suburb, contact.state].filter(Boolean).join(', ') || '—'}
+            </span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Source</span>
+            <span class="meta-val">{contact.source ?? '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Entry site</span>
+            <span class="meta-val">{contact.entry_site ?? '—'}</span>
+          </div>
+        </div>
+        <div>
+          <div class="meta-row">
+            <span class="meta-key">Audience track</span>
+            <span class="meta-val">
+              <span class={`badge ${trackBadgeClass(contact.audience_track)}`}>{trackLabel(contact.audience_track)}</span>
+            </span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Readiness stage</span>
+            <span class="meta-val">{contact.readiness_stage ?? '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Capability stage</span>
+            <span class="meta-val">{contact.capability_stage ?? '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Last active</span>
+            <span class="meta-val">{relativeDate(contact.last_active)}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Created</span>
+            <span class="meta-val">{formatDate(contact.created_at)}</span>
+          </div>
+          {(contact.tags ?? []).length > 0 && (
+            <div class="meta-row">
+              <span class="meta-key">Tags</span>
+              <span class="meta-val" style="display:flex;gap:4px;flex-wrap:wrap;">
+                {(contact.tags as string[]).map((t: string) => (
+                  <span class="badge badge-grey">{t}</span>
+                ))}
+              </span>
+            </div>
+          )}
+          {contact.do_not_contact && (
+            <div class="meta-row">
+              <span class="meta-key">Do not contact</span>
+              <span class="meta-val" style="color:#C0392B;font-weight:500;">
+                Yes{contact.do_not_contact_reason ? ` — ${contact.do_not_contact_reason}` : ''}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Loops status -->
+    <div class="panel">
+      <div class="panel-header">Loops status</div>
+      <div class="loops-grid">
+        <div class="loops-stat">
+          <div class="loops-stat-label">Loops contact ID</div>
+          <div class="loops-stat-val">
+            {contact.loops_contact_id
+              ? <span class="loops-id">{contact.loops_contact_id}</span>
+              : <span class="badge badge-orange">Not synced</span>
+            }
+          </div>
+        </div>
+        <div class="loops-stat">
+          <div class="loops-stat-label">Last email open</div>
+          <div class="loops-stat-val">
+            {contact.last_email_open
+              ? <>{relativeDate(contact.last_email_open)} <span style="color:var(--text-muted);font-size:12px;">({formatDate(contact.last_email_open)})</span></>
+              : '—'
+            }
+          </div>
+        </div>
+        <div class="loops-stat">
+          <div class="loops-stat-label">Last email click</div>
+          <div class="loops-stat-val">
+            {contact.last_email_click
+              ? <>{relativeDate(contact.last_email_click)} <span style="color:var(--text-muted);font-size:12px;">({formatDate(contact.last_email_click)})</span></>
+              : '—'
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Activity feed -->
+    <div class="panel">
+      <div class="panel-header">Activity feed ({activity.length})</div>
+      {activity.length === 0 ? (
+        <p class="empty-italic">No activity recorded yet</p>
+      ) : (
+        activity.map((item: any) => (
+          <div class="activity-item">
+            <div class="activity-dot-col">
+              <div class="activity-dot" style={`background: ${signalDotColor(item.signal_strength)};`}></div>
+              {item.signal_strength != null && (
+                <span class="signal-num">{item.signal_strength}</span>
+              )}
+            </div>
+            <div class="activity-body">
+              <div class="activity-type">{item.activity_type ?? '—'}</div>
+              {item.summary && (
+                <div class="activity-summary">{item.summary}</div>
+              )}
+              <div class="activity-meta">
+                {item.source && <span>{item.source}</span>}
+                <span>{formatDateTime(item.created_at)}</span>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+
+    <!-- 5. Form submissions -->
+    <div class="panel">
+      <div class="panel-header">Form submissions ({submissions.length})</div>
+      {submissions.length === 0 ? (
+        <p class="empty-italic">No form submissions on record</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Site</th>
+              <th>Source</th>
+              <th>Page</th>
+              <th>Enquiry type</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {submissions.map((s: any) => (
+              <tr>
+                <td style="white-space:nowrap;color:var(--text-muted);">{formatDate(s.created_at)}</td>
+                <td>{s.site_slug ?? '—'}</td>
+                <td style="color:var(--text-muted);">{s.source ?? '—'}</td>
+                <td style="color:var(--text-muted);font-size:12px;">{s.page_path ?? '—'}</td>
+                <td>{s.enquiry_type ?? '—'}</td>
+                <td>
+                  {s.status
+                    ? <span class="badge badge-grey">{s.status}</span>
+                    : '—'
+                  }
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+
+    <!-- 6. Assessments (if any) -->
+    {assessments.length > 0 && (
+      <div class="panel">
+        <div class="panel-header">Capability assessments ({assessments.length})</div>
+        {assessments.map((a: any) => (
+          <div style="padding: 12px 0; border-bottom: 1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+              <span style="font-size:13px;font-weight:500;color:var(--text-primary);">
+                {formatDate(a.assessed_at)}
+              </span>
+              {a.assessed_by && (
+                <span style="font-size:12px;color:var(--text-muted);">by {a.assessed_by}</span>
+              )}
+              {a.context && (
+                <span class="badge badge-grey">{a.context}</span>
+              )}
+            </div>
+            <div class="rating-row">
+              {a.rating_facilitation != null && (
+                <div class="rating-item">
+                  <div class="rating-num">{a.rating_facilitation}</div>
+                  <div class="rating-label">Facilitation</div>
+                </div>
+              )}
+              {a.rating_ai_knowledge != null && (
+                <div class="rating-item">
+                  <div class="rating-num">{a.rating_ai_knowledge}</div>
+                  <div class="rating-label">AI knowledge</div>
+                </div>
+              )}
+              {a.rating_room_presence != null && (
+                <div class="rating-item">
+                  <div class="rating-num">{a.rating_room_presence}</div>
+                  <div class="rating-label">Room presence</div>
+                </div>
+              )}
+              {a.rating_adaptability != null && (
+                <div class="rating-item">
+                  <div class="rating-num">{a.rating_adaptability}</div>
+                  <div class="rating-label">Adaptability</div>
+                </div>
+              )}
+              {a.rating_implementation != null && (
+                <div class="rating-item">
+                  <div class="rating-num">{a.rating_implementation}</div>
+                  <div class="rating-label">Implementation</div>
+                </div>
+              )}
+            </div>
+            {a.strengths && (
+              <div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">
+                <span style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:600;letter-spacing:0.06em;">Strengths</span>
+                <p style="margin-top:2px;">{a.strengths}</p>
+              </div>
+            )}
+            {a.growth_areas && (
+              <div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">
+                <span style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:600;letter-spacing:0.06em;">Growth areas</span>
+                <p style="margin-top:2px;">{a.growth_areas}</p>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
+
+    <!-- 7. Notes -->
+    <div class="panel">
+      <div class="panel-header">Notes</div>
+      <textarea
+        id="notes-textarea"
+        class="notes-textarea"
+        placeholder="Add notes about this contact…"
+      >{contact.notes ?? ''}</textarea>
+      <div class="notes-footer">
+        <span id="notes-status" class="notes-status"></span>
+        <button id="notes-save" class="btn-save">Save notes</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script is:inline data-contact-id={id} id="contact-page-script">
+  (function () {
+    const scriptEl  = document.getElementById('contact-page-script')
+    const contactId = scriptEl.dataset.contactId
+
+    const textarea = document.getElementById('notes-textarea')
+    const saveBtn  = document.getElementById('notes-save')
+    const statusEl = document.getElementById('notes-status')
+
+    function setStatus(msg, color) {
+      statusEl.textContent = msg
+      statusEl.style.color = color || '#909090'
+    }
+
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true
+      setStatus('Saving…', '#909090')
+
+      try {
+        const res = await fetch('/api/crm/update-notes', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: contactId, notes: textarea.value }),
+        })
+        const data = await res.json()
+        if (res.ok && data.success) {
+          setStatus('Saved', '#2D5A35')
+          setTimeout(() => setStatus(''), 3000)
+        } else {
+          setStatus(data.error ?? 'Error saving', '#C0392B')
+        }
+      } catch {
+        setStatus('Error saving', '#C0392B')
+      } finally {
+        saveBtn.disabled = false
+      }
+    })
+
+    textarea.addEventListener('input', () => {
+      setStatus('Unsaved changes', '#E07020')
+    })
+  })()
+</script>
+
+</body>
+</html>

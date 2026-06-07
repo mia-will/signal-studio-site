@@ -1,0 +1,800 @@
+---
+export const prerender = false
+
+import { supabase } from '../../../lib/supabase'
+
+const { data: rows } = await supabase
+  .from('v_table_inventory')
+  .select('table_name, row_count, category, owner, acknowledged, notes')
+
+const allRows: any[] = rows ?? []
+
+const tablesWithData = allRows
+  .filter(r => r.row_count > 0)
+  .sort((a, b) => b.row_count - a.row_count)
+
+const emptyTables = allRows
+  .filter(r => r.row_count === 0)
+  .sort((a, b) => a.table_name.localeCompare(b.table_name))
+
+const categories = [...new Set(allRows.map(r => r.category).filter(Boolean))].sort()
+
+const unacknowledgedCount = allRows.filter(r => !r.acknowledged).length
+
+function fmt(n: number): string {
+  return n.toLocaleString('en-AU')
+}
+
+function truncate(str: string | null, len = 60): string {
+  if (!str) return ''
+  return str.length > len ? str.slice(0, len) + '…' : str
+}
+---
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Signal OS — Table Inventory</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --color-bg: #F5F4F1;
+      --color-surface: #FFFFFF;
+      --color-text-primary: #2F2F2F;
+      --color-text-secondary: #505050;
+      --color-text-muted: #909090;
+      --color-border: rgba(47,47,47,0.08);
+      --color-teal: #3C8A7E;
+      --color-orange: #FF8A33;
+      --color-green: #7BBE9A;
+      --color-red: #C0392B;
+      --color-violet: #6F4BA2;
+      --font-heading: 'DM Sans', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'SF Mono', 'Fira Code', monospace;
+      --radius-card: 12px;
+      --shadow-sm: 0 1px 3px rgba(47,47,47,0.06);
+    }
+
+    body {
+      background: var(--color-bg);
+      color: var(--color-text-primary);
+      font-family: var(--font-body);
+    }
+
+    .os-shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── SIDEBAR ─────────────────────────────── */
+    .sidebar {
+      background: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-logo {
+      padding: 20px 16px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-heading);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--color-text-primary);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .nav-section-label {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      padding: 20px 16px 4px;
+    }
+
+    .nav-item {
+      display: block;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--color-text-secondary);
+      padding: 6px 16px;
+      border-radius: 6px;
+      margin: 1px 8px;
+      text-decoration: none;
+      cursor: default;
+    }
+
+    a.nav-item { cursor: pointer; }
+
+    .nav-item.active {
+      background: rgba(60,138,126,0.10);
+      color: var(--color-teal);
+      font-weight: 500;
+    }
+
+    .nav-sub {
+      padding-left: 28px;
+      font-size: 12px;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 14px 16px;
+      border-top: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--color-teal);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .footer-name {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      line-height: 1.2;
+    }
+
+    .footer-role {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--color-text-muted);
+    }
+
+    /* ── MAIN CONTENT ────────────────────────── */
+    .content {
+      padding: 28px 32px;
+      overflow-x: hidden;
+    }
+
+    .content-inner {
+      max-width: 1100px;
+    }
+
+    .page-header {
+      margin-bottom: 20px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-heading);
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--color-text-primary);
+      line-height: 1.1;
+    }
+
+    .page-header p {
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--color-text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── STAT CHIPS ──────────────────────────── */
+    .stat-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .stat-chip {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 100px;
+    }
+
+    .chip-value {
+      font-family: var(--font-heading);
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .chip-label {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--color-text-muted);
+    }
+
+    /* ── FILTER BAR ──────────────────────────── */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .filter-search {
+      flex: 1;
+      min-width: 180px;
+      max-width: 300px;
+      padding: 7px 12px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--color-text-primary);
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 7px;
+      outline: none;
+    }
+
+    .filter-search:focus {
+      border-color: rgba(60,138,126,0.4);
+      box-shadow: 0 0 0 2px rgba(60,138,126,0.08);
+    }
+
+    .filter-select {
+      padding: 7px 10px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--color-text-primary);
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 7px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .filter-select:focus {
+      border-color: rgba(60,138,126,0.4);
+    }
+
+    .filter-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 7px;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .filter-toggle.active {
+      background: rgba(255,138,51,0.08);
+      border-color: rgba(255,138,51,0.3);
+      color: #E07020;
+    }
+
+    .filter-toggle-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--color-border);
+      flex-shrink: 0;
+    }
+
+    .filter-toggle.active .filter-toggle-dot {
+      background: var(--color-orange);
+    }
+
+    .filter-count {
+      margin-left: auto;
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--color-text-muted);
+    }
+
+    /* ── PANEL ───────────────────────────────── */
+    .panel {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .panel-header {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .panel-header h2 {
+      font-family: var(--font-heading);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+
+    .panel-count {
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--color-text-muted);
+    }
+
+    /* ── TABLE ───────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-body);
+      font-size: 13px;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 9px 16px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+      border-bottom: 1px solid var(--color-border);
+      white-space: nowrap;
+      background: rgba(47,47,47,0.02);
+    }
+
+    .th-right { text-align: right; }
+
+    tbody td {
+      padding: 9px 16px;
+      color: var(--color-text-secondary);
+      border-bottom: 1px solid var(--color-border);
+      vertical-align: middle;
+    }
+
+    .data-row {
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .data-row:hover {
+      background: rgba(47,47,47,0.02);
+    }
+
+    .data-row.hidden { display: none; }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    .notes-row td {
+      padding: 8px 16px 12px 44px;
+      background: rgba(47,47,47,0.02);
+      color: var(--color-text-secondary);
+      font-size: 13px;
+      line-height: 1.55;
+      border-top: none;
+    }
+
+    .notes-row { display: none; }
+    .notes-row.open { display: table-row; }
+
+    .td-name {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .expand-icon {
+      font-size: 9px;
+      color: var(--color-text-muted);
+      transition: transform 0.15s;
+      flex-shrink: 0;
+    }
+
+    .data-row.expanded .expand-icon {
+      transform: rotate(90deg);
+    }
+
+    .td-count {
+      text-align: right;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-text-primary);
+      font-weight: 500;
+    }
+
+    .td-notes {
+      font-size: 12px;
+      color: var(--color-text-muted);
+      max-width: 220px;
+    }
+
+    /* ── BADGES ──────────────────────────────── */
+    .badge {
+      display: inline-block;
+      border-radius: 20px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      font-family: var(--font-body);
+      white-space: nowrap;
+    }
+
+    .badge-green   { background: rgba(123,190,154,0.15); color: #2D5A35; }
+    .badge-amber   { background: rgba(255,138,51,0.12);  color: #E07020; }
+    .badge-grey    { background: rgba(47,47,47,0.07);    color: var(--color-text-secondary); }
+    .badge-teal    { background: rgba(60,138,126,0.12);  color: var(--color-teal); }
+
+    /* ── EMPTY STATES ────────────────────────── */
+    .empty-state {
+      padding: 20px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--color-text-muted);
+      font-style: italic;
+    }
+
+    .no-results {
+      padding: 16px 20px;
+      font-size: 13px;
+      color: var(--color-text-muted);
+      font-style: italic;
+      display: none;
+    }
+
+    .no-results.visible { display: block; }
+  </style>
+</head>
+<body>
+<div class="os-shell">
+
+  <!-- ── SIDEBAR ────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <span>✦</span>
+      <span>THE SIGNAL OS</span>
+    </div>
+
+    <div style="padding: 8px 0;">
+      <span class="nav-item">🏠 Snapshot</span>
+
+      <div class="nav-section-label">Relationships</div>
+      <span class="nav-item">CRM</span>
+      <span class="nav-item">Growth</span>
+      <span class="nav-item">Clients</span>
+
+      <div class="nav-section-label">Delivery</div>
+      <span class="nav-item">Projects</span>
+      <span class="nav-item">Pathways</span>
+      <span class="nav-item">Events</span>
+
+      <div class="nav-section-label">Content</div>
+      <span class="nav-item">Content</span>
+      <span class="nav-item">Campaigns</span>
+      <span class="nav-item">EDMs</span>
+
+      <div class="nav-section-label">Operations</div>
+      <span class="nav-item">Finance</span>
+      <a href="/dashboard/governance" class="nav-item">Governance</a>
+      <a href="/dashboard/governance/tables" class="nav-item nav-sub active">↳ Tables</a>
+      <span class="nav-item">Automations</span>
+      <a href="/dashboard/agents" class="nav-item">Agents</a>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="avatar">M</div>
+      <div>
+        <div class="footer-name">Michelle</div>
+        <div class="footer-role">System Operator</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── MAIN ──────────────────────────────── -->
+  <main class="content">
+    <div class="content-inner">
+
+      <header class="page-header">
+        <h1>Table Inventory</h1>
+        <p>Live view of every table in the public schema — row counts, ownership, and acknowledgement status</p>
+      </header>
+
+      <!-- Stat chips -->
+      <div class="stat-row">
+        <div class="stat-chip">
+          <span class="chip-value">{allRows.length}</span>
+          <span class="chip-label">Total tables</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value">{tablesWithData.length}</span>
+          <span class="chip-label">With data</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value">{emptyTables.length}</span>
+          <span class="chip-label">Empty</span>
+        </div>
+        <div class="stat-chip">
+          <span class="chip-value" style={unacknowledgedCount > 0 ? 'color: var(--color-orange);' : 'color: #2D5A35;'}>
+            {unacknowledgedCount}
+          </span>
+          <span class="chip-label">Unacknowledged</span>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="filter-bar">
+        <input
+          id="search-input"
+          class="filter-search"
+          type="search"
+          placeholder="Search tables…"
+          autocomplete="off"
+        />
+        <select id="category-select" class="filter-select">
+          <option value="">All categories</option>
+          {categories.map(c => <option value={c}>{c}</option>)}
+        </select>
+        <button id="unack-toggle" class="filter-toggle" type="button">
+          <span class="filter-toggle-dot"></span>
+          Unacknowledged only
+        </button>
+        <span id="filter-count" class="filter-count"></span>
+      </div>
+
+      <!-- Section 1: Tables with data -->
+      <div class="panel" id="panel-data">
+        <div class="panel-header">
+          <h2>Tables with data</h2>
+          <span class="panel-count" id="count-data">{tablesWithData.length} tables</span>
+        </div>
+        {tablesWithData.length === 0 ? (
+          <div class="empty-state">No tables with data</div>
+        ) : (
+          <>
+            <table id="table-data">
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th class="th-right">Rows</th>
+                  <th>Category</th>
+                  <th>Owner</th>
+                  <th>Acknowledged</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tablesWithData.map((r: any, i: number) => {
+                  const notesTrunc = truncate(r.notes)
+                  const hasNotes = r.notes && r.notes.length > 0
+                  return (
+                    <>
+                      <tr
+                        class="data-row"
+                        data-section="data"
+                        data-name={r.table_name}
+                        data-category={r.category}
+                        data-acknowledged={r.acknowledged ? 'true' : 'false'}
+                        data-idx={i}
+                      >
+                        <td>
+                          <div class="td-name">
+                            {hasNotes && <span class="expand-icon">▶</span>}
+                            {r.table_name}
+                          </div>
+                        </td>
+                        <td class="td-count">{fmt(r.row_count)}</td>
+                        <td>
+                          <span class="badge badge-grey">{r.category}</span>
+                        </td>
+                        <td style="font-size: 12px; color: var(--color-text-muted);">{r.owner ?? '—'}</td>
+                        <td>
+                          {r.acknowledged
+                            ? <span class="badge badge-green">Yes</span>
+                            : <span class="badge badge-amber">No</span>
+                          }
+                        </td>
+                        <td class="td-notes">{notesTrunc || <span style="color: var(--color-border);">—</span>}</td>
+                      </tr>
+                      {hasNotes && (
+                        <tr class="notes-row" data-for={`data-${i}`}>
+                          <td colspan="6">{r.notes}</td>
+                        </tr>
+                      )}
+                    </>
+                  )
+                })}
+              </tbody>
+            </table>
+            <div class="no-results" id="no-results-data">No tables match the current filters</div>
+          </>
+        )}
+      </div>
+
+      <!-- Section 2: Empty tables -->
+      <div class="panel" id="panel-empty">
+        <div class="panel-header">
+          <h2>Empty tables</h2>
+          <span class="panel-count" id="count-empty">{emptyTables.length} tables</span>
+        </div>
+        {emptyTables.length === 0 ? (
+          <div class="empty-state">No empty tables</div>
+        ) : (
+          <>
+            <table id="table-empty">
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th class="th-right">Rows</th>
+                  <th>Category</th>
+                  <th>Owner</th>
+                  <th>Acknowledged</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {emptyTables.map((r: any, i: number) => {
+                  const notesTrunc = truncate(r.notes)
+                  const hasNotes = r.notes && r.notes.length > 0
+                  return (
+                    <>
+                      <tr
+                        class="data-row"
+                        data-section="empty"
+                        data-name={r.table_name}
+                        data-category={r.category}
+                        data-acknowledged={r.acknowledged ? 'true' : 'false'}
+                        data-idx={i}
+                      >
+                        <td>
+                          <div class="td-name">
+                            {hasNotes && <span class="expand-icon">▶</span>}
+                            {r.table_name}
+                          </div>
+                        </td>
+                        <td class="td-count" style="color: var(--color-text-muted);">0</td>
+                        <td>
+                          <span class="badge badge-grey">{r.category}</span>
+                        </td>
+                        <td style="font-size: 12px; color: var(--color-text-muted);">{r.owner ?? '—'}</td>
+                        <td>
+                          {r.acknowledged
+                            ? <span class="badge badge-green">Yes</span>
+                            : <span class="badge badge-amber">No</span>
+                          }
+                        </td>
+                        <td class="td-notes">{notesTrunc || <span style="color: var(--color-border);">—</span>}</td>
+                      </tr>
+                      {hasNotes && (
+                        <tr class="notes-row" data-for={`empty-${i}`}>
+                          <td colspan="6">{r.notes}</td>
+                        </tr>
+                      )}
+                    </>
+                  )
+                })}
+              </tbody>
+            </table>
+            <div class="no-results" id="no-results-empty">No tables match the current filters</div>
+          </>
+        )}
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+  const searchInput  = document.getElementById('search-input') as HTMLInputElement
+  const categorySelect = document.getElementById('category-select') as HTMLSelectElement
+  const unackToggle  = document.getElementById('unack-toggle') as HTMLButtonElement
+  const filterCount  = document.getElementById('filter-count') as HTMLSpanElement
+
+  let unackOnly = false
+
+  function applyFilters() {
+    const search   = searchInput.value.trim().toLowerCase()
+    const category = categorySelect.value
+    const dataRows = document.querySelectorAll<HTMLTableRowElement>('.data-row')
+
+    let visibleData  = 0
+    let visibleEmpty = 0
+
+    dataRows.forEach(row => {
+      const name = (row.dataset.name ?? '').toLowerCase()
+      const cat  = row.dataset.category ?? ''
+      const ack  = row.dataset.acknowledged === 'true'
+      const sec  = row.dataset.section ?? ''
+      const idx  = row.dataset.idx ?? ''
+
+      const matchSearch   = !search   || name.includes(search)
+      const matchCategory = !category || cat === category
+      const matchUnack    = !unackOnly || !ack
+
+      const visible = matchSearch && matchCategory && matchUnack
+      row.classList.toggle('hidden', !visible)
+
+      // Also hide/show the paired notes row
+      const notesRow = document.querySelector<HTMLTableRowElement>(
+        `.notes-row[data-for="${sec}-${idx}"]`
+      )
+      if (notesRow && !visible) {
+        notesRow.classList.remove('open')
+        row.classList.remove('expanded')
+      }
+
+      if (visible) {
+        if (sec === 'data')  visibleData++
+        if (sec === 'empty') visibleEmpty++
+      }
+    })
+
+    // Update panel counts and no-results messages
+    const countData  = document.getElementById('count-data')
+    const countEmpty = document.getElementById('count-empty')
+    const noData     = document.getElementById('no-results-data')
+    const noEmpty    = document.getElementById('no-results-empty')
+
+    if (countData)  countData.textContent  = `${visibleData} table${visibleData !== 1 ? 's' : ''}`
+    if (countEmpty) countEmpty.textContent = `${visibleEmpty} table${visibleEmpty !== 1 ? 's' : ''}`
+    if (noData)     noData.classList.toggle('visible', visibleData === 0)
+    if (noEmpty)    noEmpty.classList.toggle('visible', visibleEmpty === 0)
+
+    const total = visibleData + visibleEmpty
+    const all   = dataRows.length
+    filterCount.textContent = total < all ? `${total} of ${all} shown` : ''
+  }
+
+  // Row expand / collapse
+  document.querySelectorAll<HTMLTableRowElement>('.data-row').forEach(row => {
+    const idx = row.dataset.idx ?? ''
+    const sec = row.dataset.section ?? ''
+    const notesRow = document.querySelector<HTMLTableRowElement>(
+      `.notes-row[data-for="${sec}-${idx}"]`
+    )
+    if (!notesRow) return
+
+    row.addEventListener('click', () => {
+      const open = notesRow.classList.toggle('open')
+      row.classList.toggle('expanded', open)
+    })
+  })
+
+  // Toggle button
+  unackToggle.addEventListener('click', () => {
+    unackOnly = !unackOnly
+    unackToggle.classList.toggle('active', unackOnly)
+    applyFilters()
+  })
+
+  searchInput.addEventListener('input', applyFilters)
+  categorySelect.addEventListener('change', applyFilters)
+</script>
+</body>
+</html>

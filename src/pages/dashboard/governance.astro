@@ -2,6 +2,7 @@
 export const prerender = false
 
 import { createClient } from '@supabase/supabase-js'
+import DashboardLayout from '../../layouts/DashboardLayout.astro'
 
 const supabase = createClient(
   import.meta.env.PUBLIC_SUPABASE_URL,
@@ -96,13 +97,8 @@ function isOverdue(d: string | null | undefined): boolean {
 const ragBorderColor = securityRAG === 'red' ? '#C0392B' : securityRAG === 'amber' ? '#FF8A33' : '#7BBE9A'
 ---
 
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Signal OS — Governance</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
+<DashboardLayout title="The Signal OS — Governance">
+<style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -529,50 +525,6 @@ const ragBorderColor = securityRAG === 'red' ? '#C0392B' : securityRAG === 'ambe
 
     .strike { text-decoration: line-through; color: var(--color-text-muted); }
   </style>
-</head>
-<body>
-<div class="os-shell">
-
-  <!-- ── SIDEBAR ────────────────────────────── -->
-  <nav class="sidebar">
-    <div class="sidebar-logo">
-      <span>✦</span>
-      <span>THE SIGNAL OS</span>
-    </div>
-
-    <div style="padding: 8px 0;">
-      <span class="nav-item">🏠 Snapshot</span>
-
-      <div class="nav-section-label">Relationships</div>
-      <span class="nav-item">CRM</span>
-      <span class="nav-item">Growth</span>
-      <span class="nav-item">Clients</span>
-
-      <div class="nav-section-label">Delivery</div>
-      <span class="nav-item">Projects</span>
-      <span class="nav-item">Pathways</span>
-      <span class="nav-item">Events</span>
-
-      <div class="nav-section-label">Content</div>
-      <span class="nav-item">Content</span>
-      <span class="nav-item">Campaigns</span>
-      <span class="nav-item">EDMs</span>
-
-      <div class="nav-section-label">Operations</div>
-      <span class="nav-item">Finance</span>
-      <a href="/dashboard/governance" class="nav-item active">Governance</a>
-      <span class="nav-item">Automations</span>
-      <a href="/dashboard/agents" class="nav-item">Agents</a>
-    </div>
-
-    <div class="sidebar-footer">
-      <div class="avatar">M</div>
-      <div>
-        <div class="footer-name">Michelle</div>
-        <div class="footer-role">System Operator</div>
-      </div>
-    </div>
-  </nav>
 
   <!-- ── MAIN ──────────────────────────────── -->
   <main class="content">
@@ -1045,6 +997,4 @@ const ragBorderColor = securityRAG === 'red' ? '#C0392B' : securityRAG === 'ambe
     </div>
 
   </main>
-</div>
-</body>
-</html>
+</DashboardLayout>

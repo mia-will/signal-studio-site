@@ -1,446 +1,559 @@
 ---
 export const prerender = false
-
 import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
-import ChatPanel from '../../../components/dashboard/ChatPanel.astro'
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
 
-const [buildersRes, appliersRes, unassignedRes, missingCapRes, contactsRes] = await Promise.all([
-  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).eq('audience_track', 'builder'),
-  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).eq('audience_track', 'applier'),
-  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).or('audience_track.is.null,audience_track.eq.'),
-  supabase.from('contacts_crm').select('*', { count: 'exact', head: true }).or('capability_stage.is.null,capability_stage.eq.'),
+const SELECT_FIELDS = 'id, first_name, last_name, email, phone, organisation, audience_track, readiness_stage, engagement_score, last_active, source, leaders_group, do_not_contact, do_not_contact_reason, contact_type, created_at, suburb, state'
+const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+const [statsRes, contactsRes, bothCountRes, michelleRes, needsAttentionRes] = await Promise.all([
+  supabase.from('v_crm_dashboard').select('*').maybeSingle(),
   supabase.from('contacts_crm')
-    .select('id,first_name,last_name,email,audience_track,readiness_stage,capability_stage,engagement_score,last_active,signal_studio_lead,potential_partner')
-    .order('engagement_score', { ascending: false })
-    .order('last_active', { ascending: false }),
+    .select(SELECT_FIELDS)
+    .neq('email', 'michelle@theremix.au')
+    .order('engagement_score', { ascending: false, nullsFirst: false }),
+  supabase.from('contacts_crm')
+    .select('*', { count: 'exact', head: true })
+    .eq('audience_track', 'both')
+    .neq('email', 'michelle@theremix.au'),
+  supabase.from('contacts_crm')
+    .select(SELECT_FIELDS)
+    .eq('email', 'michelle@theremix.au')
+    .maybeSingle(),
+  supabase.from('contacts_crm')
+    .select('id, first_name, last_name, email, source, created_at')
+    .in('source', ['website_form', 'social_form', 'studio_form'])
+    .gte('created_at', sevenDaysAgo)
+    .neq('email', 'michelle@theremix.au')
+    .or('do_not_contact.is.null,do_not_contact.eq.false')
+    .order('created_at', { ascending: false })
+    .limit(10),
 ])
 
-const builders  = buildersRes.count  ?? 0
-const appliers  = appliersRes.count  ?? 0
-const unassigned = unassignedRes.count ?? 0
-const missingCap = missingCapRes.count ?? 0
-const contacts  = contactsRes.data ?? []
+const stats          = statsRes.data
+const contacts       = contactsRes.data ?? []
+const bothCount      = bothCountRes.count ?? 0
+const michelle       = michelleRes.data
+const needsAttnDB    = needsAttentionRes.data ?? []
+const allCount       = contacts.length
+const needsAttnCount = needsAttnDB.length
 ---
 
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Signal OS — CRM</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<DashboardLayout title="The Signal OS — CRM">
+<style>
+  .content { padding: 28px 32px; overflow-x: hidden; min-height: 100vh; }
 
-    :root {
-      --bg: #F5F4F1;
-      --surface: #FFFFFF;
-      --text-primary: #2F2F2F;
-      --text-secondary: #505050;
-      --text-muted: #909090;
-      --border: rgba(47,47,47,0.08);
-      --teal: #3C8A7E;
-      --orange: #FF8A33;
-      --green: #7BBE9A;
-      --aqua: #9DDCE3;
-      --violet: #6F4BA2;
-      --red: #C0392B;
-      --dark: #111111;
-      --heading: 'DM Sans', sans-serif;
-      --body: 'Inter', sans-serif;
-    }
+  /* ── PAGE HEADER ─────────────────────────── */
+  .page-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 20px; gap: 16px;
+  }
+  .page-header h1 { font-family: var(--heading); font-size: 22px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
+  .page-header-sub { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+  .header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
-    body { background: var(--bg); color: var(--text-primary); font-family: var(--body); }
+  .btn-ghost {
+    font-family: var(--body); font-size: 12px; color: var(--text-muted);
+    background: none; border: none; cursor: pointer; padding: 4px 8px;
+    border-radius: 6px; transition: background 0.12s;
+  }
+  .btn-ghost:hover { background: rgba(47,47,47,0.06); }
+  .btn-ghost span { color: var(--text-secondary); text-decoration: underline; }
 
-    .os-shell {
-      display: grid;
-      grid-template-columns: 220px 1fr;
-      min-height: 100vh;
-    }
+  .btn-primary {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    background: var(--text-primary); color: #fff;
+    border: none; border-radius: 8px; padding: 6px 14px; cursor: pointer;
+    transition: opacity 0.12s;
+  }
+  .btn-primary:hover { opacity: 0.85; }
 
-    /* ── SIDEBAR ──────────────────────────────── */
-    .sidebar {
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      overflow-y: auto;
-    }
+  /* ── TOP PANEL ───────────────────────────── */
+  .top-panel {
+    display: grid;
+    grid-template-columns: 1fr 240px;
+    gap: 12px;
+    margin-bottom: 16px;
+    align-items: start;
+  }
 
-    .sidebar-logo {
-      padding: 20px 16px 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-family: var(--heading);
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      color: var(--text-primary);
-      border-bottom: 1px solid var(--border);
-    }
+  /* ── STAT CARDS ──────────────────────────── */
+  .stat-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 
-    .nav-section-label {
-      font-family: var(--body);
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      padding: 20px 16px 4px;
-    }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .stat-card:hover { border-color: rgba(47,47,47,0.18); }
+  .stat-card.active { border: 1.5px solid #FD6F2F; }
 
-    .nav-item {
-      display: block;
-      font-family: var(--body);
-      font-size: 13px;
-      font-weight: 400;
-      color: var(--text-secondary);
-      padding: 6px 16px;
-      border-radius: 6px;
-      margin: 1px 8px;
-      text-decoration: none;
-      cursor: default;
-    }
+  .stat-card-top { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
+  .stat-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .stat-value { font-family: var(--heading); font-size: 20px; font-weight: 500; color: var(--text-primary); line-height: 1; }
+  .stat-label { font-family: var(--body); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 
-    .nav-item.active {
-      background: rgba(60,138,126,0.10);
-      color: var(--teal);
-      font-weight: 500;
-    }
+  /* ── NEEDS ATTENTION PANEL ───────────────── */
+  .needs-attention-panel {
+    border: 0.5px solid #FD6F2F;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .attn-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 0.5px solid rgba(253,111,47,0.2);
+    font-family: var(--body); font-size: 11px; font-weight: 600;
+    color: var(--text-primary);
+  }
+  .attn-badge {
+    background: #FD6F2F; color: #fff;
+    font-size: 10px; font-weight: 600;
+    border-radius: 10px; padding: 1px 6px;
+    line-height: 1.6;
+  }
+  .attn-empty {
+    padding: 14px 12px;
+    font-family: var(--body); font-size: 11px;
+    color: var(--text-muted); font-style: italic;
+  }
+  .attn-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 12px;
+    border-bottom: 0.5px solid rgba(47,47,47,0.06);
+    text-decoration: none;
+    transition: background 0.1s;
+  }
+  .attn-item:last-child { border-bottom: none; }
+  .attn-item:hover { background: rgba(47,47,47,0.03); }
+  .attn-name { font-family: var(--body); font-size: 12px; font-weight: 500; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attn-time { font-family: var(--body); font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
 
-    .nav-item.link { cursor: pointer; }
-    .nav-item.link:hover { background: rgba(47,47,47,0.04); }
+  .type-pill {
+    font-size: 10px; font-weight: 500; border-radius: 4px; padding: 1px 6px; flex-shrink: 0;
+  }
+  .type-form    { background: #E1F5EE; color: #0F6E56; }
+  .type-meeting { background: #E6F1FB; color: #185FA5; }
+  .type-email   { background: #FAEEDA; color: #854F0B; }
 
-    .sidebar-footer {
-      margin-top: auto;
-      padding: 14px 16px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+  /* ── TAB BAR ─────────────────────────────── */
+  .tab-bar {
+    display: flex; align-items: center; gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 14px;
+  }
+  .tab {
+    font-family: var(--body); font-size: 13px; font-weight: 400;
+    color: var(--text-muted);
+    background: none; border: none; cursor: pointer;
+    padding: 8px 14px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.12s, border-color 0.12s;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .tab:hover { color: var(--text-primary); }
+  .tab.active { color: var(--text-primary); font-weight: 500; border-bottom-color: #FD6F2F; }
+  .tab-badge {
+    background: rgba(47,47,47,0.1); color: var(--text-secondary);
+    font-size: 10px; font-weight: 600;
+    border-radius: 10px; padding: 1px 6px; line-height: 1.6;
+  }
+  .tab.active .tab-badge { background: #FD6F2F; color: #fff; }
 
-    .avatar {
-      width: 28px; height: 28px;
-      border-radius: 50%;
-      background: var(--teal);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 600;
-      flex-shrink: 0;
-    }
+  /* ── TOOLBAR ─────────────────────────────── */
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 
-    .footer-name { font-family: var(--body); font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
-    .footer-role { font-family: var(--body); font-size: 11px; color: var(--text-muted); }
+  .search-input {
+    flex: 1;
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px;
+    font-family: var(--body); font-size: 13px; color: var(--text-primary);
+    background: var(--surface); outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-input:focus { border-color: rgba(47,47,47,0.3); }
+  .search-input::placeholder { color: var(--text-muted); }
 
-    /* ── CONTENT ──────────────────────────────── */
-    .content { padding: 28px 32px; overflow-x: hidden; }
+  .sort-select {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px;
+    font-family: var(--body); font-size: 12px; color: var(--text-secondary);
+    background: var(--surface); outline: none; cursor: pointer;
+  }
 
-    .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; gap: 16px; }
-    .page-header h1 { font-family: var(--heading); font-size: 32px; font-weight: 700; color: var(--text-primary); line-height: 1.1; }
-    .page-header p  { font-family: var(--body); font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+  .btn-outline {
+    font-family: var(--body); font-size: 12px; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; background: var(--surface); cursor: pointer;
+    transition: border-color 0.12s;
+  }
+  .btn-outline:hover { border-color: rgba(47,47,47,0.25); }
 
-    /* ── STAT CARDS ───────────────────────────── */
-    .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  /* ── COLUMN TOGGLES ──────────────────────── */
+  .col-toggles {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .col-label { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-right: 2px; }
+  .col-pill {
+    font-family: var(--body); font-size: 11px; font-weight: 500;
+    border-radius: 20px; padding: 3px 10px;
+    cursor: pointer; border: 1px solid var(--border);
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    user-select: none;
+  }
+  .col-pill.on  { background: #2F2F2F; color: #fff; border-color: #2F2F2F; }
+  .col-pill.off { background: transparent; color: var(--text-muted); border-color: var(--border); }
 
-    .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 1px 3px rgba(47,47,47,0.06);
-      cursor: pointer;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
+  /* ── TABLE ───────────────────────────────── */
+  .table-wrap {
+    border: 0.5px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
 
-    .stat-card:hover { border-color: rgba(60,138,126,0.30); box-shadow: 0 2px 8px rgba(47,47,47,0.10); }
-    .stat-card.active { border-color: var(--teal); box-shadow: 0 2px 8px rgba(60,138,126,0.15); }
+  table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--body); font-size: 13px;
+    table-layout: fixed;
+  }
 
-    .stat-dot { width: 8px; height: 8px; border-radius: 50%; margin-bottom: 14px; }
-    .stat-value { font-family: var(--heading); font-size: 28px; font-weight: 700; color: var(--text-primary); line-height: 1; }
-    .stat-label { font-family: var(--body); font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  col.col-name         { width: 220px; }
+  col.col-track        { width: 85px; }
+  col.col-stage        { width: 120px; }
+  col.col-score        { width: 60px; }
+  col.col-last_active  { width: 90px; }
+  col.col-phone        { width: 120px; }
+  col.col-organisation { width: 130px; }
+  col.col-source       { width: 100px; }
+  col.col-leaders      { width: 70px; }
+  col.col-location     { width: 130px; }
 
-    /* ── FILTER TABS ──────────────────────────── */
-    .filter-bar { display: flex; align-items: center; gap: 4px; margin-bottom: 16px; }
+  thead th {
+    text-align: left; padding: 9px 12px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-muted);
+    border-bottom: 0.5px solid var(--border);
+    white-space: nowrap; user-select: none; background: var(--surface);
+  }
+  thead th.sortable { cursor: pointer; }
+  thead th.sortable:hover { color: var(--text-primary); }
+  thead th.sort-asc::after  { content: ' ↑'; color: #FD6F2F; }
+  thead th.sort-desc::after { content: ' ↓'; color: #FD6F2F; }
 
-    .filter-tab {
-      font-family: var(--body);
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      padding: 6px 14px;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      background: transparent;
-      cursor: pointer;
-      transition: background 0.12s, border-color 0.12s, color 0.12s;
-    }
+  tbody td {
+    padding: 9px 12px; color: var(--text-secondary);
+    border-bottom: 0.5px solid var(--border);
+    vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr { cursor: pointer; transition: background 0.1s; }
+  tbody tr:hover td { background: rgba(47,47,47,0.025); }
 
-    .filter-tab:hover { background: rgba(47,47,47,0.05); }
-    .filter-tab.active { background: var(--surface); border-color: var(--border); color: var(--teal); font-weight: 600; }
+  /* ── NAME CELL ───────────────────────────── */
+  .name-cell { display: flex; align-items: center; gap: 9px; }
+  .contact-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; flex-shrink: 0;
+    font-family: var(--body);
+  }
+  .name-block { min-width: 0; }
+  .contact-name { font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .contact-email { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .contact-email.dnc { text-decoration: line-through; }
 
-    /* ── SEARCH ───────────────────────────────── */
-    .search-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .dnc-pill {
+    display: inline-block; margin-left: 6px;
+    background: #FCEBEB; color: #A32D2D;
+    font-size: 10px; font-weight: 500; border-radius: 4px; padding: 1px 5px;
+  }
 
-    .search-input {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 14px;
-      font-family: var(--body);
-      font-size: 13px;
-      color: var(--text-primary);
-      background: var(--surface);
-      outline: none;
-      width: 280px;
-      transition: border-color 0.15s;
-    }
+  /* ── TRACK PILL ──────────────────────────── */
+  .track-pill { font-size: 11px; font-weight: 500; border-radius: 4px; padding: 2px 7px; display: inline-block; }
+  .track-builder { background: #E1F5EE; color: #0F6E56; }
+  .track-applier { background: #E6F1FB; color: #185FA5; }
+  .track-both    { background: #EEEDFE; color: #3C3489; }
 
-    .search-input:focus { border-color: var(--teal); }
-    .search-input::placeholder { color: var(--text-muted); }
+  /* ── EMPTY + LOADING ─────────────────────── */
+  .table-message { padding: 36px 20px; text-align: center; color: var(--text-muted); font-family: var(--body); font-size: 13px; font-style: italic; }
 
-    .results-count { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-left: auto; }
+  /* ── PAGINATION ──────────────────────────── */
+  .pagination {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 6px; padding-top: 12px;
+    font-family: var(--body); font-size: 13px; color: var(--text-muted);
+  }
+  .pagination-info { margin-right: 8px; }
+  .page-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px;
+    font-family: var(--body); font-size: 12px; color: var(--text-secondary);
+    cursor: pointer; transition: border-color 0.12s, color 0.12s;
+  }
+  .page-btn:hover:not(:disabled) { border-color: rgba(47,47,47,0.3); color: var(--text-primary); }
+  .page-btn:disabled { opacity: 0.35; cursor: default; }
+  .page-btn.active { background: #2F2F2F; color: #fff; border-color: #2F2F2F; }
+</style>
 
-    /* ── TABLE ────────────────────────────────── */
-    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+<main class="content">
 
-    table { width: 100%; border-collapse: collapse; font-family: var(--body); font-size: 13px; }
-
-    thead th {
-      text-align: left;
-      padding: 10px 14px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-      user-select: none;
-    }
-
-    thead th.sortable { cursor: pointer; }
-    thead th.sortable:hover { color: var(--text-primary); }
-    thead th.sort-asc::after  { content: ' ↑'; color: var(--teal); }
-    thead th.sort-desc::after { content: ' ↓'; color: var(--teal); }
-
-    tbody td { padding: 10px 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border); vertical-align: middle; }
-    tbody tr:last-child td { border-bottom: none; }
-    tbody tr:hover td { background: rgba(60,138,126,0.03); }
-
-    .contact-link { color: var(--text-primary); font-weight: 500; text-decoration: none; }
-    .contact-link:hover { color: var(--teal); text-decoration: underline; }
-
-    /* ── BADGES ───────────────────────────────── */
-    .badge {
-      display: inline-block;
-      border-radius: 20px;
-      padding: 2px 10px;
-      font-size: 11px;
-      font-weight: 500;
-      font-family: var(--body);
-    }
-
-    .badge-blue   { background: rgba(157,220,227,0.20); color: #1a6b75; }
-    .badge-green  { background: rgba(123,190,154,0.18); color: #2D5A35; }
-    .badge-purple { background: rgba(111,75,162,0.12);  color: #5a3a8a; }
-    .badge-grey   { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
-
-    /* ── PAGINATION ───────────────────────────── */
-    .pagination {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      border-top: 1px solid var(--border);
-      font-family: var(--body);
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-
-    .pagination-controls { display: flex; align-items: center; gap: 6px; }
-
-    .page-btn {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 5px 12px;
-      font-family: var(--body);
-      font-size: 13px;
-      color: var(--text-secondary);
-      cursor: pointer;
-    }
-
-    .page-btn:hover:not(:disabled) { border-color: var(--teal); color: var(--teal); }
-    .page-btn:disabled { opacity: 0.4; cursor: default; }
-
-    .empty-state { padding: 40px 20px; text-align: center; color: var(--text-muted); font-family: var(--body); font-size: 13px; font-style: italic; }
-  </style>
-</head>
-<body>
-<div class="os-shell">
-
-  <!-- SIDEBAR -->
-  <nav class="sidebar">
-    <div class="sidebar-logo">
-      <span>✦</span>
-      <span>THE SIGNAL OS</span>
+  <!-- Page header -->
+  <header class="page-header">
+    <div>
+      <h1>CRM</h1>
+      <p class="page-header-sub" id="header-subtitle">{allCount} contacts · sorted by engagement</p>
     </div>
-
-    <div style="padding: 8px 0;">
-      <span class="nav-item">🏠 Snapshot</span>
-
-      <div class="nav-section-label">Relationships</div>
-      <a href="/dashboard/crm" class="nav-item active">CRM</a>
-      <span class="nav-item">Growth</span>
-      <span class="nav-item">Clients</span>
-
-      <div class="nav-section-label">Delivery</div>
-      <span class="nav-item">Projects</span>
-      <span class="nav-item">Pathways</span>
-      <span class="nav-item">Events</span>
-
-      <div class="nav-section-label">Content</div>
-      <span class="nav-item">Content</span>
-      <span class="nav-item">Campaigns</span>
-      <span class="nav-item">EDMs</span>
-
-      <div class="nav-section-label">Operations</div>
-      <span class="nav-item">Finance</span>
-      <a href="/dashboard/governance" class="nav-item link">Governance</a>
-      <span class="nav-item">Automations</span>
-      <a href="/dashboard/agents" class="nav-item link">Agents</a>
+    <div class="header-actions">
+      <button class="btn-ghost" id="toggle-michelle">
+        Hiding you · <span id="toggle-michelle-label">show anyway</span>
+      </button>
+      <button class="btn-primary">+ Add contact</button>
     </div>
+  </header>
 
-    <div class="sidebar-footer">
-      <div class="avatar">M</div>
-      <div>
-        <div class="footer-name">Michelle</div>
-        <div class="footer-role">System Operator</div>
-      </div>
-    </div>
-  </nav>
-
-  <!-- MAIN -->
-  <main class="content">
-
-    <header class="page-header">
-      <div>
-        <h1>CRM</h1>
-        <p>All contacts · sorted by engagement</p>
-      </div>
-    </header>
+  <!-- Top panel: stat cards + needs attention -->
+  <div class="top-panel">
 
     <!-- Stat cards -->
-    <section class="stat-cards">
-      <div class="stat-card" data-filter="builder" id="card-builder">
-        <div class="stat-dot" style="background: #9DDCE3;"></div>
-        <div class="stat-value">{builders}</div>
-        <div class="stat-label">Builders</div>
-      </div>
-      <div class="stat-card" data-filter="applier" id="card-applier">
-        <div class="stat-dot" style="background: #7BBE9A;"></div>
-        <div class="stat-value">{appliers}</div>
-        <div class="stat-label">Appliers</div>
-      </div>
-      <div class="stat-card" data-filter="unassigned" id="card-unassigned">
-        <div class="stat-dot" style="background: #C8C8C8;"></div>
-        <div class="stat-value">{unassigned}</div>
-        <div class="stat-label">Unassigned track</div>
-      </div>
-      <div class="stat-card" data-filter="missing-cap" id="card-missing-cap">
-        <div class="stat-dot" style="background: #FF8A33;"></div>
-        <div class="stat-value">{missingCap}</div>
-        <div class="stat-label">Missing capability stage</div>
-      </div>
-    </section>
-
-    <!-- Filter tabs -->
-    <div class="filter-bar">
-      <button class="filter-tab active" data-tab="all">All</button>
-      <button class="filter-tab" data-tab="builder">Builders</button>
-      <button class="filter-tab" data-tab="applier">Appliers</button>
-      <button class="filter-tab" data-tab="both">Both</button>
-      <button class="filter-tab" data-tab="unassigned">Unassigned</button>
-    </div>
-
-    <!-- Search + count -->
-    <div class="search-row">
-      <input
-        type="text"
-        id="crm-search"
-        class="search-input"
-        placeholder="Search by name or email…"
-        autocomplete="off"
-      />
-      <span id="results-count" class="results-count"></span>
-    </div>
-
-    <!-- Table -->
-    <div class="panel">
-      <table>
-        <thead>
-          <tr>
-            <th class="sortable" data-col="name">Name</th>
-            <th>Email</th>
-            <th>Audience track</th>
-            <th>Readiness stage</th>
-            <th>Capability stage</th>
-            <th class="sortable" data-col="score">Engagement score</th>
-            <th class="sortable" data-col="active">Last active</th>
-          </tr>
-        </thead>
-        <tbody id="contacts-tbody">
-          <tr><td colspan="7" class="empty-state">Loading…</td></tr>
-        </tbody>
-      </table>
-      <div class="pagination" id="pagination">
-        <span id="pagination-info"></span>
-        <div class="pagination-controls">
-          <button class="page-btn" id="btn-prev">← Prev</button>
-          <button class="page-btn" id="btn-next">Next →</button>
+    <div class="stat-cards" id="stat-cards">
+      <div class="stat-card active" data-filter="all">
+        <div class="stat-card-top">
+          <div class="stat-dot" style="background:#888"></div>
+          <div class="stat-label">All</div>
         </div>
+        <div class="stat-value" id="count-all">{allCount}</div>
+      </div>
+      <div class="stat-card" data-filter="builder">
+        <div class="stat-card-top">
+          <div class="stat-dot" style="background:#1D9E75"></div>
+          <div class="stat-label">Builders</div>
+        </div>
+        <div class="stat-value">{stats?.builders ?? 0}</div>
+      </div>
+      <div class="stat-card" data-filter="applier">
+        <div class="stat-card-top">
+          <div class="stat-dot" style="background:#378ADD"></div>
+          <div class="stat-label">Appliers</div>
+        </div>
+        <div class="stat-value">{stats?.appliers ?? 0}</div>
+      </div>
+      <div class="stat-card" data-filter="both">
+        <div class="stat-card-top">
+          <div class="stat-dot" style="background:#7F77DD"></div>
+          <div class="stat-label">Both</div>
+        </div>
+        <div class="stat-value">{bothCount}</div>
+      </div>
+      <div class="stat-card" data-filter="unassigned">
+        <div class="stat-card-top">
+          <div class="stat-dot" style="background:#EF9F27"></div>
+          <div class="stat-label">Unassigned</div>
+        </div>
+        <div class="stat-value">{stats?.untracked_audience ?? 0}</div>
       </div>
     </div>
 
-  </main>
-</div>
+    <!-- Needs attention panel -->
+    <div class="needs-attention-panel" id="needs-attention-panel">
+      <div class="attn-header">
+        Needs attention
+        <span class="attn-badge" id="attn-badge">{needsAttnCount}</span>
+      </div>
+      {needsAttnDB.length === 0 ? (
+        <div class="attn-empty">No contacts need attention right now.</div>
+      ) : (
+        needsAttnDB.slice(0, 3).map(c => (
+          <a href={`/dashboard/crm/${c.id}`} class="attn-item">
+            <span class="type-pill type-form">Form</span>
+            <span class="attn-name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || c.email}</span>
+            <span class="attn-time" data-ts={c.created_at}></span>
+          </a>
+        ))
+      )}
+      {/* TODO: Gmail unread-reply items and Google Calendar upcoming-meeting items go here once MCPs are wired */}
+    </div>
+  </div>
 
-<ChatPanel page="/dashboard/crm" />
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <button class="tab" data-tab="needs_attention">
+      Needs attention
+      <span class="tab-badge">{needsAttnCount}</span>
+    </button>
+    <button class="tab active" data-tab="all">All</button>
+    <button class="tab" data-tab="builder">Builders</button>
+    <button class="tab" data-tab="applier">Appliers</button>
+    <button class="tab" data-tab="both">Both</button>
+    <button class="tab" data-tab="unassigned">Unassigned</button>
+  </div>
 
-<!-- Contacts data -->
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <input
+      type="text" id="crm-search" class="search-input"
+      placeholder="Search by name or email…" autocomplete="off"
+    />
+    <select id="sort-select" class="sort-select">
+      <option value="engagement_score">Engagement score</option>
+      <option value="last_active">Last active</option>
+      <option value="created_at">Date added</option>
+      <option value="name">Name A–Z</option>
+    </select>
+    <button class="btn-outline">Filter</button>
+  </div>
+
+  <!-- Column toggle pills -->
+  <div class="col-toggles" id="col-toggles">
+    <span class="col-label">Columns:</span>
+    <button class="col-pill on" data-col="track">Track</button>
+    <button class="col-pill on" data-col="stage">Stage</button>
+    <button class="col-pill on" data-col="score">Score</button>
+    <button class="col-pill on" data-col="last_active">Last active</button>
+    <button class="col-pill off" data-col="phone">Phone</button>
+    <button class="col-pill off" data-col="organisation">Organisation</button>
+    <button class="col-pill off" data-col="source">Source</button>
+    <button class="col-pill off" data-col="leaders">Leaders</button>
+    <button class="col-pill off" data-col="location">Location</button>
+  </div>
+
+  <!-- Contact table -->
+  <div class="table-wrap">
+    <table>
+      <colgroup>
+        <col class="col-name">
+        <col class="col-track" data-col="track">
+        <col class="col-stage" data-col="stage">
+        <col class="col-score" data-col="score">
+        <col class="col-last_active" data-col="last_active">
+        <col class="col-phone" data-col="phone">
+        <col class="col-organisation" data-col="organisation">
+        <col class="col-source" data-col="source">
+        <col class="col-leaders" data-col="leaders">
+        <col class="col-location" data-col="location">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th data-col="track">Track</th>
+          <th data-col="stage">Stage</th>
+          <th class="sortable" data-col="score" data-sort="engagement_score">Score</th>
+          <th class="sortable" data-col="last_active" data-sort="last_active">Last active</th>
+          <th data-col="phone">Phone</th>
+          <th data-col="organisation">Organisation</th>
+          <th data-col="source">Source</th>
+          <th data-col="leaders">Leaders</th>
+          <th data-col="location">Location</th>
+        </tr>
+      </thead>
+      <tbody id="contacts-tbody">
+        <tr><td colspan="9" class="table-message">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination" id="pagination">
+    <span class="pagination-info" id="pagination-info"></span>
+    <button class="page-btn" id="btn-prev">←</button>
+    <span id="page-numbers"></span>
+    <button class="page-btn" id="btn-next">→</button>
+  </div>
+
+</main>
+
+<!-- Embedded data -->
 <script is:inline type="application/json" id="contacts-data" set:html={JSON.stringify(contacts)}></script>
+<script is:inline type="application/json" id="michelle-data" set:html={JSON.stringify(michelle)}></script>
+<script is:inline type="application/json" id="needs-attn-data" set:html={JSON.stringify(needsAttnDB.map(c => c.id))}></script>
 
 <script>
-  // ── State ────────────────────────────────────
+  // ── Types ─────────────────────────────────
   type Contact = {
     id: string
     first_name: string | null
     last_name: string | null
     email: string | null
+    phone: string | null
+    organisation: string | null
     audience_track: string | null
     readiness_stage: string | null
-    capability_stage: string | null
     engagement_score: number | null
     last_active: string | null
-    signal_studio_lead: boolean | null
-    potential_partner: boolean | null
+    source: string | null
+    leaders_group: boolean | null
+    do_not_contact: boolean | null
+    do_not_contact_reason: string | null
+    contact_type: string | null
+    created_at: string | null
+    suburb: string | null
+    state: string | null
   }
 
-  const contacts: Contact[] = JSON.parse(document.getElementById('contacts-data')!.textContent ?? '[]')
+  // ── Data ──────────────────────────────────
+  const baseContacts: Contact[] = JSON.parse(document.getElementById('contacts-data')!.textContent ?? '[]')
+  const michelleContact: Contact | null = JSON.parse(document.getElementById('michelle-data')!.textContent ?? 'null')
+  const needsAttnIds: string[] = JSON.parse(document.getElementById('needs-attn-data')!.textContent ?? '[]')
 
-  const PAGE_SIZE = 50
-  let currentFilter = 'all'
-  let currentSearch = ''
-  let currentSort  = { col: 'score', dir: 'desc' as 'asc' | 'desc' }
-  let currentPage  = 0
+  // ── Avatar palette ────────────────────────
+  const PALETTE = ['#FD6F2F','#9DDCE3','#7BBE9A','#B5D4F4','#FAC775','#F4C0D1','#CECBF6','#9FE1CB','#F5C4B3','#C0DD97']
 
-  // ── Helpers ──────────────────────────────────
+  function hashStr(s: string): number {
+    let h = 0
+    for (let i = 0; i < s.length; i++) { h = Math.imul(31, h) + s.charCodeAt(i) | 0 }
+    return Math.abs(h)
+  }
+
+  function avatarColor(email: string | null): string {
+    return PALETTE[hashStr(email ?? '') % PALETTE.length]
+  }
+
+  function avatarInitials(c: Contact): string {
+    const f = (c.first_name ?? '').charAt(0).toUpperCase()
+    const l = (c.last_name ?? '').charAt(0).toUpperCase()
+    return f + l || (c.email ?? '?').charAt(0).toUpperCase()
+  }
+
+  // ── State ─────────────────────────────────
+  const LS_COL   = 'crm_columns'
+  const LS_SORT  = 'crm_sort'
+  const PAGE_SIZE = 20
+
+  const DEFAULT_VISIBLE = new Set(['track','stage','score','last_active'])
+
+  function loadColumns(): Set<string> {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_COL) ?? 'null')
+      if (Array.isArray(saved)) return new Set(saved)
+    } catch {}
+    return new Set(DEFAULT_VISIBLE)
+  }
+
+  function loadSort(): { col: string; dir: 'asc' | 'desc' } {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_SORT) ?? 'null')
+      if (saved?.col) return saved
+    } catch {}
+    return { col: 'engagement_score', dir: 'desc' }
+  }
+
+  let showMichelle   = false
+  let activeTrack    = 'all'      // 'all' | 'builder' | 'applier' | 'both' | 'unassigned' | 'needs_attention'
+  let currentSort    = loadSort()
+  let currentPage    = 0
+  let visibleCols    = loadColumns()
+  let searchQuery    = ''
+
+  function allContacts(): Contact[] {
+    return showMichelle && michelleContact ? [...baseContacts, michelleContact] : baseContacts
+  }
+
+  // ── Helpers ───────────────────────────────
   function fullName(c: Contact): string {
     return [c.first_name, c.last_name].filter(Boolean).join(' ') || '—'
   }
@@ -448,173 +561,313 @@ const contacts  = contactsRes.data ?? []
   function relativeDate(ts: string | null): string {
     if (!ts) return '—'
     const diff = Date.now() - new Date(ts).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1)  return 'Just now'
-    if (mins < 60) return `${mins}m ago`
-    const h = Math.floor(mins / 60)
-    if (h < 24)    return `${h}h ago`
+    const m = Math.floor(diff / 60000)
+    if (m < 1)   return 'just now'
+    if (m < 60)  return `${m}m ago`
+    const h = Math.floor(m / 60)
+    if (h < 24)  return `${h}h ago`
     const d = Math.floor(h / 24)
-    if (d < 7)     return `${d}d ago`
-    if (d < 30)    return `${Math.floor(d / 7)}w ago`
+    if (d < 7)   return `${d}d ago`
+    if (d < 30)  return `${Math.floor(d / 7)}w ago`
     return `${Math.floor(d / 30)}mo ago`
   }
 
-  function trackBadge(track: string | null): string {
-    if (!track) return '<span class="badge badge-grey">Unassigned</span>'
-    const map: Record<string, [string, string]> = {
-      builder: ['badge-blue',   'Builder'],
-      applier: ['badge-green',  'Applier'],
-      both:    ['badge-purple', 'Both'],
-    }
-    const entry = map[track.toLowerCase()]
-    if (!entry) return `<span class="badge badge-grey">${track}</span>`
-    return `<span class="badge ${entry[0]}">${entry[1]}</span>`
+  function scoreColor(score: number | null): string {
+    if (score === null) return 'var(--text-muted)'
+    if (score >= 20) return '#0F6E56'
+    if (score >= 8)  return '#854F0B'
+    return 'var(--text-muted)'
   }
 
-  // ── Filter + sort ────────────────────────────
-  function filteredContacts(): Contact[] {
-    let list = contacts
+  function trackPill(track: string | null): string {
+    if (!track) return '<span style="color:var(--text-muted)">—</span>'
+    const map: Record<string, string> = {
+      builder: '<span class="track-pill track-builder">Builder</span>',
+      applier: '<span class="track-pill track-applier">Applier</span>',
+      both:    '<span class="track-pill track-both">Both</span>',
+    }
+    return map[track.toLowerCase()] ?? `<span class="track-pill" style="background:rgba(47,47,47,0.07);color:var(--text-secondary)">${track}</span>`
+  }
 
-    if (currentFilter === 'builder')     list = list.filter(c => c.audience_track === 'builder')
-    else if (currentFilter === 'applier') list = list.filter(c => c.audience_track === 'applier')
-    else if (currentFilter === 'both')    list = list.filter(c => c.audience_track === 'both')
-    else if (currentFilter === 'unassigned') list = list.filter(c => !c.audience_track)
-    else if (currentFilter === 'missing-cap') list = list.filter(c => !c.capability_stage)
+  // ── Filter + sort ─────────────────────────
+  function filtered(): Contact[] {
+    let list = allContacts()
 
-    if (currentSearch) {
-      const q = currentSearch.toLowerCase()
+    if (activeTrack === 'needs_attention') {
+      list = list.filter(c => needsAttnIds.includes(c.id))
+    } else if (activeTrack === 'builder')    list = list.filter(c => c.audience_track === 'builder')
+    else if (activeTrack === 'applier')      list = list.filter(c => c.audience_track === 'applier')
+    else if (activeTrack === 'both')         list = list.filter(c => c.audience_track === 'both')
+    else if (activeTrack === 'unassigned')   list = list.filter(c => !c.audience_track)
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
       list = list.filter(c =>
         fullName(c).toLowerCase().includes(q) ||
         (c.email ?? '').toLowerCase().includes(q)
       )
     }
 
-    list = [...list].sort((a, b) => {
+    return [...list].sort((a, b) => {
       const dir = currentSort.dir === 'asc' ? 1 : -1
       if (currentSort.col === 'name') {
         return dir * fullName(a).localeCompare(fullName(b))
       }
-      if (currentSort.col === 'score') {
+      if (currentSort.col === 'engagement_score') {
         return dir * ((a.engagement_score ?? -1) - (b.engagement_score ?? -1))
       }
-      if (currentSort.col === 'active') {
+      if (currentSort.col === 'last_active') {
         const ta = a.last_active ? new Date(a.last_active).getTime() : 0
         const tb = b.last_active ? new Date(b.last_active).getTime() : 0
         return dir * (ta - tb)
       }
+      if (currentSort.col === 'created_at') {
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+        return dir * (ta - tb)
+      }
       return 0
     })
-
-    return list
   }
 
-  // ── Render ───────────────────────────────────
+  // ── Column visibility ─────────────────────
+  function applyColumnVisibility() {
+    const ALL_COLS = ['track','stage','score','last_active','phone','organisation','source','leaders','location']
+    ALL_COLS.forEach(col => {
+      const on = visibleCols.has(col)
+      // col elements
+      document.querySelectorAll(`col[data-col="${col}"]`).forEach(el => {
+        ;(el as HTMLElement).style.display = on ? '' : 'none'
+      })
+      // th elements
+      document.querySelectorAll(`th[data-col="${col}"]`).forEach(el => {
+        ;(el as HTMLElement).style.display = on ? '' : 'none'
+      })
+    })
+    // td elements handled per-row in render
+  }
+
+  // ── Render table ──────────────────────────
   function render() {
-    const list  = filteredContacts()
+    const list  = filtered()
     const total = list.length
     const start = currentPage * PAGE_SIZE
     const page  = list.slice(start, start + PAGE_SIZE)
+    const cols  = visibleCols
 
     const tbody = document.getElementById('contacts-tbody')!
     if (page.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No contacts match this filter</td></tr>'
+      tbody.innerHTML = `<tr><td colspan="9" class="table-message">No contacts match this filter.</td></tr>`
     } else {
-      tbody.innerHTML = page.map(c => `
-        <tr>
-          <td><a href="/dashboard/crm/${c.id}" class="contact-link">${fullName(c)}</a></td>
-          <td style="color:var(--text-muted)">${c.email ?? '—'}</td>
-          <td>${trackBadge(c.audience_track)}</td>
-          <td style="color:var(--text-muted)">${c.readiness_stage ?? '—'}</td>
-          <td style="color:var(--text-muted)">${c.capability_stage ?? '—'}</td>
-          <td style="font-variant-numeric:tabular-nums">${c.engagement_score ?? '—'}</td>
-          <td style="color:var(--text-muted)">${relativeDate(c.last_active)}</td>
-        </tr>
-      `).join('')
+        tbody.innerHTML = page.map(c => {
+        const color = avatarColor(c.email)
+        const initials = avatarInitials(c)
+        const isDNC = c.do_not_contact === true
+        const score = c.engagement_score
+        const stage = c.readiness_stage ? c.readiness_stage.replace(/_/g,' ') : '—'
+
+        return `<tr onclick="window.location='/dashboard/crm/${c.id}'">
+          <td>
+            <div class="name-cell">
+              <div class="contact-avatar" style="background:${color}22;color:${color}">${initials}</div>
+              <div class="name-block">
+                <div class="contact-name">${fullName(c)}</div>
+                <div class="contact-email${isDNC ? ' dnc' : ''}">${c.email ?? '—'}${isDNC ? '<span class="dnc-pill">Unsubscribed</span>' : ''}</div>
+              </div>
+            </div>
+          </td>
+          ${cols.has('track')        ? `<td>${trackPill(c.audience_track)}</td>` : ''}
+          ${cols.has('stage')        ? `<td style="font-size:11px;color:var(--text-muted)">${stage}</td>` : ''}
+          ${cols.has('score')        ? `<td style="font-variant-numeric:tabular-nums;font-weight:500;color:${scoreColor(score)}">${score ?? '—'}</td>` : ''}
+          ${cols.has('last_active')  ? `<td style="font-size:12px;color:var(--text-muted)">${relativeDate(c.last_active)}</td>` : ''}
+          ${cols.has('phone')        ? `<td style="font-size:12px">${c.phone ?? '—'}</td>` : ''}
+          ${cols.has('organisation') ? `<td style="font-size:12px">${c.organisation ?? '—'}</td>` : ''}
+          ${cols.has('source')       ? `<td style="font-size:12px;color:var(--text-muted)">${c.source ?? '—'}</td>` : ''}
+          ${cols.has('leaders')      ? `<td style="font-size:12px;text-align:center">${c.leaders_group ? '✓' : ''}</td>` : ''}
+          ${cols.has('location')     ? `<td style="font-size:12px;color:var(--text-muted)">${[c.suburb, c.state].filter(Boolean).join(' · ') || '—'}</td>` : ''}
+        </tr>`
+      }).join('')
     }
 
     // Pagination info
     const pageCount = Math.ceil(total / PAGE_SIZE)
-    const infoEl = document.getElementById('pagination-info')!
-    infoEl.textContent = total === 0
-      ? 'No contacts'
-      : `${start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}`
+    const s = start + 1
+    const e = Math.min(start + PAGE_SIZE, total)
+    document.getElementById('pagination-info')!.textContent =
+      total === 0 ? '' : `Showing ${s}–${e} of ${total}`
 
-    const btnPrev = document.getElementById('btn-prev') as HTMLButtonElement
-    const btnNext = document.getElementById('btn-next') as HTMLButtonElement
-    btnPrev.disabled = currentPage === 0
-    btnNext.disabled = currentPage >= pageCount - 1
+    ;(document.getElementById('btn-prev') as HTMLButtonElement).disabled = currentPage === 0
+    ;(document.getElementById('btn-next') as HTMLButtonElement).disabled = currentPage >= pageCount - 1
 
-    document.getElementById('results-count')!.textContent =
-      `${total} contact${total !== 1 ? 's' : ''}`
+    // Page number buttons (max 5 shown)
+    const pageNumEl = document.getElementById('page-numbers')!
+    if (pageCount <= 1) {
+      pageNumEl.innerHTML = ''
+    } else {
+      const pages: Array<number | '...'> = []
+      if (pageCount <= 5) {
+        for (let i = 0; i < pageCount; i++) pages.push(i)
+      } else {
+        pages.push(0)
+        if (currentPage > 2) pages.push('...')
+        for (let i = Math.max(1, currentPage - 1); i <= Math.min(pageCount - 2, currentPage + 1); i++) pages.push(i)
+        if (currentPage < pageCount - 3) pages.push('...')
+        pages.push(pageCount - 1)
+      }
+      pageNumEl.innerHTML = pages.map(p =>
+        p === '...'
+          ? `<span style="padding:0 4px;color:var(--text-muted)">…</span>`
+          : `<button class="page-btn${p === currentPage ? ' active' : ''}" data-page="${p}">${(p as number) + 1}</button>`
+      ).join('')
+      pageNumEl.querySelectorAll('[data-page]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          currentPage = parseInt((btn as HTMLElement).dataset.page!)
+          render()
+        })
+      })
+    }
 
-    // Sort headers
+    // Sort header indicators
     document.querySelectorAll('thead th.sortable').forEach(th => {
       const el = th as HTMLElement
-      el.classList.remove('sort-asc', 'sort-desc')
-      if (el.dataset.col === currentSort.col) {
+      el.classList.remove('sort-asc','sort-desc')
+      if (el.dataset.sort === currentSort.col) {
         el.classList.add(currentSort.dir === 'asc' ? 'sort-asc' : 'sort-desc')
       }
     })
+
+    // Header subtitle
+    const sortLabels: Record<string, string> = {
+      engagement_score: 'engagement score',
+      last_active: 'last active',
+      created_at: 'date added',
+      name: 'name A–Z',
+    }
+    document.getElementById('header-subtitle')!.textContent =
+      `${total} contact${total !== 1 ? 's' : ''} · sorted by ${sortLabels[currentSort.col] ?? currentSort.col}`
   }
 
-  // ── Event wiring ─────────────────────────────
+  // ── Apply column pill state to DOM ────────
+  function syncColPills() {
+    document.querySelectorAll('.col-pill').forEach(el => {
+      const col = (el as HTMLElement).dataset.col!
+      el.classList.toggle('on',  visibleCols.has(col))
+      el.classList.toggle('off', !visibleCols.has(col))
+    })
+    applyColumnVisibility()
+  }
 
-  // Filter tabs
-  document.querySelectorAll('.filter-tab').forEach(btn => {
+  // ── Needs attention panel visibility ─────
+  function syncNeedsAttnPanel() {
+    const panel = document.getElementById('needs-attention-panel')!
+    panel.style.display = activeTrack === 'needs_attention' ? 'none' : ''
+  }
+
+  // ── Init: set hidden cols ─────────────────
+  applyColumnVisibility()
+  syncColPills()
+
+  // Relative times in attention panel
+  document.querySelectorAll('.attn-time[data-ts]').forEach(el => {
+    const ts = (el as HTMLElement).dataset.ts ?? null
+    el.textContent = relativeDate(ts)
+  })
+
+  // ── Event: stat cards ─────────────────────
+  document.getElementById('stat-cards')!.addEventListener('click', e => {
+    const card = (e.target as HTMLElement).closest('[data-filter]') as HTMLElement | null
+    if (!card) return
+    const filter = card.dataset.filter!
+    activeTrack = filter
+    currentPage = 0
+    document.querySelectorAll('.stat-card').forEach(c => c.classList.toggle('active', (c as HTMLElement).dataset.filter === filter))
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', (t as HTMLElement).dataset.tab === filter))
+    syncNeedsAttnPanel()
+    render()
+  })
+
+  // ── Event: tabs ───────────────────────────
+  document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      const tab = (btn as HTMLElement).dataset.tab ?? 'all'
-      currentFilter = tab
+      const tab = (btn as HTMLElement).dataset.tab!
+      activeTrack = tab
       currentPage = 0
-      document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'))
-      btn.classList.add('active')
-      document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'))
+      document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn))
+      document.querySelectorAll('.stat-card').forEach(c =>
+        c.classList.toggle('active', (c as HTMLElement).dataset.filter === tab)
+      )
+      syncNeedsAttnPanel()
       render()
     })
   })
 
-  // Stat cards
-  document.querySelectorAll('.stat-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const filter = (card as HTMLElement).dataset.filter ?? 'all'
-      currentFilter = filter
-      currentPage = 0
-      document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'))
-      card.classList.add('active')
-      document.querySelectorAll('.filter-tab').forEach(btn => {
-        const el = btn as HTMLElement
-        btn.classList.toggle('active', el.dataset.tab === filter || (filter === 'missing-cap' && el.dataset.tab === 'all'))
-      })
-      render()
-    })
-  })
-
-  // Search
-  document.getElementById('crm-search')!.addEventListener('input', (e) => {
-    currentSearch = (e.target as HTMLInputElement).value
+  // ── Event: search ─────────────────────────
+  document.getElementById('crm-search')!.addEventListener('input', e => {
+    searchQuery = (e.target as HTMLInputElement).value
     currentPage = 0
     render()
   })
 
-  // Sort headers
+  // ── Event: sort select ────────────────────
+  document.getElementById('sort-select')!.addEventListener('change', e => {
+    const val = (e.target as HTMLSelectElement).value
+    currentSort = { col: val, dir: val === 'name' ? 'asc' : 'desc' }
+    currentPage = 0
+    localStorage.setItem('crm_sort', JSON.stringify(currentSort))
+    render()
+  })
+
+  // ── Event: sortable headers ───────────────
   document.querySelectorAll('thead th.sortable').forEach(th => {
     th.addEventListener('click', () => {
-      const col = (th as HTMLElement).dataset.col!
-      if (currentSort.col === col) {
+      const sortCol = (th as HTMLElement).dataset.sort!
+      if (currentSort.col === sortCol) {
         currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc'
       } else {
-        currentSort = { col, dir: col === 'name' ? 'asc' : 'desc' }
+        currentSort = { col: sortCol, dir: 'desc' }
       }
       currentPage = 0
+      localStorage.setItem('crm_sort', JSON.stringify(currentSort))
+      // Sync select
+      const sel = document.getElementById('sort-select') as HTMLSelectElement
+      sel.value = sortCol
       render()
     })
   })
 
-  // Pagination
+  // ── Event: column toggles ─────────────────
+  document.getElementById('col-toggles')!.addEventListener('click', e => {
+    const pill = (e.target as HTMLElement).closest('.col-pill') as HTMLElement | null
+    if (!pill) return
+    const col = pill.dataset.col!
+    if (visibleCols.has(col)) visibleCols.delete(col)
+    else visibleCols.add(col)
+    localStorage.setItem(LS_COL, JSON.stringify([...visibleCols]))
+    syncColPills()
+    render()
+  })
+
+  // ── Event: Michelle toggle ────────────────
+  document.getElementById('toggle-michelle')!.addEventListener('click', () => {
+    showMichelle = !showMichelle
+    const label = document.getElementById('toggle-michelle-label')!
+    const btn   = document.getElementById('toggle-michelle')!
+    if (showMichelle) {
+      label.textContent = 'hide again'
+      btn.childNodes[0].textContent = 'Showing you · '
+    } else {
+      label.textContent = 'show anyway'
+      btn.childNodes[0].textContent = 'Hiding you · '
+    }
+    currentPage = 0
+    render()
+  })
+
+  // ── Event: pagination ─────────────────────
   document.getElementById('btn-prev')!.addEventListener('click', () => { currentPage--; render() })
   document.getElementById('btn-next')!.addEventListener('click', () => { currentPage++; render() })
 
-  // Initial render
+  // ── Initial render ────────────────────────
   render()
 </script>
-</body>
-</html>
+</DashboardLayout>

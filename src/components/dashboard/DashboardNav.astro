@@ -1,0 +1,356 @@
+---
+// Eagerly read all dashboard page files at build time to determine route status
+const pageFiles = import.meta.glob(
+  '/src/pages/dashboard/**/*.astro',
+  { query: '?raw', import: 'default', eager: true }
+) as Record<string, string>
+
+type Status = 'green' | 'amber' | 'grey'
+
+function routeStatus(route: string): Status {
+  const rel = route.replace('/dashboard', '')
+  const base = '/src/pages/dashboard' + rel
+  for (const candidate of [`${base}.astro`, `${base}/index.astro`]) {
+    const raw = pageFiles[candidate]
+    if (raw !== undefined) {
+      // Short content (<500 chars) treated as stub/placeholder → amber
+      return raw.trim().length < 500 ? 'amber' : 'green'
+    }
+  }
+  return 'grey'
+}
+
+const pathname = Astro.url.pathname
+
+function isActive(href: string): boolean {
+  if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/dashboard/'
+  return pathname === href || pathname.startsWith(href + '/')
+}
+
+interface NavItem { label: string; href: string }
+interface NavSection { label?: string; items: NavItem[] }
+
+const sections: NavSection[] = [
+  {
+    items: [
+      { label: '🏠 Snapshot', href: '/dashboard' },
+    ],
+  },
+  {
+    label: 'CRM',
+    items: [
+      { label: 'Contacts', href: '/dashboard/crm' },
+      { label: 'Growth',   href: '/dashboard/growth' },
+    ],
+  },
+  {
+    label: 'The Remix',
+    items: [
+      { label: 'Events',   href: '/dashboard/remix/events' },
+      { label: 'Pathways', href: '/dashboard/remix/pathways' },
+      { label: 'Site',     href: '/dashboard/remix/site' },
+    ],
+  },
+  {
+    label: 'Signal Studio',
+    items: [
+      { label: 'Clients', href: '/dashboard/studio/clients' },
+      { label: 'Leads',   href: '/dashboard/studio/leads' },
+      { label: 'Site',    href: '/dashboard/studio/site' },
+    ],
+  },
+  {
+    label: 'Michelle Williams',
+    items: [
+      { label: '1:1 Enquiries', href: '/dashboard/michelle/enquiries' },
+      { label: 'Speaking',      href: '/dashboard/michelle/speaking' },
+      { label: 'Site',          href: '/dashboard/michelle/site' },
+    ],
+  },
+  {
+    label: 'Content',
+    items: [
+      { label: 'Posts',     href: '/dashboard/content/posts' },
+      { label: 'Campaigns', href: '/dashboard/content/campaigns' },
+      { label: 'EDMs',      href: '/dashboard/content/edms' },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { label: 'Agents',      href: '/dashboard/agents' },
+      { label: 'Automations', href: '/dashboard/automations' },
+      { label: 'Governance',  href: '/dashboard/governance' },
+      { label: 'Finance',     href: '/dashboard/finance' },
+      { label: 'Team',        href: '/dashboard/operations/team' },
+    ],
+  },
+  {
+    label: 'Brand',
+    items: [
+      { label: 'Tokens', href: '/dashboard/brand/tokens' },
+      { label: 'Voice',  href: '/dashboard/brand/voice' },
+      { label: 'Assets', href: '/dashboard/brand/assets' },
+    ],
+  },
+]
+---
+
+<button id="nav-hamburger" class="hamburger" aria-label="Toggle navigation" aria-expanded="false">
+  <span></span><span></span><span></span>
+</button>
+<div id="nav-overlay" class="overlay"></div>
+
+<nav id="dashboard-nav" class="sidebar" aria-label="Dashboard navigation">
+
+  <div class="sidebar-logo">
+    <span aria-hidden="true">✦</span>
+    <span>THE SIGNAL OS</span>
+  </div>
+
+  <div class="nav-body">
+    {sections.map(section => (
+      <div class="section-group">
+        {section.label && (
+          <p class="nav-section-label">{section.label}</p>
+        )}
+        {section.items.map(item => {
+          const status = routeStatus(item.href)
+          const active = isActive(item.href)
+          return (
+            <a
+              href={item.href}
+              class:list={['nav-item', { active }]}
+              aria-current={active ? 'page' : undefined}
+            >
+              <span class={`dot dot--${status}`} aria-hidden="true"></span>
+              <span class="nav-label">{item.label}</span>
+            </a>
+          )
+        })}
+      </div>
+    ))}
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="avatar">M</div>
+    <div>
+      <div class="footer-name">Michelle</div>
+      <div class="footer-role">System Operator</div>
+    </div>
+  </div>
+
+</nav>
+
+<style>
+  /* ── LOCAL TOKENS (fallback to Signal OS values) ───────────────── */
+  .sidebar {
+    --_surface:  var(--surface,        #FFFFFF);
+    --_bg:       var(--bg,             #F5F4F1);
+    --_primary:  var(--text-primary,   #2F2F2F);
+    --_secondary:var(--text-secondary, #505050);
+    --_muted:    var(--text-muted,     #909090);
+    --_border:   var(--border,         rgba(47,47,47,0.08));
+    --_teal:     var(--teal,           #3C8A7E);
+    --_heading:  var(--heading,        'DM Sans', sans-serif);
+    --_dot-green:#7BBE9A;
+    --_dot-amber:#E07020;
+    --_dot-grey: rgba(47,47,47,0.22);
+  }
+
+  /* ── SIDEBAR SHELL ─────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--_surface);
+    border-right: 1px solid var(--_border);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 220px;
+    flex-shrink: 0;
+    overflow: hidden;
+    position: sticky;
+    top: 0;
+  }
+
+  /* ── LOGO ──────────────────────────────────────────────────────── */
+  .sidebar-logo {
+    padding: 20px 16px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--_heading);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--_primary);
+    border-bottom: 1px solid var(--_border);
+    flex-shrink: 0;
+  }
+
+  /* ── NAV BODY ──────────────────────────────────────────────────── */
+  .nav-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--_border) transparent;
+  }
+
+  .section-group { margin-bottom: 2px; }
+
+  /* ── SECTION LABELS ────────────────────────────────────────────── */
+  .nav-section-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--_muted);
+    text-transform: uppercase;
+    padding: 18px 16px 4px;
+    margin: 0;
+  }
+
+  /* ── NAV ITEMS ─────────────────────────────────────────────────── */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--_secondary);
+    padding: 6px 16px;
+    border-radius: 6px;
+    margin: 1px 8px;
+    text-decoration: none;
+    transition: background 0.15s ease, color 0.15s ease;
+    line-height: 1.4;
+  }
+  .nav-item:hover:not(.active) {
+    background: rgba(47,47,47,0.04);
+    color: var(--_primary);
+  }
+  .nav-item.active {
+    background: rgba(60,138,126,0.10);
+    color: var(--_teal);
+    font-weight: 500;
+  }
+
+  .nav-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── STATUS DOTS ───────────────────────────────────────────────── */
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot--green { background: var(--_dot-green); }
+  .dot--amber { background: var(--_dot-amber); }
+  .dot--grey  { background: var(--_dot-grey);  }
+
+  /* ── FOOTER ────────────────────────────────────────────────────── */
+  .sidebar-footer {
+    padding: 14px 16px;
+    border-top: 1px solid var(--_border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--_teal);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .footer-name { font-size: 12px; font-weight: 500; color: var(--_primary); line-height: 1.2; }
+  .footer-role { font-size: 11px; color: var(--_muted); }
+
+  /* ── HAMBURGER ─────────────────────────────────────────────────── */
+  .hamburger {
+    display: none;
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 200;
+    background: #fff;
+    border: 1px solid rgba(47,47,47,0.12);
+    border-radius: 8px;
+    padding: 8px 9px;
+    cursor: pointer;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 1px 4px rgba(47,47,47,0.08);
+  }
+  .hamburger span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: #2F2F2F;
+    border-radius: 2px;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+
+  /* ── OVERLAY ───────────────────────────────────────────────────── */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 99;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  /* ── MOBILE ────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .hamburger { display: flex; }
+    .overlay   { display: block; }
+
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 100;
+      transform: translateX(-100%);
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 4px 0 20px rgba(47,47,47,0.12);
+    }
+    .sidebar.is-open  { transform: translateX(0); }
+    .overlay.is-open  { opacity: 1; pointer-events: auto; }
+  }
+</style>
+
+<script>
+  const sidebar   = document.getElementById('dashboard-nav')!
+  const hamburger = document.getElementById('nav-hamburger')!
+  const overlay   = document.getElementById('nav-overlay')!
+
+  function open() {
+    sidebar.classList.add('is-open')
+    overlay.classList.add('is-open')
+    hamburger.setAttribute('aria-expanded', 'true')
+  }
+  function close() {
+    sidebar.classList.remove('is-open')
+    overlay.classList.remove('is-open')
+    hamburger.setAttribute('aria-expanded', 'false')
+  }
+
+  hamburger.addEventListener('click', () =>
+    sidebar.classList.contains('is-open') ? close() : open()
+  )
+  overlay.addEventListener('click', close)
+</script>
