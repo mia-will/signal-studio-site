@@ -62,7 +62,7 @@ If a decision can change, it belongs in Supabase.
 | Tool | Role |
 |------|------|
 | Claude Code | Architecture, new pages, site-wide logic, major infrastructure |
-| Codex | Small fixes, contained bugs, tests, PRs |
+| Codex | Small fixes, contained bugs, tests, PRs. Always state the working repo explicitly at the top of every brief — Codex does not read AGENTS.md automatically. |
 | Gemini | Audits, large-context reviews, second opinions |
 | Claude (chat) | Strategy, schema design, Supabase queries, agent design, briefs |
 
