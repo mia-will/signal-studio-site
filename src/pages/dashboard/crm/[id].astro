@@ -13,27 +13,27 @@ const { data: contact } = await supabase
 
 if (!contact) return Astro.redirect('/dashboard/crm')
 
-const [activityRes, assessmentsRes, submissionsRes] = await Promise.all([
+const [activityRes, clientRes, enrolmentsRes] = await Promise.all([
   supabase
     .from('contact_activity')
-    .select('id,activity_type,source,signal_strength,summary,created_at')
+    .select('id,activity_type,source,summary,created_at')
     .eq('contact_id', id)
     .order('created_at', { ascending: false }),
   supabase
-    .from('contact_assessments')
-    .select('id,assessed_at,assessed_by,context,rating_facilitation,rating_ai_knowledge,rating_room_presence,rating_adaptability,rating_implementation,strengths,growth_areas')
+    .from('client_projects')
+    .select('id,project_name,scope_summary,current_status_note,deadline,created_at,stage')
     .eq('contact_id', id)
-    .order('assessed_at', { ascending: false }),
+    .maybeSingle(),
   supabase
-    .from('form_submissions')
-    .select('id,created_at,site_slug,source,page_path,enquiry_type,status')
-    .eq('crm_contact_id', id)
-    .order('created_at', { ascending: false }),
+    .from('pathway_enrolments')
+    .select('id,status,pathway_cohorts(cohort_name,pathways(title))')
+    .eq('contact_id', id)
+    .order('enrolled_at', { ascending: false }),
 ])
 
-const activity    = activityRes.data    ?? []
-const assessments = assessmentsRes.data ?? []
-const submissions = submissionsRes.data ?? []
+const activity   = activityRes.data   ?? []
+const client     = clientRes.data     ?? null
+const enrolments = enrolmentsRes.data ?? []
 
 function fullName(c: typeof contact): string {
   return [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || '—'
@@ -41,12 +41,22 @@ function fullName(c: typeof contact): string {
 
 function formatDate(ts: string | null): string {
   if (!ts) return '—'
-  return new Date(ts).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })
+  return new Date(ts).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function formatDateTime(ts: string | null): string {
   if (!ts) return '—'
   return new Date(ts).toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function formatMonthYear(ts: string | null): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })
+}
+
+function formatDeadline(date: string | null): string {
+  if (!date) return '—'
+  return 'due ' + new Date(date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function relativeDate(ts: string | null): string {
@@ -63,6 +73,11 @@ function relativeDate(ts: string | null): string {
   return `${Math.floor(d / 30)}mo ago`
 }
 
+function relativeWithDate(ts: string | null): string {
+  if (!ts) return '—'
+  return `${relativeDate(ts)} (${formatDate(ts)})`
+}
+
 function trackBadgeClass(track: string | null): string {
   if (!track) return 'badge-grey'
   const map: Record<string, string> = { builder: 'badge-blue', applier: 'badge-green', both: 'badge-purple' }
@@ -75,11 +90,25 @@ function trackLabel(track: string | null): string {
   return labels[track.toLowerCase()] ?? track
 }
 
-function signalDotColor(strength: number | null): string {
-  if (!strength || strength < 2) return '#C8C8C8'
-  if (strength >= 4) return '#7BBE9A'
-  return '#FF8A33'
+function activityDotColor(type: string | null): string {
+  if (!type) return 'var(--color-border-secondary)'
+  const map: Record<string, string> = {
+    email_open:       '#1D9E75',
+    event_attended:   '#378ADD',
+    form_submission:  '#7F77DD',
+  }
+  return map[type] ?? 'var(--color-border-secondary)'
 }
+
+function pathwayName(e: any): string {
+  return e?.pathway_cohorts?.pathways?.title
+    ?? e?.pathway_cohorts?.cohort_name
+    ?? '—'
+}
+
+const notesCount = contact.notes ? 1 : 0
+const activityVisible = activity.slice(0, 10)
+const activityHidden  = activity.slice(10)
 ---
 
 <html lang="en">
@@ -99,15 +128,16 @@ function signalDotColor(strength: number | null): string {
       --text-muted: #909090;
       --border: rgba(47,47,47,0.08);
       --teal: #3C8A7E;
-      --orange: #FF8A33;
-      --green: #7BBE9A;
-      --aqua: #9DDCE3;
-      --violet: #6F4BA2;
-      --red: #C0392B;
       --heading: 'DM Sans', sans-serif;
       --body: 'Inter', sans-serif;
       --radius: 12px;
       --shadow: 0 1px 3px rgba(47,47,47,0.06);
+
+      --color-border-tertiary: rgba(47,47,47,0.06);
+      --color-border-secondary: rgba(47,47,47,0.10);
+      --color-background-secondary: #F5F4F1;
+      --color-text-tertiary: #909090;
+      --border-radius-lg: 12px;
     }
 
     body { background: var(--bg); color: var(--text-primary); font-family: var(--body); }
@@ -187,325 +217,501 @@ function signalDotColor(strength: number | null): string {
     .footer-name { font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
     .footer-role { font-size: 11px; color: var(--text-muted); }
 
-    /* ── CONTENT ────────────────────────────── */
-    .content { padding: 28px 32px; overflow-x: hidden; }
+    /* ── MAIN ───────────────────────────────── */
+    .main-area { display: flex; flex-direction: column; overflow-x: hidden; }
 
-    .back-link {
-      display: inline-block;
-      font-size: 13px;
-      color: var(--text-muted);
-      text-decoration: none;
-      margin-bottom: 16px;
-    }
-    .back-link:hover { color: var(--text-secondary); }
-
-    /* ── HEADER ─────────────────────────────── */
+    /* ── PAGE HEADER ────────────────────────── */
     .page-header {
+      background: var(--surface);
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      padding: 12px 20px;
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
-      margin-bottom: 24px;
       gap: 16px;
     }
 
-    .header-left { flex: 1; min-width: 0; }
+    .header-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 
-    .contact-name-row {
+    .header-breadcrumb {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 4px;
-      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      margin-bottom: 2px;
     }
+    .header-breadcrumb:hover { color: var(--text-secondary); }
 
-    .page-header h1 {
-      font-family: var(--heading);
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--text-primary);
-      line-height: 1.1;
-    }
-
-    .contact-email {
-      font-size: 14px;
-      color: var(--text-secondary);
-      margin-top: 2px;
-    }
-
-    .header-meta {
+    .header-name-row {
       display: flex;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
-      padding-top: 8px;
+    }
+
+    .header-name {
+      font-family: var(--heading);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+
+    .header-email {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
       flex-shrink: 0;
     }
+
+    .score-block {
+      text-align: right;
+    }
+    .score-value {
+      font-family: var(--heading);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+    .score-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .btn-edit {
+      background: transparent;
+      border: 0.5px solid var(--color-border-secondary);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-family: var(--body);
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .btn-edit:hover { background: rgba(47,47,47,0.04); }
 
     /* ── BADGES ─────────────────────────────── */
     .badge {
       display: inline-block;
       border-radius: 20px;
-      padding: 2px 10px;
+      padding: 2px 8px;
       font-size: 11px;
       font-weight: 500;
+      line-height: 1.4;
     }
 
-    .badge-blue   { background: rgba(157,220,227,0.20); color: #1a6b75; }
-    .badge-green  { background: rgba(123,190,154,0.18); color: #2D5A35; }
-    .badge-purple { background: rgba(111,75,162,0.12);  color: #5a3a8a; }
-    .badge-grey   { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
-    .badge-orange { background: rgba(255,138,51,0.12);  color: #E07020; }
-    .badge-teal   { background: rgba(60,138,126,0.12);  color: var(--teal); }
+    .badge-blue   { background: #E6F1FB; color: #0C447C; }
+    .badge-stage  { background: #F1EFE8; color: #444441; }
+    .badge-client { background: #EEEDFE; color: #3C3489; }
+    .badge-green  { background: #EAF3DE; color: #3B6D11; }
+    .badge-grey   { background: rgba(47,47,47,0.07); color: var(--text-secondary); }
+    .badge-orange { background: rgba(255,138,51,0.12); color: #E07020; }
 
-    /* ── PANELS ─────────────────────────────── */
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 24px;
-      margin-bottom: 16px;
-      box-shadow: var(--shadow);
-    }
-
-    .panel-header {
-      font-family: var(--heading);
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-primary);
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 12px;
-      margin-bottom: 16px;
-    }
-
-    /* ── META GRID ──────────────────────────── */
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
-
-    .meta-row {
-      display: flex;
-      align-items: flex-start;
+    /* ── 3-COLUMN GRID ──────────────────────── */
+    .columns-grid {
+      display: grid;
+      grid-template-columns: 220px 1fr 210px;
       gap: 12px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+      align-items: start;
     }
-    .meta-row:last-child { border-bottom: none; }
 
-    .meta-key {
-      font-size: 12px;
+    /* ── CARD ───────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 0.5px solid var(--color-border-secondary);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .card:last-child { margin-bottom: 0; }
+
+    .card-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       color: var(--text-muted);
-      width: 110px;
-      flex-shrink: 0;
+      padding: 10px 14px 0;
     }
 
-    .meta-val {
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-
-    /* ── LOOPS STATUS ───────────────────────── */
-    .loops-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-
-    .loops-stat { padding: 12px 0; }
-
-    .loops-stat-label {
-      font-size: 11px;
+    .card-sub-label {
+      font-size: 10px;
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--text-muted);
-      margin-bottom: 4px;
+      padding: 10px 14px 4px;
     }
 
-    .loops-stat-val {
-      font-size: 14px;
-      color: var(--text-secondary);
+    /* ── DATA ROWS ──────────────────────────── */
+    .data-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 14px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
     }
 
-    .loops-id {
-      font-family: 'Courier New', monospace;
+    .data-row:last-child { border-bottom: none; }
+
+    .data-key {
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      width: 76px;
+    }
+
+    .data-val {
       font-size: 12px;
-      background: rgba(47,47,47,0.04);
-      padding: 2px 6px;
-      border-radius: 4px;
       color: var(--text-secondary);
+      text-align: right;
+      flex: 1;
+      min-width: 0;
     }
 
-    /* ── ACTIVITY FEED ──────────────────────── */
+    .data-val.muted { color: var(--color-text-tertiary); }
+
+    .org-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 12px;
+    }
+    .org-link:hover { color: var(--teal); }
+
+    /* ── ACTIVITY ───────────────────────────── */
     .activity-item {
       display: flex;
-      gap: 12px;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
+      gap: 10px;
+      padding: 8px 14px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
     }
+
     .activity-item:last-child { border-bottom: none; }
 
-    .activity-dot-col {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding-top: 3px;
-      gap: 4px;
-    }
-
-    .activity-dot {
-      width: 9px; height: 9px;
+    .act-dot {
+      width: 6px; height: 6px;
       border-radius: 50%;
       flex-shrink: 0;
+      margin-top: 4px;
     }
 
-    .signal-num {
-      font-size: 10px;
-      color: var(--text-muted);
-    }
+    .act-body { flex: 1; min-width: 0; }
 
-    .activity-body { flex: 1; min-width: 0; }
-
-    .activity-type {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-primary);
-      text-transform: uppercase;
+    .act-type {
+      font-size: 11px;
+      font-weight: 500;
       letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 1px;
+    }
+
+    .act-summary {
+      font-size: 12px;
+      color: var(--text-primary);
+      line-height: 1.35;
       margin-bottom: 2px;
     }
 
-    .activity-summary {
-      font-size: 13px;
-      color: var(--text-secondary);
-      margin-bottom: 4px;
-      line-height: 1.4;
-    }
-
-    .activity-meta {
-      font-size: 12px;
-      color: var(--text-muted);
+    .act-meta {
+      font-size: 11px;
+      color: var(--color-text-tertiary);
       display: flex;
-      gap: 12px;
+      gap: 8px;
       flex-wrap: wrap;
     }
 
-    /* ── FORM SUBMISSIONS ───────────────────── */
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-
-    thead th {
-      text-align: left;
-      padding: 8px 12px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-
-    tbody td {
-      padding: 10px 12px;
-      color: var(--text-secondary);
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-
-    tbody tr:last-child td { border-bottom: none; }
-    tbody tr:hover td { background: rgba(60,138,126,0.03); }
-
-    /* ── NOTES ──────────────────────────────── */
-    .notes-textarea {
-      width: 100%;
-      min-height: 120px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px;
-      font-family: var(--body);
-      font-size: 13px;
-      color: var(--text-primary);
-      background: var(--bg);
-      resize: vertical;
-      outline: none;
-      line-height: 1.5;
-      transition: border-color 0.15s;
-    }
-
-    .notes-textarea:focus { border-color: var(--teal); background: var(--surface); }
-
-    .notes-footer {
+    .show-more-row {
       display: flex;
       align-items: center;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 10px;
-    }
-
-    .notes-status {
+      gap: 6px;
+      padding: 8px 14px;
       font-size: 12px;
       color: var(--text-muted);
-      min-width: 80px;
-    }
-
-    .btn-save {
-      background: var(--teal);
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 7px 18px;
-      font-family: var(--body);
-      font-size: 13px;
-      font-weight: 500;
       cursor: pointer;
-      transition: opacity 0.15s;
+      border-top: 0.5px solid var(--color-border-tertiary);
+    }
+    .show-more-row:hover { color: var(--text-secondary); }
+
+    .hidden-activities { display: none; }
+    .hidden-activities.expanded { display: block; }
+
+    /* ── CLIENT BANNER ──────────────────────── */
+    .client-banner {
+      background: #3C3489;
+      border-radius: var(--border-radius-lg);
+      padding: 14px;
+      margin-bottom: 10px;
     }
 
-    .btn-save:hover { opacity: 0.88; }
-    .btn-save:disabled { opacity: 0.5; cursor: default; }
-
-    /* ── ASSESSMENTS ────────────────────────── */
-    .rating-row {
+    .client-banner-top {
       display: flex;
-      gap: 20px;
-      flex-wrap: wrap;
-      margin-top: 8px;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
     }
 
-    .rating-item { text-align: center; min-width: 60px; }
+    .client-banner-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #AFA9EC;
+    }
 
-    .rating-num {
-      font-family: var(--heading);
-      font-size: 22px;
-      font-weight: 700;
+    .client-stage-pill {
+      display: inline-block;
+      background: rgba(61,213,152,0.18);
+      color: #3DD598;
+      border-radius: 20px;
+      padding: 1px 8px;
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .client-project-name {
+      font-size: 15px;
+      font-weight: 500;
+      color: #FFFFFF;
+      line-height: 1.2;
+      margin-bottom: 3px;
+    }
+
+    .client-scope {
+      font-size: 12px;
+      color: #AFA9EC;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 10px;
+    }
+
+    .client-milestone {
+      background: rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+
+    .milestone-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #AFA9EC;
+      margin-bottom: 4px;
+    }
+
+    .milestone-desc {
+      font-size: 12px;
+      font-weight: 500;
+      color: #FFFFFF;
+      line-height: 1.35;
+      margin-bottom: 3px;
+    }
+
+    .milestone-due {
+      font-size: 11px;
+      color: #AFA9EC;
+    }
+
+    .client-link {
+      font-size: 12px;
+      color: #CECBF6;
+      text-decoration: none;
+      display: block;
+    }
+    .client-link:hover { opacity: 0.8; }
+
+    /* ── PATHWAY ROWS ───────────────────────── */
+    .pathway-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+      cursor: default;
+    }
+
+    .pathway-row:last-child { border-bottom: none; }
+
+    .pathway-name {
+      font-size: 12px;
       color: var(--text-primary);
-      line-height: 1;
+      flex: 1;
+      min-width: 0;
+      line-height: 1.3;
     }
 
-    .rating-label {
+    .pathway-status {
       font-size: 11px;
       color: var(--text-muted);
-      margin-top: 2px;
     }
 
-    .empty-italic {
+    .pathway-arrow {
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .view-all-link {
+      display: block;
+      padding: 7px 14px;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-top: 0.5px solid var(--color-border-tertiary);
+    }
+    .view-all-link:hover { color: var(--text-secondary); }
+
+    /* ── UPCOMING PLACEHOLDER ───────────────── */
+    .upcoming-placeholder {
+      border: 0.5px dashed var(--color-border-tertiary);
+      border-radius: var(--radius);
+      background: var(--color-background-secondary);
+      padding: 14px;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .upcoming-placeholder p {
+      font-size: 11px;
+      color: var(--color-text-tertiary);
+    }
+
+    /* ── NOTES TRIGGER ──────────────────────── */
+    .notes-trigger {
+      background: var(--surface);
+      border: 0.5px solid var(--color-border-secondary);
+      border-radius: var(--radius);
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+    .notes-trigger:hover { background: rgba(47,47,47,0.02); }
+
+    .notes-icon { font-size: 15px; color: var(--text-muted); }
+    .notes-label { font-size: 12px; color: var(--text-secondary); flex: 1; }
+
+    .notes-count {
+      background: rgba(47,47,47,0.07);
+      color: var(--text-secondary);
+      border-radius: 20px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .notes-chevron { font-size: 11px; color: var(--text-muted); }
+
+    /* ── NOTES PANEL ────────────────────────── */
+    .notes-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.25);
+      z-index: 100;
+    }
+
+    .notes-backdrop.open { display: block; }
+
+    .notes-panel {
+      position: fixed;
+      top: 0; right: -360px;
+      width: 360px;
+      height: 100vh;
+      background: var(--surface);
+      border-left: 0.5px solid var(--color-border-secondary);
+      z-index: 101;
+      display: flex;
+      flex-direction: column;
+      transition: right 0.22s ease;
+      overflow: hidden;
+    }
+
+    .notes-panel.open { right: 0; }
+
+    .notes-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 0.5px solid var(--color-border-tertiary);
+    }
+
+    .notes-panel-title {
+      font-family: var(--heading);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .notes-panel-close {
+      background: none;
+      border: none;
+      font-size: 16px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .notes-panel-close:hover { background: rgba(47,47,47,0.06); }
+
+    .notes-panel-add {
+      background: transparent;
+      border: 0.5px solid var(--color-border-secondary);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-family: var(--body);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      margin: 12px 16px 0;
+    }
+
+    .notes-panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+
+    .notes-text {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .notes-empty {
       font-size: 13px;
       color: var(--text-muted);
       font-style: italic;
     }
 
-    /* ── ENGAGEMENT SCORE PILL ──────────────── */
-    .score-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(60,138,126,0.10);
-      color: var(--teal);
-      border-radius: 20px;
-      padding: 4px 12px;
-      font-family: var(--heading);
-      font-size: 15px;
-      font-weight: 700;
-    }
-
-    .score-pill span {
-      font-size: 11px;
-      font-weight: 400;
-      color: var(--teal);
-      opacity: 0.8;
+    /* ── EMPTY STATE ────────────────────────── */
+    .empty-muted {
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 10px 14px;
+      font-style: italic;
     }
   </style>
 </head>
@@ -554,343 +760,318 @@ function signalDotColor(strength: number | null): string {
   </nav>
 
   <!-- MAIN -->
-  <main class="content">
+  <div class="main-area">
 
-    <a href="/dashboard/crm" class="back-link">← Back to CRM</a>
-
-    <!-- 1. Header -->
+    <!-- PAGE HEADER -->
     <header class="page-header">
       <div class="header-left">
-        <div class="contact-name-row">
-          <h1>{fullName(contact)}</h1>
-          <span class={`badge ${trackBadgeClass(contact.audience_track)}`}>{trackLabel(contact.audience_track)}</span>
-          {contact.readiness_stage && (
-            <span class="badge badge-grey">{contact.readiness_stage}</span>
+        <a href="/dashboard/crm" class="header-breadcrumb">← CRM</a>
+        <div class="header-name-row">
+          <span class="header-name">{fullName(contact)}</span>
+          {contact.audience_track && (
+            <span class="badge badge-blue">{trackLabel(contact.audience_track)}</span>
           )}
-          {contact.signal_studio_lead && (
-            <span class="badge badge-orange">Signal Studio lead</span>
+          {contact.readiness_stage && (
+            <span class="badge badge-stage">{contact.readiness_stage}</span>
+          )}
+          {client && (
+            <span class="badge badge-client">client</span>
           )}
         </div>
         {contact.email && (
-          <div class="contact-email">{contact.email}</div>
+          <div class="header-email">{contact.email}</div>
         )}
       </div>
-      <div class="header-meta">
+      <div class="header-right">
         {contact.engagement_score != null && (
-          <div class="score-pill">
-            {contact.engagement_score}
-            <span>engagement</span>
+          <div class="score-block">
+            <div class="score-value">{contact.engagement_score}</div>
+            <div class="score-label">engagements</div>
           </div>
         )}
+        <button class="btn-edit" disabled>Edit</button>
       </div>
     </header>
 
-    <!-- 2. Contact details -->
-    <div class="panel">
-      <div class="panel-header">Contact</div>
-      <div class="meta-grid">
-        <div>
-          <div class="meta-row">
-            <span class="meta-key">Email</span>
-            <span class="meta-val">{contact.email ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Phone</span>
-            <span class="meta-val">{contact.phone ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Organisation</span>
-            <span class="meta-val">{contact.organisation ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Job title</span>
-            <span class="meta-val">{contact.job_title ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Location</span>
-            <span class="meta-val">
-              {[contact.suburb, contact.state].filter(Boolean).join(', ') || '—'}
-            </span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Source</span>
-            <span class="meta-val">{contact.source ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Entry site</span>
-            <span class="meta-val">{contact.entry_site ?? '—'}</span>
-          </div>
-        </div>
-        <div>
-          <div class="meta-row">
-            <span class="meta-key">Audience track</span>
-            <span class="meta-val">
-              <span class={`badge ${trackBadgeClass(contact.audience_track)}`}>{trackLabel(contact.audience_track)}</span>
-            </span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Readiness stage</span>
-            <span class="meta-val">{contact.readiness_stage ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Capability stage</span>
-            <span class="meta-val">{contact.capability_stage ?? '—'}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Last active</span>
-            <span class="meta-val">{relativeDate(contact.last_active)}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Created</span>
-            <span class="meta-val">{formatDate(contact.created_at)}</span>
-          </div>
-          {(contact.tags ?? []).length > 0 && (
-            <div class="meta-row">
-              <span class="meta-key">Tags</span>
-              <span class="meta-val" style="display:flex;gap:4px;flex-wrap:wrap;">
-                {(contact.tags as string[]).map((t: string) => (
-                  <span class="badge badge-grey">{t}</span>
-                ))}
+    <!-- 3-COLUMN GRID -->
+    <div class="columns-grid">
+
+      <!-- LEFT COLUMN -->
+      <div>
+
+        <!-- Card: Contact -->
+        <div class="card">
+          <div class="card-label">contact</div>
+          <div style="padding: 4px 0 6px;">
+            <div class="data-row">
+              <span class="data-key">Email</span>
+              <span class={`data-val ${!contact.email ? 'muted' : ''}`}>{contact.email ?? '—'}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Phone</span>
+              <span class={`data-val ${!contact.phone ? 'muted' : ''}`}>{contact.phone ?? '—'}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Organisation</span>
+              <span class="data-val">
+                {contact.organisation
+                  ? <a href={`/dashboard/crm?org=${encodeURIComponent(contact.organisation)}`} class="org-link">{contact.organisation} →</a>
+                  : <span class="muted">—</span>
+                }
               </span>
             </div>
-          )}
-          {contact.do_not_contact && (
-            <div class="meta-row">
-              <span class="meta-key">Do not contact</span>
-              <span class="meta-val" style="color:#C0392B;font-weight:500;">
-                Yes{contact.do_not_contact_reason ? ` — ${contact.do_not_contact_reason}` : ''}
+            <div class="data-row">
+              <span class="data-key">Job title</span>
+              <span class={`data-val ${!contact.job_title ? 'muted' : ''}`}>{contact.job_title ?? '—'}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Location</span>
+              <span class={`data-val ${![contact.suburb, contact.state].filter(Boolean).length ? 'muted' : ''}`}>
+                {[contact.suburb, contact.state].filter(Boolean).join(', ') || '—'}
               </span>
             </div>
-          )}
+            <div class="data-row">
+              <span class="data-key">Source</span>
+              <span class={`data-val ${!contact.source ? 'muted' : ''}`}>{contact.source ?? '—'}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Entry site</span>
+              <span class={`data-val ${!contact.entry_site ? 'muted' : ''}`}>{contact.entry_site ?? '—'}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Created</span>
+              <span class="data-val">{formatDate(contact.created_at)}</span>
+            </div>
+          </div>
         </div>
+
+        <!-- Card: Signal & Loops -->
+        <div class="card">
+          <div class="card-label">signal & loops</div>
+
+          <div class="card-sub-label" style="padding-top: 8px;">audience</div>
+          <div style="padding: 0 0 4px;">
+            <div class="data-row">
+              <span class="data-key">Track</span>
+              <span class="data-val">
+                {contact.audience_track
+                  ? <span class="badge badge-blue" style="font-size:10px;">{trackLabel(contact.audience_track)}</span>
+                  : <span class="muted">—</span>
+                }
+              </span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Journey stage</span>
+              <span class={`data-val ${!contact.readiness_stage ? 'muted' : ''}`}>{contact.readiness_stage ?? '—'}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">AI capability</span>
+              <span class={`data-val ${!contact.capability_stage ? 'muted' : ''}`}>{contact.capability_stage ?? '—'}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Last active</span>
+              <span class={`data-val ${!contact.last_active ? 'muted' : ''}`}>{relativeWithDate(contact.last_active)}</span>
+            </div>
+          </div>
+
+          <div class="card-sub-label" style="border-top: 0.5px solid var(--color-border-tertiary);">email</div>
+          <div style="padding: 0 0 6px;">
+            <div class="data-row">
+              <span class="data-key">Status</span>
+              <span class="data-val">
+                {contact.subscriber
+                  ? <span class="badge badge-green" style="font-size:10px;">subscribed</span>
+                  : <span class="badge badge-grey" style="font-size:10px;">not subscribed</span>
+                }
+              </span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Last open</span>
+              <span class={`data-val ${!contact.last_email_open ? 'muted' : ''}`}>{relativeDate(contact.last_email_open)}</span>
+            </div>
+            <div class="data-row">
+              <span class="data-key">Last click</span>
+              <span class={`data-val ${!contact.last_email_click ? 'muted' : ''}`}>{relativeDate(contact.last_email_click)}</span>
+            </div>
+          </div>
+        </div>
+
       </div>
-    </div>
 
-    <!-- 3. Loops status -->
-    <div class="panel">
-      <div class="panel-header">Loops status</div>
-      <div class="loops-grid">
-        <div class="loops-stat">
-          <div class="loops-stat-label">Loops contact ID</div>
-          <div class="loops-stat-val">
-            {contact.loops_contact_id
-              ? <span class="loops-id">{contact.loops_contact_id}</span>
-              : <span class="badge badge-orange">Not synced</span>
-            }
-          </div>
+      <!-- MIDDLE COLUMN -->
+      <div>
+
+        <!-- Card: Activity -->
+        <div class="card">
+          <div class="card-label">activity</div>
+          {activity.length === 0 ? (
+            <p class="empty-muted">No activity recorded yet.</p>
+          ) : (
+            <>
+              {activityVisible.map((item: any) => (
+                <div class="activity-item">
+                  <div class="act-dot" style={`background: ${activityDotColor(item.activity_type)};`}></div>
+                  <div class="act-body">
+                    <div class="act-type">{item.activity_type ?? '—'}</div>
+                    {item.summary && <div class="act-summary">{item.summary}</div>}
+                    <div class="act-meta">
+                      {item.source && <span>{item.source}</span>}
+                      <span>{formatDateTime(item.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {activityHidden.length > 0 && (
+                <>
+                  <div class="hidden-activities" id="activity-hidden">
+                    {activityHidden.map((item: any) => (
+                      <div class="activity-item">
+                        <div class="act-dot" style={`background: ${activityDotColor(item.activity_type)};`}></div>
+                        <div class="act-body">
+                          <div class="act-type">{item.activity_type ?? '—'}</div>
+                          {item.summary && <div class="act-summary">{item.summary}</div>}
+                          <div class="act-meta">
+                            {item.source && <span>{item.source}</span>}
+                            <span>{formatDateTime(item.created_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div class="show-more-row" id="activity-show-more">
+                    <span>▾</span>
+                    <span>show {activityHidden.length} more</span>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
-        <div class="loops-stat">
-          <div class="loops-stat-label">Last email open</div>
-          <div class="loops-stat-val">
-            {contact.last_email_open
-              ? <>{relativeDate(contact.last_email_open)} <span style="color:var(--text-muted);font-size:12px;">({formatDate(contact.last_email_open)})</span></>
-              : '—'
-            }
-          </div>
-        </div>
-        <div class="loops-stat">
-          <div class="loops-stat-label">Last email click</div>
-          <div class="loops-stat-val">
-            {contact.last_email_click
-              ? <>{relativeDate(contact.last_email_click)} <span style="color:var(--text-muted);font-size:12px;">({formatDate(contact.last_email_click)})</span></>
-              : '—'
-            }
-          </div>
-        </div>
+
       </div>
-    </div>
 
-    <!-- 4. Activity feed -->
-    <div class="panel">
-      <div class="panel-header">Activity feed ({activity.length})</div>
-      {activity.length === 0 ? (
-        <p class="empty-italic">No activity recorded yet</p>
-      ) : (
-        activity.map((item: any) => (
-          <div class="activity-item">
-            <div class="activity-dot-col">
-              <div class="activity-dot" style={`background: ${signalDotColor(item.signal_strength)};`}></div>
-              {item.signal_strength != null && (
-                <span class="signal-num">{item.signal_strength}</span>
-              )}
-            </div>
-            <div class="activity-body">
-              <div class="activity-type">{item.activity_type ?? '—'}</div>
-              {item.summary && (
-                <div class="activity-summary">{item.summary}</div>
-              )}
-              <div class="activity-meta">
-                {item.source && <span>{item.source}</span>}
-                <span>{formatDateTime(item.created_at)}</span>
-              </div>
-            </div>
-          </div>
-        ))
-      )}
-    </div>
+      <!-- RIGHT COLUMN -->
+      <div>
 
-    <!-- 5. Form submissions -->
-    <div class="panel">
-      <div class="panel-header">Form submissions ({submissions.length})</div>
-      {submissions.length === 0 ? (
-        <p class="empty-italic">No form submissions on record</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Site</th>
-              <th>Source</th>
-              <th>Page</th>
-              <th>Enquiry type</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {submissions.map((s: any) => (
-              <tr>
-                <td style="white-space:nowrap;color:var(--text-muted);">{formatDate(s.created_at)}</td>
-                <td>{s.site_slug ?? '—'}</td>
-                <td style="color:var(--text-muted);">{s.source ?? '—'}</td>
-                <td style="color:var(--text-muted);font-size:12px;">{s.page_path ?? '—'}</td>
-                <td>{s.enquiry_type ?? '—'}</td>
-                <td>
-                  {s.status
-                    ? <span class="badge badge-grey">{s.status}</span>
-                    : '—'
-                  }
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-
-    <!-- 6. Assessments (if any) -->
-    {assessments.length > 0 && (
-      <div class="panel">
-        <div class="panel-header">Capability assessments ({assessments.length})</div>
-        {assessments.map((a: any) => (
-          <div style="padding: 12px 0; border-bottom: 1px solid var(--border);">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-              <span style="font-size:13px;font-weight:500;color:var(--text-primary);">
-                {formatDate(a.assessed_at)}
-              </span>
-              {a.assessed_by && (
-                <span style="font-size:12px;color:var(--text-muted);">by {a.assessed_by}</span>
-              )}
-              {a.context && (
-                <span class="badge badge-grey">{a.context}</span>
+        <!-- Client banner (conditional) -->
+        {client && (
+          <div class="client-banner">
+            <div class="client-banner-top">
+              <span style="font-size:12px;">💼</span>
+              <span class="client-banner-label">client</span>
+              {client.stage && (
+                <span class="client-stage-pill">{client.stage}</span>
               )}
             </div>
-            <div class="rating-row">
-              {a.rating_facilitation != null && (
-                <div class="rating-item">
-                  <div class="rating-num">{a.rating_facilitation}</div>
-                  <div class="rating-label">Facilitation</div>
-                </div>
-              )}
-              {a.rating_ai_knowledge != null && (
-                <div class="rating-item">
-                  <div class="rating-num">{a.rating_ai_knowledge}</div>
-                  <div class="rating-label">AI knowledge</div>
-                </div>
-              )}
-              {a.rating_room_presence != null && (
-                <div class="rating-item">
-                  <div class="rating-num">{a.rating_room_presence}</div>
-                  <div class="rating-label">Room presence</div>
-                </div>
-              )}
-              {a.rating_adaptability != null && (
-                <div class="rating-item">
-                  <div class="rating-num">{a.rating_adaptability}</div>
-                  <div class="rating-label">Adaptability</div>
-                </div>
-              )}
-              {a.rating_implementation != null && (
-                <div class="rating-item">
-                  <div class="rating-num">{a.rating_implementation}</div>
-                  <div class="rating-label">Implementation</div>
-                </div>
-              )}
-            </div>
-            {a.strengths && (
-              <div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">
-                <span style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:600;letter-spacing:0.06em;">Strengths</span>
-                <p style="margin-top:2px;">{a.strengths}</p>
+            <div class="client-project-name">{client.project_name ?? '—'}</div>
+            {client.scope_summary && (
+              <div class="client-scope">{client.scope_summary} · {formatMonthYear(client.created_at)}</div>
+            )}
+            {(client.current_status_note || client.deadline) && (
+              <div class="client-milestone">
+                <div class="milestone-label">next milestone</div>
+                {client.current_status_note && (
+                  <div class="milestone-desc">{client.current_status_note}</div>
+                )}
+                {client.deadline && (
+                  <div class="milestone-due">{formatDeadline(client.deadline)}</div>
+                )}
               </div>
             )}
-            {a.growth_areas && (
-              <div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">
-                <span style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:600;letter-spacing:0.06em;">Growth areas</span>
-                <p style="margin-top:2px;">{a.growth_areas}</p>
-              </div>
-            )}
+            <a href={`/dashboard/clients/${client.id}`} class="client-link">view client record →</a>
           </div>
-        ))}
-      </div>
-    )}
+        )}
 
-    <!-- 7. Notes -->
-    <div class="panel">
-      <div class="panel-header">Notes</div>
-      <textarea
-        id="notes-textarea"
-        class="notes-textarea"
-        placeholder="Add notes about this contact…"
-      >{contact.notes ?? ''}</textarea>
-      <div class="notes-footer">
-        <span id="notes-status" class="notes-status"></span>
-        <button id="notes-save" class="btn-save">Save notes</button>
+        <!-- Pathways (conditional) -->
+        {enrolments.length > 0 && (
+          <div class="card">
+            <div class="card-label">pathways</div>
+            <div style="padding: 4px 0 0;">
+              {enrolments.slice(0, 3).map((e: any) => (
+                <div class="pathway-row">
+                  <div>
+                    <div class="pathway-name">{pathwayName(e)}</div>
+                    {e.status && (
+                      <div class="pathway-status">{e.status}</div>
+                    )}
+                  </div>
+                  <span class="pathway-arrow">→</span>
+                </div>
+              ))}
+              {enrolments.length > 3 && (
+                <a href="#" class="view-all-link">view all →</a>
+              )}
+            </div>
+          </div>
+        )}
+
+        <!-- Upcoming actions placeholder -->
+        <div class="upcoming-placeholder">
+          <p>upcoming actions — coming soon</p>
+        </div>
+
+        <!-- Notes trigger -->
+        <div class="notes-trigger" id="notes-trigger">
+          <span class="notes-icon">📋</span>
+          <span class="notes-label">notes</span>
+          <span class="notes-count">{notesCount}</span>
+          <span class="notes-chevron">›</span>
+        </div>
+
       </div>
+
     </div>
-
-  </main>
+  </div>
 </div>
 
-<script is:inline data-contact-id={id} id="contact-page-script">
+<!-- NOTES PANEL -->
+<div class="notes-backdrop" id="notes-backdrop"></div>
+<div class="notes-panel" id="notes-panel">
+  <div class="notes-panel-header">
+    <span class="notes-panel-title">Notes</span>
+    <button class="notes-panel-close" id="notes-close">✕</button>
+  </div>
+  <button class="notes-panel-add" disabled>+ Add note</button>
+  <div class="notes-panel-body">
+    {contact.notes
+      ? <div class="notes-text">{contact.notes}</div>
+      : <div class="notes-empty">No notes yet.</div>
+    }
+  </div>
+</div>
+
+<script is:inline>
   (function () {
-    const scriptEl  = document.getElementById('contact-page-script')
-    const contactId = scriptEl.dataset.contactId
+    // Notes panel
+    const trigger  = document.getElementById('notes-trigger')
+    const backdrop = document.getElementById('notes-backdrop')
+    const panel    = document.getElementById('notes-panel')
+    const closeBtn = document.getElementById('notes-close')
 
-    const textarea = document.getElementById('notes-textarea')
-    const saveBtn  = document.getElementById('notes-save')
-    const statusEl = document.getElementById('notes-status')
-
-    function setStatus(msg, color) {
-      statusEl.textContent = msg
-      statusEl.style.color = color || '#909090'
+    function openNotes() {
+      backdrop.classList.add('open')
+      panel.classList.add('open')
     }
 
-    saveBtn.addEventListener('click', async () => {
-      saveBtn.disabled = true
-      setStatus('Saving…', '#909090')
+    function closeNotes() {
+      backdrop.classList.remove('open')
+      panel.classList.remove('open')
+    }
 
-      try {
-        const res = await fetch('/api/crm/update-notes', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: contactId, notes: textarea.value }),
-        })
-        const data = await res.json()
-        if (res.ok && data.success) {
-          setStatus('Saved', '#2D5A35')
-          setTimeout(() => setStatus(''), 3000)
-        } else {
-          setStatus(data.error ?? 'Error saving', '#C0392B')
-        }
-      } catch {
-        setStatus('Error saving', '#C0392B')
-      } finally {
-        saveBtn.disabled = false
-      }
-    })
+    trigger.addEventListener('click', openNotes)
+    backdrop.addEventListener('click', closeNotes)
+    closeBtn.addEventListener('click', closeNotes)
 
-    textarea.addEventListener('input', () => {
-      setStatus('Unsaved changes', '#E07020')
-    })
+    // Activity show more
+    const showMore = document.getElementById('activity-show-more')
+    const hidden   = document.getElementById('activity-hidden')
+
+    if (showMore && hidden) {
+      showMore.addEventListener('click', function () {
+        hidden.classList.add('expanded')
+        showMore.style.display = 'none'
+      })
+    }
   })()
 </script>
 

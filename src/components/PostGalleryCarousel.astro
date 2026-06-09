@@ -1,0 +1,164 @@
+---
+import { supabase } from '../lib/supabase';
+
+interface MediaAsset {
+  id: string;
+  file_path: string;
+  image_url: string | null;
+  alt_text: string | null;
+  caption: string | null;
+}
+
+interface Props {
+  galleryAssetIds: string[];
+}
+
+const { galleryAssetIds } = Astro.props;
+
+let assets: MediaAsset[] = [];
+
+if (galleryAssetIds?.length > 0) {
+  const { data } = await supabase
+    .from('media_assets')
+    .select('id, file_path, image_url, alt_text, caption')
+    .in('id', galleryAssetIds);
+
+  const byId = Object.fromEntries((data ?? []).map((a) => [a.id, a]));
+  assets = galleryAssetIds.map((id) => byId[id]).filter(Boolean) as MediaAsset[];
+}
+---
+
+{assets.length > 0 && (
+  <div class="pgc-root" data-gallery>
+    <div class="pgc-track">
+      {assets.map((asset, i) => (
+        <figure class="pgc-slide" data-index={i}>
+          <img
+            src={asset.image_url ?? asset.file_path}
+            alt={asset.alt_text ?? ''}
+            class="pgc-img"
+            loading={i === 0 ? 'eager' : 'lazy'}
+            decoding="async"
+          />
+          {asset.caption && (
+            <figcaption class="pgc-caption">{asset.caption}</figcaption>
+          )}
+        </figure>
+      ))}
+    </div>
+
+    {assets.length > 1 && (
+      <div class="pgc-controls">
+        <button class="pgc-btn pgc-prev" aria-label="Previous image">&#8592;</button>
+        <span class="pgc-counter">
+          <span class="pgc-current">1</span> / {assets.length}
+        </span>
+        <button class="pgc-btn pgc-next" aria-label="Next image">&#8594;</button>
+      </div>
+    )}
+  </div>
+)}
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-gallery]').forEach((gallery) => {
+    const track = gallery.querySelector<HTMLElement>('.pgc-track');
+    const prevBtn = gallery.querySelector<HTMLButtonElement>('.pgc-prev');
+    const nextBtn = gallery.querySelector<HTMLButtonElement>('.pgc-next');
+    const currentEl = gallery.querySelector<HTMLElement>('.pgc-current');
+    const slides = gallery.querySelectorAll<HTMLElement>('.pgc-slide');
+
+    if (!track || slides.length === 0) return;
+
+    let current = 0;
+
+    function goTo(index: number) {
+      current = Math.max(0, Math.min(index, slides.length - 1));
+      slides[current].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+      if (currentEl) currentEl.textContent = String(current + 1);
+    }
+
+    prevBtn?.addEventListener('click', () => goTo(current - 1));
+    nextBtn?.addEventListener('click', () => goTo(current + 1));
+
+    track.addEventListener(
+      'scroll',
+      () => {
+        const slideWidth = slides[0]?.offsetWidth ?? 1;
+        current = Math.round(track.scrollLeft / slideWidth);
+        if (currentEl) currentEl.textContent = String(current + 1);
+      },
+      { passive: true },
+    );
+  });
+</script>
+
+<style>
+  .pgc-root {
+    width: 100%;
+  }
+
+  .pgc-track {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .pgc-track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .pgc-slide {
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    margin: 0;
+  }
+
+  .pgc-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: var(--radius_md);
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+  }
+
+  .pgc-caption {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    line-height: var(--leading_relaxed);
+    margin: var(--gap_xs) 0 0;
+  }
+
+  .pgc-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--gap_md);
+    margin-top: var(--gap_sm);
+  }
+
+  .pgc-btn {
+    background: none;
+    border: 1px solid var(--color_border);
+    border-radius: var(--radius_sm);
+    padding: var(--gap_xs) var(--gap_sm);
+    cursor: pointer;
+    font-size: var(--text_base);
+    color: var(--color_text_primary);
+    line-height: 1;
+    transition: background 0.15s ease;
+  }
+
+  .pgc-btn:hover {
+    background: var(--color_surface_raised);
+  }
+
+  .pgc-counter {
+    font-size: var(--text_sm);
+    color: var(--color_text_secondary);
+    min-width: 4ch;
+    text-align: center;
+  }
+</style>

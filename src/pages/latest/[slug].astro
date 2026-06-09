@@ -2,6 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import Nav from '../../components/Nav.astro';
 import Footer from '../../components/Footer.astro';
+import PostGalleryCarousel from '../../components/PostGalleryCarousel.astro';
 import { supabase } from '../../lib/supabase';
 import { getSite, getNavItems, getMediaAssets } from '../../lib/queries';
 import { marked } from 'marked';
@@ -26,13 +27,15 @@ if (!site.brand_key)      throw new Error('Missing: sites.brand_key for slug=sig
 // ── Post ───────────────────────────────────────────────────────
 const { data: post } = await supabase
   .from('posts')
-  .select('id, title, slug, summary, content, published_at, category, tags, reading_time_minutes, hero_media_asset_id, meta_title, meta_description, author_name')
+  .select('id, title, slug, summary, content, published_at, category, tags, reading_time_minutes, hero_media_asset_id, meta_title, meta_description, author_name, gallery_asset_ids')
   .eq('slug', slug)
   .contains('site_show', ['signal_studio'])
   .eq('status', 'published')
   .maybeSingle();
 
 if (!post) return Astro.redirect('/404');
+
+const galleryIds = (post.gallery_asset_ids ?? []) as string[];
 
 Astro.response.headers.set('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
 
@@ -179,7 +182,14 @@ const canonicalUrl   = `https://${site.primary_domain}/latest/${post.slug}`;
     <!-- ── Article content ── -->
     <section style="background: var(--color_background); padding-block: clamp(2.5rem, 5vw, 4rem);">
       <div style="max-width: var(--layout_max_width); margin-inline: auto; padding-inline: var(--layout_padding_x);">
-        <div class="post-content" set:html={renderContent(post.content)} />
+        <div class="post-body-wrap">
+          <div class="post-content" set:html={renderContent(post.content)} />
+          {galleryIds.length > 0 && (
+            <aside class="post-gallery-col">
+              <PostGalleryCarousel galleryAssetIds={galleryIds} />
+            </aside>
+          )}
+        </div>
       </div>
     </section>
 
@@ -273,8 +283,34 @@ const canonicalUrl   = `https://${site.primary_domain}/latest/${post.slug}`;
 </Layout>
 
 <style>
+  .post-body-wrap {
+    display: flex;
+    gap: clamp(2rem, 4vw, 4rem);
+    align-items: flex-start;
+  }
+
   .post-content {
+    flex: 1 1 auto;
     max-width: 68ch;
+    min-width: 0;
+  }
+
+  .post-gallery-col {
+    flex: 0 0 clamp(220px, 28%, 340px);
+    min-width: 0;
+    position: sticky;
+    top: 2rem;
+  }
+
+  @media (max-width: 900px) {
+    .post-body-wrap {
+      flex-direction: column;
+    }
+
+    .post-gallery-col {
+      position: static;
+      width: 100%;
+    }
   }
 
   .post-content :global(p) {

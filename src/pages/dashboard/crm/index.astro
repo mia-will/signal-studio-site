@@ -3,19 +3,14 @@ export const prerender = false
 import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
 import DashboardLayout from '../../../layouts/DashboardLayout.astro'
 
-const SELECT_FIELDS = 'id, first_name, last_name, email, phone, organisation, audience_track, readiness_stage, engagement_score, last_active, source, leaders_group, do_not_contact, do_not_contact_reason, contact_type, created_at, suburb, state'
+const SELECT_FIELDS = 'id, first_name, last_name, email, phone, organisation, audience_track, readiness_stage, engagement_score, last_active, source, leaders_group, subscriber, do_not_contact, do_not_contact_reason, contact_type, created_at, suburb, state'
 const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-const [statsRes, contactsRes, bothCountRes, michelleRes, needsAttentionRes] = await Promise.all([
-  supabase.from('v_crm_dashboard').select('*').maybeSingle(),
+const [contactsRes, michelleRes, needsAttentionRes] = await Promise.all([
   supabase.from('contacts_crm')
     .select(SELECT_FIELDS)
     .neq('email', 'michelle@theremix.au')
     .order('engagement_score', { ascending: false, nullsFirst: false }),
-  supabase.from('contacts_crm')
-    .select('*', { count: 'exact', head: true })
-    .eq('audience_track', 'both')
-    .neq('email', 'michelle@theremix.au'),
   supabase.from('contacts_crm')
     .select(SELECT_FIELDS)
     .eq('email', 'michelle@theremix.au')
@@ -25,17 +20,21 @@ const [statsRes, contactsRes, bothCountRes, michelleRes, needsAttentionRes] = aw
     .in('source', ['website_form', 'social_form', 'studio_form'])
     .gte('created_at', sevenDaysAgo)
     .neq('email', 'michelle@theremix.au')
-    .or('do_not_contact.is.null,do_not_contact.eq.false')
+    .eq('subscriber', true)
+    .eq('do_not_contact', false)
     .order('created_at', { ascending: false })
     .limit(10),
 ])
 
-const stats          = statsRes.data
 const contacts       = contactsRes.data ?? []
-const bothCount      = bothCountRes.count ?? 0
 const michelle       = michelleRes.data
 const needsAttnDB    = needsAttentionRes.data ?? []
-const allCount       = contacts.length
+const mainContacts   = contacts.filter(c => c.subscriber === true && c.do_not_contact === false)
+const allCount       = mainContacts.length
+const builderCount   = mainContacts.filter(c => c.audience_track === 'builder').length
+const applierCount   = mainContacts.filter(c => c.audience_track === 'applier').length
+const bothCount      = mainContacts.filter(c => c.audience_track === 'both').length
+const unassignedCount = mainContacts.filter(c => !c.audience_track).length
 const needsAttnCount = needsAttnDB.length
 ---
 
@@ -247,7 +246,7 @@ const needsAttnCount = needsAttnDB.length
   thead th.sort-desc::after { content: ' ↓'; color: #FD6F2F; }
 
   tbody td {
-    padding: 9px 12px; color: var(--text-secondary);
+    padding: 14px 12px; color: var(--text-secondary);
     border-bottom: 0.5px solid var(--border);
     vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
@@ -334,14 +333,14 @@ const needsAttnCount = needsAttnDB.length
           <div class="stat-dot" style="background:#1D9E75"></div>
           <div class="stat-label">Builders</div>
         </div>
-        <div class="stat-value">{stats?.builders ?? 0}</div>
+        <div class="stat-value">{builderCount}</div>
       </div>
       <div class="stat-card" data-filter="applier">
         <div class="stat-card-top">
           <div class="stat-dot" style="background:#378ADD"></div>
           <div class="stat-label">Appliers</div>
         </div>
-        <div class="stat-value">{stats?.appliers ?? 0}</div>
+        <div class="stat-value">{applierCount}</div>
       </div>
       <div class="stat-card" data-filter="both">
         <div class="stat-card-top">
@@ -355,7 +354,7 @@ const needsAttnCount = needsAttnDB.length
           <div class="stat-dot" style="background:#EF9F27"></div>
           <div class="stat-label">Unassigned</div>
         </div>
-        <div class="stat-value">{stats?.untracked_audience ?? 0}</div>
+        <div class="stat-value">{unassignedCount}</div>
       </div>
     </div>
 
@@ -391,6 +390,7 @@ const needsAttnCount = needsAttnDB.length
     <button class="tab" data-tab="applier">Appliers</button>
     <button class="tab" data-tab="both">Both</button>
     <button class="tab" data-tab="unassigned">Unassigned</button>
+    <button class="tab" data-tab="general">General</button>
   </div>
 
   <!-- Toolbar -->
@@ -487,6 +487,7 @@ const needsAttnCount = needsAttnDB.length
     last_active: string | null
     source: string | null
     leaders_group: boolean | null
+    subscriber: boolean | null
     do_not_contact: boolean | null
     do_not_contact_reason: string | null
     contact_type: string | null
@@ -543,7 +544,7 @@ const needsAttnCount = needsAttnDB.length
   }
 
   let showMichelle   = false
-  let activeTrack    = 'all'      // 'all' | 'builder' | 'applier' | 'both' | 'unassigned' | 'needs_attention'
+  let activeTrack    = 'all'      // 'all' | 'builder' | 'applier' | 'both' | 'unassigned' | 'general' | 'needs_attention'
   let currentSort    = loadSort()
   let currentPage    = 0
   let visibleCols    = loadColumns()
@@ -551,6 +552,14 @@ const needsAttnCount = needsAttnDB.length
 
   function allContacts(): Contact[] {
     return showMichelle && michelleContact ? [...baseContacts, michelleContact] : baseContacts
+  }
+
+  function isGeneralContact(c: Contact): boolean {
+    return c.subscriber === false || c.do_not_contact === true
+  }
+
+  function isMainContact(c: Contact): boolean {
+    return c.subscriber === true && c.do_not_contact === false
   }
 
   // ── Helpers ───────────────────────────────
@@ -594,11 +603,16 @@ const needsAttnCount = needsAttnDB.length
     let list = allContacts()
 
     if (activeTrack === 'needs_attention') {
-      list = list.filter(c => needsAttnIds.includes(c.id))
-    } else if (activeTrack === 'builder')    list = list.filter(c => c.audience_track === 'builder')
-    else if (activeTrack === 'applier')      list = list.filter(c => c.audience_track === 'applier')
-    else if (activeTrack === 'both')         list = list.filter(c => c.audience_track === 'both')
-    else if (activeTrack === 'unassigned')   list = list.filter(c => !c.audience_track)
+      list = list.filter(c => isMainContact(c) && needsAttnIds.includes(c.id))
+    } else if (activeTrack === 'general') {
+      list = list.filter(isGeneralContact)
+    } else {
+      list = list.filter(isMainContact)
+      if (activeTrack === 'builder')         list = list.filter(c => c.audience_track === 'builder')
+      else if (activeTrack === 'applier')    list = list.filter(c => c.audience_track === 'applier')
+      else if (activeTrack === 'both')       list = list.filter(c => c.audience_track === 'both')
+      else if (activeTrack === 'unassigned') list = list.filter(c => !c.audience_track)
+    }
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -657,7 +671,7 @@ const needsAttnCount = needsAttnDB.length
 
     const tbody = document.getElementById('contacts-tbody')!
     if (page.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" class="table-message">No contacts match this filter.</td></tr>`
+      tbody.innerHTML = `<tr><td colspan="10" class="table-message">No contacts match this filter.</td></tr>`
     } else {
         tbody.innerHTML = page.map(c => {
         const color = avatarColor(c.email)
