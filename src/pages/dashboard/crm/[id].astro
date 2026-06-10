@@ -106,9 +106,30 @@ function pathwayName(e: any): string {
     ?? '—'
 }
 
+function dedupeEmailOpens(rows: any[]): any[] {
+  const groups = new Map<string, any[]>()
+  const other: any[] = []
+  for (const row of rows) {
+    if (row.activity_type !== 'email_open') { other.push(row); continue }
+    const day = row.created_at ? new Date(row.created_at).toISOString().slice(0, 10) : ''
+    const key = `${day}__${row.summary ?? ''}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(row)
+  }
+  const collapsed = Array.from(groups.values()).map(group => {
+    const earliest = group.reduce((a, b) => a.created_at < b.created_at ? a : b)
+    const count = group.length
+    return { ...earliest, summary: count > 1 ? `${earliest.summary ?? 'opened'} × ${count}` : earliest.summary }
+  })
+  return [...other, ...collapsed].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  )
+}
+
 const notesCount = contact.notes ? 1 : 0
-const activityVisible = activity.slice(0, 10)
-const activityHidden  = activity.slice(10)
+const dedupedActivity = dedupeEmailOpens(activity)
+const activityVisible = dedupedActivity.slice(0, 10)
+const activityHidden  = dedupedActivity.slice(10)
 ---
 
 <html lang="en">
@@ -321,7 +342,7 @@ const activityHidden  = activity.slice(10)
     /* ── 3-COLUMN GRID ──────────────────────── */
     .columns-grid {
       display: grid;
-      grid-template-columns: 220px 1fr 210px;
+      grid-template-columns: 220px 1fr minmax(210px, 210px);
       gap: 12px;
       padding: 16px 20px;
       align-items: start;
@@ -899,12 +920,12 @@ const activityHidden  = activity.slice(10)
       </div>
 
       <!-- MIDDLE COLUMN -->
-      <div>
+      <div style="align-self: start;">
 
         <!-- Card: Activity -->
         <div class="card">
           <div class="card-label">activity</div>
-          {activity.length === 0 ? (
+          {dedupedActivity.length === 0 ? (
             <p class="empty-muted">No activity recorded yet.</p>
           ) : (
             <>
