@@ -1,0 +1,1276 @@
+---
+export const prerender = false
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
+
+const { id } = Astro.params
+
+const { data: event } = await supabase
+  .from('events')
+  .select('*')
+  .eq('id', id)
+  .maybeSingle()
+
+if (!event) return Astro.redirect('/dashboard/events')
+
+// ── event_timing derived same as view ─────────────────────────────────────
+function getEventTiming(ev: any): 'draft' | 'upcoming' | 'past' {
+  if (ev.publish_status === 'draft') return 'draft'
+  if (ev.start_at && new Date(ev.start_at) >= new Date()) return 'upcoming'
+  return 'past'
+}
+const eventTiming = getEventTiming(event)
+const isProd = eventTiming !== 'past'
+
+// ── legacy asset IDs to resolve for production mode ────────────────────────
+const legacyAssetIds = [
+  event.hero_media_asset_id,
+  event.featured_image_asset_id,
+  event.og_image_asset_id,
+  event.promotional_image_asset_id,
+].filter(Boolean) as string[]
+
+// ── run-sheet lookup: most recent past event of same category/track ─────────
+const findPastRunSheet = async (): Promise<{ pastEvent: any; runSheet: any } | null> => {
+  if (!isProd) return null
+  const now = new Date().toISOString()
+  let q = supabase
+    .from('events')
+    .select('id, title, event_category, audience_track')
+    .lt('start_at', now)
+    .neq('id', id)
+    .order('start_at', { ascending: false })
+    .limit(1) as any
+  if (event.event_category) {
+    q = q.eq('event_category', event.event_category)
+  } else if (event.audience_track) {
+    q = q.eq('audience_track', event.audience_track)
+  } else {
+    return null
+  }
+  const { data: pastEvents } = await q
+  const pastEv = pastEvents?.[0] ?? null
+  if (!pastEv) return null
+  const { data: rsRows } = await supabase
+    .from('event_session_library')
+    .select('id, title, version, source_url, improved_content, original_content, recommended_changes')
+    .eq('event_id', pastEv.id)
+    .eq('asset_type', 'run_sheet')
+    .order('version', { ascending: false })
+    .limit(1)
+  return { pastEvent: pastEv, runSheet: rsRows?.[0] ?? null }
+}
+
+const [
+  actionsRes,
+  insightsRes,
+  sessionLibRes,
+  feedbackRes,
+  attendeesRes,
+  revenueRes,
+  assetsRes,
+  legacyAssetsRes,
+  peopleRes,
+  runSheetResult,
+] = await Promise.all([
+  supabase
+    .from('event_actions')
+    .select('id, title, description, owner, due_at, status, completed_at, output_table, output_record_id, notes')
+    .eq('event_id', id)
+    .order('due_at', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true }),
+
+  supabase
+    .from('event_insights')
+    .select('id, key_themes, questions_asked, messaging_insights, follow_up_signals, fireflies_url, what_landed, what_didnt_land, what_was_promised, what_actually_happened, facilitation_notes, audience_mix_notes, facilitator_reflection, energy_level, session_version, parent_session_id, created_at')
+    .eq('event_id', id)
+    .order('created_at', { ascending: false }),
+
+  supabase
+    .from('event_session_library')
+    .select('id, title, asset_type, version, source_url, original_content, recommended_changes, improved_content, notes')
+    .eq('event_id', id)
+    .order('asset_type', { ascending: true })
+    .order('version', { ascending: false }),
+
+  supabase
+    .from('event_attendee_feedback')
+    .select('id, name, email, rating, got_most_value, one_thing_different, next_step_interest, submitted_at')
+    .eq('event_id', id)
+    .order('submitted_at', { ascending: false }),
+
+  supabase
+    .from('event_attendees')
+    .select('id, contact_id, registration_source, amount_paid, currency, status, attended_at, registered_at, notes, contacts_crm(id, first_name, last_name, email)')
+    .eq('event_id', id)
+    .order('registered_at', { ascending: false }),
+
+  supabase
+    .from('event_revenue')
+    .select('tickets_sold, tickets_capacity, gross_revenue, total_income, total_costs, net_revenue')
+    .eq('event_id', id)
+    .maybeSingle(),
+
+  isProd
+    ? supabase.from('media_assets').select('id, image_url, file_path, title, alt_text, role, tags, width, height, status').eq('event_id', id)
+    : Promise.resolve({ data: [] }),
+
+  isProd && legacyAssetIds.length > 0
+    ? supabase.from('media_assets').select('id, image_url, file_path, title, alt_text, role, tags, width, height, status').in('id', legacyAssetIds)
+    : Promise.resolve({ data: [] }),
+
+  isProd
+    ? supabase.from('event_people').select('id, role_at_event, sort_order, people_bios(id, first_name, last_name, display_name, headline, profile_image_url)').eq('event_id', id).order('sort_order', { ascending: true, nullsFirst: false })
+    : Promise.resolve({ data: [] }),
+
+  findPastRunSheet(),
+])
+
+const actions       = actionsRes.data     ?? []
+const insights      = insightsRes.data    ?? []
+const sessionLib    = sessionLibRes.data  ?? []
+const feedback      = feedbackRes.data    ?? []
+const attendees     = attendeesRes.data   ?? []
+const revenue       = revenueRes.data     ?? null
+const insight       = insights[0] ?? null
+
+// ── production mode data ───────────────────────────────────────────────────
+const rawAssets     = (assetsRes.data     ?? []).filter((a: any) => a.status !== 'archived')
+const legacyAssets  = legacyAssetsRes.data ?? []
+const peopleRows    = peopleRes.data      ?? []
+
+// Map legacy asset IDs to their slot label
+const LEGACY_SLOTS: Record<string, string> = {
+  [event.hero_media_asset_id]:           'hero',
+  [event.featured_image_asset_id]:       'featured',
+  [event.og_image_asset_id]:            'og image',
+  [event.promotional_image_asset_id]:   'promo',
+}
+
+// Group people by role
+const peopleByRole: Record<string, any[]> = {}
+for (const row of peopleRows) {
+  const role = (row.role_at_event ?? 'other').toLowerCase()
+  if (!peopleByRole[role]) peopleByRole[role] = []
+  peopleByRole[role].push(row)
+}
+const ROLE_ORDER = ['speaker', 'facilitator', 'host', 'other']
+
+// Actions summary
+const doneActions      = actions.filter((a: any) => a.status === 'done')
+const checklistFirst10 = actions.slice(0, 10)
+const checklistRest    = actions.slice(10)
+
+// Asset coverage
+// move to Supabase config later — currently a page constant
+const EXPECTED_ASSET_USES = ['main', 'luma', 'instagram', 'linkedin', 'edm']
+
+function assetHasUse(asset: any, use: string): boolean {
+  const tags = asset.tags
+  const role = asset.role
+  if (role === use) return true
+  if (!tags) return false
+  if (Array.isArray(tags)) return tags.includes(use)
+  if (typeof tags === 'object') return Object.values(tags as object).includes(use)
+  return false
+}
+
+const allDisplayAssets = [...rawAssets] // event_id assets
+// Add legacy assets that aren't already in the event_id set
+const rawIds = new Set(rawAssets.map((a: any) => a.id))
+for (const la of legacyAssets) {
+  if (!rawIds.has(la.id)) allDisplayAssets.push(la)
+}
+
+const coverageMap: Record<string, boolean> = {}
+for (const use of EXPECTED_ASSET_USES) {
+  coverageMap[use] = allDisplayAssets.some((a: any) => assetHasUse(a, use))
+}
+
+// Promotional image: check legacy column OR asset tagged 'main'
+const promoImageOk = !!event.promotional_image_asset_id || coverageMap['main']
+
+// Readiness checks
+const loopsConnected  = !!event.loops_transactional_id
+const stripeConnected = !!event.stripe_payment_link_url
+const isPaidEvent     = event.price_amount && Number(event.price_amount) > 0
+
+// Draft publish-readiness checks
+const publishChecks = [
+  { label: 'Title set',              ok: !!event.title },
+  { label: 'Date set',               ok: !!event.start_at },
+  { label: 'Slug set',               ok: !!event.slug },
+  { label: 'Shows on at least one site', ok: !!(event.show_on_remix || event.show_on_signal_studio || event.show_on_michelle_williams || event.show_on_signal_summit) },
+  { label: 'Summary or description', ok: !!(event.summary || event.description) },
+  { label: 'Hero or main image',     ok: !!(event.hero_media_asset_id || event.featured_image_asset_id || coverageMap['main']) },
+  { label: 'Registration URL',       ok: !!event.registration_url },
+]
+const publishReadyCount = publishChecks.filter(c => c.ok).length
+
+// Countdown
+function daysToGo(ts: string | null): number | null {
+  if (!ts) return null
+  const eventDay = new Date(ts)
+  eventDay.setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.ceil((eventDay.getTime() - today.getTime()) / 86400000)
+}
+const countdown = isProd ? daysToGo(event.start_at) : null
+
+// ── helpers ────────────────────────────────────────────────────────────────
+function fmtDate(ts: string | null): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function fmtDateTime(ts: string | null, tz?: string | null): string {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('en-AU', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: tz ?? 'Australia/Sydney',
+  })
+}
+
+function fmtTime(ts: string | null, tz?: string | null): string {
+  if (!ts) return ''
+  return new Date(ts).toLocaleTimeString('en-AU', {
+    hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: tz ?? 'Australia/Sydney',
+  })
+}
+
+function fmtCurrency(amount: number | null): string {
+  if (amount === null || amount === undefined) return '—'
+  return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 0 }).format(amount)
+}
+
+function isOverdue(due_at: string | null, status: string): boolean {
+  if (!due_at || status === 'done') return false
+  return new Date(due_at) < new Date()
+}
+
+function trackBadge(track: string | null): { bg: string; color: string; label: string } | null {
+  if (!track) return null
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    builders: { bg: '#E6F1FB', color: '#185FA5', label: 'Builders' },
+    appliers:  { bg: '#E1F5EE', color: '#0F6E56', label: 'Appliers' },
+    both:      { bg: '#EEEDFE', color: '#3C3489', label: 'Both' },
+  }
+  return map[track.toLowerCase()] ?? null
+}
+
+const trackInfo = trackBadge(event.audience_track)
+
+const timingBadge: Record<string, { bg: string; color: string; label: string }> = {
+  draft:    { bg: 'rgba(47,47,47,0.07)', color: 'var(--text-muted)', label: 'Draft' },
+  upcoming: { bg: '#E1F5EE', color: '#0F6E56', label: 'Upcoming' },
+  past:     { bg: '#F5F4F1', color: 'var(--text-secondary)', label: 'Past' },
+}
+const timing = timingBadge[eventTiming]
+
+function contactName(attendee: any): string {
+  const c = attendee.contacts_crm
+  if (!c) return attendee.contact_id ? `Contact ${attendee.contact_id.slice(0, 8)}…` : '—'
+  return [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || '—'
+}
+
+function personName(row: any): string {
+  const p = row.people_bios
+  if (!p) return '—'
+  return p.display_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || '—'
+}
+
+const TABLE_ROUTES: Record<string, (rid: string) => string> = {
+  posts:        (rid) => `/dashboard/content/posts/${rid}`,
+  contacts_crm: (rid) => `/dashboard/crm/${rid}`,
+}
+
+function outputLink(table: string | null, rid: string | null, label: string): string {
+  if (!table || !rid) return label
+  const route = TABLE_ROUTES[table]
+  return route ? `<a href="${route(rid)}" class="output-link">${label}</a>` : label
+}
+
+function assetTags(asset: any): string[] {
+  const tags = asset.tags
+  if (!tags) return []
+  if (Array.isArray(tags)) return tags.map(String)
+  if (typeof tags === 'object') return Object.values(tags as object).map(String)
+  return []
+}
+
+// Date header line
+const startLabel = event.start_at ? fmtDateTime(event.start_at, event.timezone) : null
+const endLabel   = event.end_at   ? fmtTime(event.end_at, event.timezone) : null
+const dateLabel  = startLabel
+  ? endLabel ? `${startLabel} – ${endLabel}` : startLabel
+  : null
+---
+
+<DashboardLayout title={`The Signal OS — ${event.title}`}>
+<style>
+  .content { padding: 28px 32px; overflow-x: hidden; min-height: 100vh; max-width: 1100px; }
+
+  /* ── BACK LINK ─────────────────────────────── */
+  .back-link {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; color: var(--text-muted); text-decoration: none;
+    margin-bottom: 16px; transition: color 0.12s;
+  }
+  .back-link:hover { color: var(--text-primary); }
+
+  /* ── PAGE HEADER ───────────────────────────── */
+  .page-header { margin-bottom: 20px; }
+  .header-top-row {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 6px;
+  }
+  .page-title {
+    font-family: var(--heading); font-size: 22px; font-weight: 500;
+    color: var(--text-primary); line-height: 1.2;
+  }
+  .countdown-badge {
+    font-size: 12px; font-weight: 500;
+    background: rgba(224,112,32,0.12); color: #854F0B;
+    border-radius: 6px; padding: 4px 12px; flex-shrink: 0;
+    align-self: flex-start; margin-top: 3px;
+  }
+  .countdown-today { background: rgba(15,110,86,0.12); color: #0F6E56; }
+  .header-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .badge {
+    font-size: 10px; font-weight: 500; border-radius: 4px; padding: 2px 8px;
+    display: inline-block;
+  }
+  .header-meta { display: flex; flex-direction: column; gap: 3px; }
+  .meta-line { font-size: 13px; color: var(--text-secondary); }
+  .meta-muted { color: var(--text-muted); }
+
+  /* ── DRAFT BANNER ──────────────────────────── */
+  .draft-banner {
+    background: rgba(224,112,32,0.07);
+    border: 0.5px solid rgba(224,112,32,0.3);
+    border-radius: 10px; padding: 12px 16px;
+    margin-bottom: 20px;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .draft-banner-icon { font-size: 14px; color: #E07020; flex-shrink: 0; margin-top: 1px; }
+  .draft-banner-title { font-size: 13px; font-weight: 500; color: #854F0B; }
+  .draft-banner-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* ── TWO-COL GRID ──────────────────────────── */
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 16px; align-items: start;
+  }
+  @media (max-width: 860px) { .detail-grid { grid-template-columns: 1fr; } }
+
+  /* ── CARDS ─────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .card-header {
+    padding: 10px 16px;
+    border-bottom: 0.5px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-title {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .card-counter { font-size: 11px; color: var(--text-muted); }
+  .card-body { padding: 14px 16px; }
+
+  /* ── FIELD ROWS ────────────────────────────── */
+  .field-row {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-label { color: var(--text-muted); min-width: 120px; flex-shrink: 0; font-size: 12px; }
+  .field-value { color: var(--text-secondary); flex: 1; }
+  .field-value a { color: var(--teal); text-decoration: none; }
+  .field-value a:hover { text-decoration: underline; }
+
+  /* ── ACTION ROWS ───────────────────────────── */
+  .action-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+  }
+  .action-item:last-child { border-bottom: none; }
+  .action-icon { flex-shrink: 0; margin-top: 1px; font-size: 13px; }
+  .action-done .action-title { text-decoration: line-through; color: var(--text-muted); }
+  .action-pending .action-title { color: var(--text-primary); }
+  .action-title { font-weight: 500; line-height: 1.3; }
+  .action-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .due-overdue { color: #E07020; }
+  .output-link { color: var(--teal); text-decoration: none; }
+  .output-link:hover { text-decoration: underline; }
+
+  /* ── EXPAND PLAN ───────────────────────────── */
+  .expand-plan {
+    border-top: 0.5px solid var(--border);
+    background: var(--surface);
+  }
+  .expand-plan summary {
+    padding: 9px 16px;
+    font-size: 12px; color: var(--teal); cursor: pointer; list-style: none;
+    display: flex; align-items: center; gap: 5px;
+    transition: color 0.12s;
+  }
+  .expand-plan summary::-webkit-details-marker { display: none; }
+  .expand-plan summary::before { content: '▶'; font-size: 9px; color: var(--text-muted); }
+  .expand-plan[open] summary::before { content: '▼'; }
+  .plan-action-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 16px; border-top: 0.5px solid var(--border); font-size: 13px;
+  }
+  .plan-title { font-weight: 500; color: var(--text-primary); line-height: 1.3; }
+  .plan-title.done { text-decoration: line-through; color: var(--text-muted); }
+  .plan-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .plan-notes { font-size: 11px; color: var(--text-secondary); margin-top: 3px; font-style: italic; }
+
+  /* ── READINESS ROWS ────────────────────────── */
+  .readiness-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+  }
+  .readiness-item:last-child { border-bottom: none; }
+  .ri-icon { font-size: 12px; width: 16px; text-align: center; flex-shrink: 0; }
+  .ri-ok   { color: #0F6E56; }
+  .ri-fail { color: #C0392B; }
+  .ri-label { flex: 1; color: var(--text-secondary); }
+  .ri-action { font-size: 11px; flex-shrink: 0; }
+  .ri-action a { color: var(--teal); text-decoration: none; }
+  .ri-action a:hover { text-decoration: underline; }
+
+  /* ── BIG COUNT ─────────────────────────────── */
+  .big-count { font-family: var(--heading); font-size: 44px; font-weight: 500; color: var(--text-primary); line-height: 1; padding: 18px 16px 4px; }
+  .big-count-sub { font-size: 12px; color: var(--text-muted); padding: 0 16px 14px; }
+
+  /* ── ATTENDEE ROWS ─────────────────────────── */
+  .attendee-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px; border-top: 0.5px solid var(--border); font-size: 13px;
+  }
+  .attendee-name { font-weight: 500; color: var(--text-primary); flex: 1; min-width: 0; }
+  .attendee-name a { color: var(--text-primary); text-decoration: none; }
+  .attendee-name a:hover { color: var(--teal); }
+  .attendee-sub { font-size: 11px; color: var(--text-muted); }
+  .attendee-paid { font-size: 12px; color: var(--text-secondary); flex-shrink: 0; }
+  .status-pill { font-size: 10px; font-weight: 500; border-radius: 4px; padding: 2px 6px; flex-shrink: 0; }
+  .status-attended  { background: #E1F5EE; color: #0F6E56; }
+  .status-registered { background: rgba(47,47,47,0.07); color: var(--text-muted); }
+
+  /* ── ASSET PANEL ───────────────────────────── */
+  .asset-thumb-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+  }
+  .asset-thumb-row:last-child { border-bottom: none; }
+  .asset-thumb {
+    width: 44px; height: 44px; object-fit: cover; border-radius: 6px;
+    flex-shrink: 0; background: rgba(47,47,47,0.05);
+  }
+  .asset-thumb-placeholder {
+    width: 44px; height: 44px; border-radius: 6px; flex-shrink: 0;
+    background: rgba(47,47,47,0.05);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .asset-info { flex: 1; min-width: 0; }
+  .asset-name { font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .asset-dims { font-size: 11px; color: var(--text-muted); }
+  .asset-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .tag-pill { font-size: 10px; font-weight: 500; border-radius: 4px; padding: 1px 6px; background: rgba(47,47,47,0.07); color: var(--text-secondary); }
+  .tag-pill-legacy { background: rgba(60,138,126,0.10); color: var(--teal); }
+  .coverage-gap {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 16px; border-bottom: 0.5px solid var(--border);
+    font-size: 12px; color: #854F0B;
+  }
+  .coverage-gap:last-child { border-bottom: none; }
+
+  /* ── RUN SHEET CARD ────────────────────────── */
+  .runsheet-body { padding: 14px 16px; }
+  .runsheet-source { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+  .runsheet-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+  .runsheet-version { font-size: 11px; color: var(--teal); margin-left: 6px; }
+  .runsheet-excerpt {
+    margin-top: 8px; font-size: 12px; color: var(--text-secondary);
+    line-height: 1.5; white-space: pre-wrap;
+    max-height: 120px; overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+
+  /* ── PEOPLE CARD ───────────────────────────── */
+  .role-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted); padding: 10px 16px 4px;
+    border-top: 0.5px solid var(--border);
+  }
+  .role-label:first-child { border-top: none; }
+  .person-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+  }
+  .person-row:last-child { border-bottom: none; }
+  .person-avatar {
+    width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+    background: rgba(47,47,47,0.08);
+  }
+  .person-avatar-placeholder {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(60,138,126,0.12);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: var(--teal);
+  }
+  .person-name { font-weight: 500; color: var(--text-primary); font-size: 13px; }
+  .person-headline { font-size: 11px; color: var(--text-muted); }
+  .slug-fallback { padding: 8px 16px; font-size: 12px; color: var(--text-muted); border-top: 0.5px solid var(--border); }
+
+  /* ── PUBLISH READINESS ─────────────────────── */
+  .pr-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .pr-row:last-child { border-bottom: none; }
+  .pr-icon-ok   { color: #0F6E56; font-size: 12px; flex-shrink: 0; }
+  .pr-icon-fail { color: #C0392B; font-size: 12px; flex-shrink: 0; }
+
+  /* ── SESSION LIBRARY (past mode) ───────────── */
+  .asset-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+  }
+  .asset-row:last-child { border-bottom: none; }
+  .asset-main { flex: 1; min-width: 0; }
+  .asset-title { font-weight: 500; color: var(--text-primary); }
+  .asset-badge { font-size: 10px; font-weight: 500; border-radius: 4px; padding: 2px 6px; background: rgba(47,47,47,0.07); color: var(--text-secondary); flex-shrink: 0; }
+  .asset-version { font-size: 10px; font-weight: 500; border-radius: 4px; padding: 2px 6px; background: rgba(60,138,126,0.10); color: var(--teal); flex-shrink: 0; }
+  .asset-link { font-size: 12px; color: var(--teal); text-decoration: none; flex-shrink: 0; }
+  .asset-link:hover { text-decoration: underline; }
+  .vchain { padding: 0 16px 12px; border-bottom: 0.5px solid var(--border); }
+  .vchain:last-child { border-bottom: none; }
+  .vchain-step { margin-bottom: 8px; }
+  .vchain-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+  .vchain-text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; white-space: pre-wrap; }
+
+  /* ── EXPANDABLE (past mode) ────────────────── */
+  .expandable { margin-top: 10px; }
+  .expandable summary {
+    font-size: 12px; color: var(--text-muted); cursor: pointer;
+    padding: 6px 0; list-style: none; display: flex; align-items: center; gap: 5px;
+  }
+  .expandable summary::-webkit-details-marker { display: none; }
+  .expandable summary::before { content: '▶'; font-size: 9px; }
+  .expandable[open] summary::before { content: '▼'; }
+  .expandable-body { margin-top: 10px; }
+
+  /* ── MISC ──────────────────────────────────── */
+  .empty-state { padding: 24px 16px; text-align: center; font-size: 13px; color: var(--text-muted); font-style: italic; }
+  .insight-block { margin-bottom: 14px; }
+  .insight-section-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .insight-text { font-size: 13px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+  .insight-link { color: var(--teal); font-size: 12px; text-decoration: none; }
+  .insight-link:hover { text-decoration: underline; }
+  .landed-list { list-style: none; padding: 0; margin: 0; }
+  .landed-item { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 0.5px solid var(--border); font-size: 13px; color: var(--text-secondary); line-height: 1.4; }
+  .landed-item:last-child { border-bottom: none; }
+  .landed-icon { flex-shrink: 0; font-size: 13px; margin-top: 1px; }
+  .landed-up   { color: #0F6E56; }
+  .landed-down { color: #C0392B; }
+  .feedback-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+  .feedback-card:last-child { margin-bottom: 0; }
+  .feedback-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+  .feedback-rating { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+  .feedback-row-top { display: flex; align-items: center; margin-bottom: 10px; }
+  .feedback-field { margin-bottom: 8px; }
+  .feedback-field:last-child { margin-bottom: 0; }
+  .feedback-field-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+  .feedback-field-value { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+  .interest-flag { display: inline-block; background: #E6F1FB; color: #185FA5; font-size: 11px; font-weight: 500; border-radius: 4px; padding: 3px 8px; margin-top: 4px; }
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 700px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
+  .metric-card { border: 0.5px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .metric-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .metric-value { font-family: var(--heading); font-size: 20px; font-weight: 500; color: var(--text-primary); }
+  .metric-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .show-more-btn { display: flex; align-items: center; justify-content: center; padding: 9px 16px; font-family: var(--body); font-size: 12px; color: var(--text-muted); background: none; border: none; border-top: 0.5px solid var(--border); cursor: pointer; width: 100%; transition: color 0.12s, background 0.12s; }
+  .show-more-btn:hover { color: var(--text-primary); background: rgba(47,47,47,0.02); }
+  .hidden-row { display: none; }
+</style>
+
+<main class="content">
+
+  <a href="/dashboard/events" class="back-link">← Events</a>
+
+  <!-- ── HEADER ──────────────────────────────────────────────────────── -->
+  <header class="page-header">
+    <div class="header-top-row">
+      <h1 class="page-title">{event.title}</h1>
+      {countdown !== null && (
+        <span class={`countdown-badge${countdown === 0 ? ' countdown-today' : ''}`}>
+          {countdown === 0 ? 'Today' : `${countdown} day${countdown !== 1 ? 's' : ''} to go`}
+        </span>
+      )}
+    </div>
+    <div class="header-badges">
+      {trackInfo && (
+        <span class="badge" style={`background:${trackInfo.bg};color:${trackInfo.color}`}>{trackInfo.label}</span>
+      )}
+      <span class="badge" style={`background:${timing.bg};color:${timing.color}`}>{timing.label}</span>
+    </div>
+    <div class="header-meta">
+      {dateLabel && (
+        <span class="meta-line">
+          {dateLabel}
+          {(event.event_format || event.location_name) && ` · ${event.event_format ?? event.location_name}`}
+          {event.timezone && ` · ${event.timezone}`}
+        </span>
+      )}
+      {event.venue_name && <span class="meta-line meta-muted">{event.venue_name}</span>}
+      <span class="meta-line meta-muted">
+        {!event.price_amount || Number(event.price_amount) === 0 ? 'Free' : fmtCurrency(Number(event.price_amount))}
+      </span>
+    </div>
+  </header>
+
+  {/* ─────────────── DRAFT BANNER ─────────────── */}
+  {eventTiming === 'draft' && (
+    <div class="draft-banner">
+      <span class="draft-banner-icon">◌</span>
+      <div>
+        <div class="draft-banner-title">Draft — not visible on site</div>
+        <div class="draft-banner-sub">{publishReadyCount} of {publishChecks.length} publish requirements met</div>
+      </div>
+    </div>
+  )}
+
+  {/* ─────────────── PRODUCTION MODE ─────────────────────────────────── */}
+  {(eventTiming === 'upcoming' || eventTiming === 'draft') && (
+    <div class="detail-grid">
+
+      {/* ── LEFT COLUMN ──────────────────────── */}
+      <div>
+
+        {/* Card 1 — Production checklist */}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Production checklist</span>
+            <span class="card-counter">{doneActions.length} of {actions.length} done</span>
+          </div>
+          {actions.length === 0 ? (
+            <div class="empty-state">
+              No production steps defined yet. Pre-event steps will be seeded from the event_production_checklist process once defined.
+            </div>
+          ) : (
+            <>
+              {checklistFirst10.map((a: any) => {
+                const overdue = isOverdue(a.due_at, a.status)
+                return (
+                  <div class={`action-item ${a.status === 'done' ? 'action-done' : 'action-pending'}`}>
+                    <span class="action-icon">{a.status === 'done' ? '✓' : '○'}</span>
+                    <div>
+                      <div class="action-title">{a.title}</div>
+                      {(a.owner || a.due_at) && (
+                        <div class="action-meta">
+                          {a.owner && <span>{a.owner}</span>}
+                          {a.owner && a.due_at && <span> · </span>}
+                          {a.due_at && (
+                            <span class={overdue ? 'due-overdue' : ''}>
+                              due {fmtDate(a.due_at)}{overdue ? ' — overdue' : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              <details class="expand-plan">
+                <summary>View full plan ({actions.length} step{actions.length !== 1 ? 's' : ''})</summary>
+                {actions.map((a: any) => {
+                  const overdue = isOverdue(a.due_at, a.status)
+                  return (
+                    <div class="plan-action-row">
+                      <span class="action-icon" style="margin-top:1px;">{a.status === 'done' ? '✓' : '○'}</span>
+                      <div style="flex:1;min-width:0;">
+                        <div class={`plan-title${a.status === 'done' ? ' done' : ''}`}>
+                          {a.status === 'done' && a.output_table && a.output_record_id
+                            ? <Fragment set:html={outputLink(a.output_table, a.output_record_id, a.title)} />
+                            : a.title
+                          }
+                        </div>
+                        {(a.owner || a.due_at) && (
+                          <div class="plan-meta">
+                            {a.owner && <span>{a.owner}</span>}
+                            {a.owner && a.due_at && <span> · </span>}
+                            {a.due_at && (
+                              <span class={overdue ? 'due-overdue' : ''}>
+                                due {fmtDate(a.due_at)}{overdue ? ' — overdue' : ''}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {a.notes && <div class="plan-notes">{a.notes}</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </details>
+            </>
+          )}
+        </div>
+
+        {/* Card 4 — Assets panel */}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Assets</span>
+            <span class="card-counter">{allDisplayAssets.length} linked</span>
+          </div>
+
+          {/* Coverage gaps */}
+          {EXPECTED_ASSET_USES.filter(use => !coverageMap[use]).map(use => (
+            <div class="coverage-gap">
+              <span>⚠</span>
+              <span>Nothing labelled for {use} yet</span>
+            </div>
+          ))}
+
+          {allDisplayAssets.length === 0 && EXPECTED_ASSET_USES.every(u => !coverageMap[u]) ? (
+            <div class="empty-state">No assets linked to this event yet.</div>
+          ) : (
+            allDisplayAssets.map((asset: any) => {
+              const tags = assetTags(asset)
+              const slotLabel = LEGACY_SLOTS[asset.id]
+              const imgUrl = asset.image_url ?? null
+              return (
+                <div class="asset-thumb-row">
+                  {imgUrl
+                    ? <img src={imgUrl} alt={asset.alt_text ?? asset.title ?? ''} class="asset-thumb" loading="lazy" />
+                    : <div class="asset-thumb-placeholder">🖼</div>
+                  }
+                  <div class="asset-info">
+                    <div class="asset-name">{asset.title ?? asset.alt_text ?? 'Untitled'}</div>
+                    {(asset.width && asset.height) && (
+                      <div class="asset-dims">{asset.width} × {asset.height}</div>
+                    )}
+                    <div class="asset-tags">
+                      {slotLabel && <span class="tag-pill tag-pill-legacy">{slotLabel}</span>}
+                      {tags.map((t: string) => <span class="tag-pill">{t}</span>)}
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* Card 5 — Run sheet prep */}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Run sheet prep</span>
+          </div>
+          {!runSheetResult || !runSheetResult.runSheet ? (
+            <div class="empty-state">
+              No prior run sheet for this event type yet — this one starts the template.
+            </div>
+          ) : (
+            <div class="runsheet-body">
+              <p class="runsheet-source">
+                Latest{runSheetResult.runSheet.version ? ` v${runSheetResult.runSheet.version}` : ''} from <strong>{runSheetResult.pastEvent.title}</strong> — start from this, not from scratch
+              </p>
+              <span class="runsheet-title">{runSheetResult.runSheet.title}</span>
+              {runSheetResult.runSheet.source_url && (
+                <> · <a href={runSheetResult.runSheet.source_url} target="_blank" rel="noopener" class="asset-link">↗ Open</a></>
+              )}
+              {(runSheetResult.runSheet.improved_content ?? runSheetResult.runSheet.original_content) && (
+                <div class="runsheet-excerpt">
+                  {runSheetResult.runSheet.improved_content ?? runSheetResult.runSheet.original_content}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Card 6 — People */}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">People</span>
+            <span class="card-counter">{peopleRows.length} linked</span>
+          </div>
+          {peopleRows.length === 0 && !event.speakers_slugs && !event.facilitators_slugs && !event.hosts_slugs ? (
+            <div class="empty-state">No people linked to this event yet.</div>
+          ) : peopleRows.length > 0 ? (
+            ROLE_ORDER.filter(role => peopleByRole[role]?.length > 0).map(role => (
+              <>
+                <p class="role-label">{role === 'other' ? 'Other' : role.charAt(0).toUpperCase() + role.slice(1) + 's'}</p>
+                {peopleByRole[role].map((row: any) => {
+                  const p = row.people_bios as any
+                  const initials = p ? ((p.first_name ?? '').charAt(0) + (p.last_name ?? '').charAt(0)).toUpperCase() || '?' : '?'
+                  return (
+                    <div class="person-row">
+                      {p?.profile_image_url
+                        ? <img src={p.profile_image_url} alt={personName(row)} class="person-avatar" loading="lazy" />
+                        : <div class="person-avatar-placeholder">{initials}</div>
+                      }
+                      <div>
+                        <div class="person-name">{personName(row)}</div>
+                        {p?.headline && <div class="person-headline">{p.headline}</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            ))
+          ) : (
+            /* Fallback: legacy slug arrays */
+            <>
+              {event.speakers_slugs?.length > 0 && (
+                <>
+                  <p class="role-label">Speakers</p>
+                  {(event.speakers_slugs as string[]).map(slug => (
+                    <div class="slug-fallback">{slug}</div>
+                  ))}
+                </>
+              )}
+              {event.facilitators_slugs?.length > 0 && (
+                <>
+                  <p class="role-label">Facilitators</p>
+                  {(event.facilitators_slugs as string[]).map(slug => (
+                    <div class="slug-fallback">{slug}</div>
+                  ))}
+                </>
+              )}
+              {event.hosts_slugs?.length > 0 && (
+                <>
+                  <p class="role-label">Hosts</p>
+                  {(event.hosts_slugs as string[]).map(slug => (
+                    <div class="slug-fallback">{slug}</div>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+      </div>
+
+      {/* ── RIGHT COLUMN ─────────────────────── */}
+      <div>
+
+        {/* Card 2 — Marketing readiness */}
+        <div class="card">
+          <div class="card-header"><span class="card-title">Marketing readiness</span></div>
+
+          <div class="readiness-item">
+            <span class={`ri-icon ${loopsConnected ? 'ri-ok' : 'ri-fail'}`}>{loopsConnected ? '✓' : '✗'}</span>
+            <span class="ri-label">Loops transactional</span>
+          </div>
+
+          {isPaidEvent && (
+            <div class="readiness-item">
+              <span class={`ri-icon ${stripeConnected ? 'ri-ok' : 'ri-fail'}`}>{stripeConnected ? '✓' : '✗'}</span>
+              <span class="ri-label">Stripe payment link</span>
+              {stripeConnected && event.stripe_payment_link_url && (
+                <span class="ri-action"><a href={event.stripe_payment_link_url} target="_blank" rel="noopener">↗</a></span>
+              )}
+            </div>
+          )}
+
+          <div class="readiness-item">
+            <span class={`ri-icon ${promoImageOk ? 'ri-ok' : 'ri-fail'}`}>{promoImageOk ? '✓' : '✗'}</span>
+            <span class="ri-label">Promotional image</span>
+          </div>
+
+          <div class="readiness-item">
+            <span class={`ri-icon ${(event.slug && (event.show_on_remix || event.show_on_signal_studio || event.show_on_michelle_williams || event.show_on_signal_summit)) ? 'ri-ok' : 'ri-fail'}`}>
+              {(event.slug && (event.show_on_remix || event.show_on_signal_studio || event.show_on_michelle_williams || event.show_on_signal_summit)) ? '✓' : '✗'}
+            </span>
+            <span class="ri-label">
+              Live page
+              {event.slug && (
+                <span style="color:var(--text-muted);font-size:11px;"> · {[
+                  event.show_on_remix && 'Remix',
+                  event.show_on_signal_studio && 'Signal Studio',
+                  event.show_on_michelle_williams && 'Michelle Williams',
+                  event.show_on_signal_summit && 'Signal Summit',
+                ].filter(Boolean).join(', ') || 'no site enabled'}</span>
+              )}
+            </span>
+          </div>
+
+          <div class="readiness-item">
+            <span class={`ri-icon ${event.registration_url ? 'ri-ok' : 'ri-fail'}`}>{event.registration_url ? '✓' : '✗'}</span>
+            <span class="ri-label">Registration URL</span>
+            {event.registration_url && (
+              <span class="ri-action"><a href={event.registration_url} target="_blank" rel="noopener">↗ Luma</a></span>
+            )}
+          </div>
+        </div>
+
+        {/* Card 3 — Registered */}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Registered</span>
+          </div>
+          <div class="big-count">{attendees.length}</div>
+          {attendees.length === 0 ? (
+            <div class="big-count-sub">Registrations appear here as they come in</div>
+          ) : (
+            <div class="big-count-sub">{attendees.length} registration{attendees.length !== 1 ? 's' : ''}</div>
+          )}
+          {attendees.slice(0, 5).map((a: any) => (
+            <div class="attendee-row">
+              <div class="attendee-name" style="flex:1;min-width:0;">
+                {(a.contacts_crm as any)?.id
+                  ? <a href={`/dashboard/crm/${(a.contacts_crm as any).id}`}>{contactName(a)}</a>
+                  : <span>{contactName(a)}</span>
+                }
+                {a.registration_source && <div class="attendee-sub">{a.registration_source}</div>}
+              </div>
+              {a.registered_at && <span class="attendee-sub">{fmtDate(a.registered_at)}</span>}
+            </div>
+          ))}
+          {attendees.slice(5, 10).map((a: any) => (
+            <div class="attendee-row hidden-row attendee-more">
+              <div class="attendee-name" style="flex:1;min-width:0;">
+                {(a.contacts_crm as any)?.id
+                  ? <a href={`/dashboard/crm/${(a.contacts_crm as any).id}`}>{contactName(a)}</a>
+                  : <span>{contactName(a)}</span>
+                }
+                {a.registration_source && <div class="attendee-sub">{a.registration_source}</div>}
+              </div>
+              {a.registered_at && <span class="attendee-sub">{fmtDate(a.registered_at)}</span>}
+            </div>
+          ))}
+          {attendees.length > 5 && (
+            <button class="show-more-btn" id="show-more-attendees">
+              Show more ({attendees.length - 5} more)
+            </button>
+          )}
+        </div>
+
+        {/* Draft-only: Publish readiness card */}
+        {eventTiming === 'draft' && (
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Publish readiness</span>
+              <span class="card-counter">{publishReadyCount} of {publishChecks.length} ready</span>
+            </div>
+            {publishChecks.map(check => (
+              <div class="pr-row">
+                <span class={check.ok ? 'pr-icon-ok' : 'pr-icon-fail'}>{check.ok ? '✓' : '✗'}</span>
+                <span>{check.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+      </div>
+    </div>
+  )}
+
+  {/* ─────────────── PAST MODE (unchanged) ────────────────────────────── */}
+  {eventTiming === 'past' && (
+    <div>
+
+      {/* 1. Post-event work */}
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Post-event work</span>
+          <span class="card-counter">{doneActions.length} of {actions.length} done</span>
+        </div>
+        {actions.length === 0
+          ? <div class="empty-state">No actions recorded.</div>
+          : actions.map((a: any) => (
+            <div class={`action-item ${a.status === 'done' ? 'action-done' : 'action-pending'}`}>
+              <span class="action-icon">{a.status === 'done' ? '✓' : '○'}</span>
+              <div>
+                <div class="action-title">
+                  {(a.status === 'done' && a.output_table && a.output_record_id)
+                    ? <Fragment set:html={outputLink(a.output_table, a.output_record_id, a.title)} />
+                    : a.title
+                  }
+                </div>
+                {(a.owner || a.due_at || a.notes) && (
+                  <div class="action-meta">
+                    {a.owner && <span>{a.owner}</span>}
+                    {a.owner && a.due_at && <span> · </span>}
+                    {a.due_at && <span>due {fmtDate(a.due_at)}</span>}
+                    {a.notes && <span> · {a.notes}</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))
+        }
+      </div>
+
+      {/* 2. Content material */}
+      <div class="card">
+        <div class="card-header"><span class="card-title">Content material</span></div>
+        {!insight
+          ? <div class="empty-state">No insights captured yet.</div>
+          : (
+            <div class="card-body">
+              {insight.fireflies_url && (
+                <div class="insight-block" style="margin-bottom: 12px;">
+                  <a href={insight.fireflies_url} target="_blank" rel="noopener" class="insight-link">
+                    ↗ Fireflies transcript
+                  </a>
+                </div>
+              )}
+              {([
+                { key: 'key_themes',         label: 'Key themes' },
+                { key: 'questions_asked',    label: 'Questions asked' },
+                { key: 'messaging_insights', label: 'Messaging insights' },
+                { key: 'follow_up_signals',  label: 'Follow-up signals' },
+              ] as { key: keyof typeof insight; label: string }[]).map(({ key, label }) =>
+                insight[key] ? (
+                  <div class="insight-block">
+                    <p class="insight-section-label">{label}</p>
+                    <p class="insight-text">{insight[key] as string}</p>
+                  </div>
+                ) : null
+              )}
+            </div>
+          )
+        }
+      </div>
+
+      {/* 3. What landed / what didn't */}
+      {insight && (insight.what_landed || insight.what_didnt_land) && (
+        <div class="card">
+          <div class="card-header"><span class="card-title">What landed / what didn't</span></div>
+          <div class="card-body">
+            {insight.what_landed && (
+              <div class="insight-block">
+                <p class="insight-section-label">What landed</p>
+                <ul class="landed-list">
+                  {(insight.what_landed as string).split('\n').filter((l: string) => l.trim()).map((line: string) => (
+                    <li class="landed-item">
+                      <span class="landed-icon landed-up">↑</span>
+                      <span>{line.replace(/^[-•*]\s*/, '')}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {insight.what_didnt_land && (
+              <div class="insight-block">
+                <p class="insight-section-label">What didn't land</p>
+                <ul class="landed-list">
+                  {(insight.what_didnt_land as string).split('\n').filter((l: string) => l.trim()).map((line: string) => (
+                    <li class="landed-item">
+                      <span class="landed-icon landed-down">↓</span>
+                      <span>{line.replace(/^[-•*]\s*/, '')}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(insight.what_was_promised || insight.what_actually_happened || insight.facilitation_notes || insight.audience_mix_notes || insight.facilitator_reflection || insight.energy_level) && (
+              <details class="expandable">
+                <summary>More notes</summary>
+                <div class="expandable-body">
+                  {([
+                    { key: 'what_was_promised',     label: 'What was promised' },
+                    { key: 'what_actually_happened', label: 'What actually happened' },
+                    { key: 'facilitation_notes',    label: 'Facilitation notes' },
+                    { key: 'audience_mix_notes',    label: 'Audience mix' },
+                    { key: 'facilitator_reflection', label: 'Facilitator reflection' },
+                    { key: 'energy_level',          label: 'Energy level' },
+                  ] as { key: keyof typeof insight; label: string }[]).map(({ key, label }) =>
+                    insight[key] ? (
+                      <div class="insight-block">
+                        <p class="insight-section-label">{label}</p>
+                        <p class="insight-text">{insight[key] as string}</p>
+                      </div>
+                    ) : null
+                  )}
+                </div>
+              </details>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 4. Feedback */}
+      {feedback.length > 0 && (
+        <div>
+          <div class="card-header" style="margin-bottom: 8px; padding: 0;">
+            <span class="card-title" style="font-size:10px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--text-muted);">
+              Feedback · {feedback.length} response{feedback.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          {feedback.map((f: any) => (
+            <div class="feedback-card">
+              <div class="feedback-row-top">
+                <span class="feedback-name">{f.name || 'Anonymous'}</span>
+                {f.rating != null && (
+                  <span class="feedback-rating">★ {f.rating}</span>
+                )}
+              </div>
+              {f.got_most_value && (
+                <div class="feedback-field">
+                  <p class="feedback-field-label">Got most value from</p>
+                  <p class="feedback-field-value">{f.got_most_value}</p>
+                </div>
+              )}
+              {f.one_thing_different && (
+                <div class="feedback-field">
+                  <p class="feedback-field-label">One thing different</p>
+                  <p class="feedback-field-value">{f.one_thing_different}</p>
+                </div>
+              )}
+              {f.next_step_interest && (
+                <div class="feedback-field">
+                  <p class="feedback-field-label">Next step interest</p>
+                  <p class="feedback-field-value">{f.next_step_interest}</p>
+                  <span class="interest-flag">Follow-up signal</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 5. Session library */}
+      {sessionLib.length > 0 && (
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Session library</span>
+            <span class="card-counter">{sessionLib.length} asset{sessionLib.length !== 1 ? 's' : ''}</span>
+          </div>
+          {sessionLib.map((asset: any) => (
+            <div>
+              <div class="asset-row">
+                <div class="asset-main">
+                  <div class="asset-title">{asset.title}</div>
+                </div>
+                <span class="asset-badge">{asset.asset_type}</span>
+                {asset.version && <span class="asset-version">v{asset.version}</span>}
+                {asset.source_url && (
+                  <a href={asset.source_url} target="_blank" rel="noopener" class="asset-link">↗</a>
+                )}
+              </div>
+              {(asset.recommended_changes || asset.improved_content) && (
+                <div class="vchain">
+                  <details class="expandable" style="margin-top:0;">
+                    <summary>Version chain</summary>
+                    <div class="expandable-body">
+                      {asset.original_content && (
+                        <div class="vchain-step">
+                          <p class="vchain-label">Original</p>
+                          <p class="vchain-text">{asset.original_content}</p>
+                        </div>
+                      )}
+                      {asset.recommended_changes && (
+                        <div class="vchain-step">
+                          <p class="vchain-label">Recommended changes</p>
+                          <p class="vchain-text">{asset.recommended_changes}</p>
+                        </div>
+                      )}
+                      {asset.improved_content && (
+                        <div class="vchain-step">
+                          <p class="vchain-label">Improved</p>
+                          <p class="vchain-text">{asset.improved_content}</p>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 6. Attendees */}
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Attendees</span>
+          <span class="card-counter">{attendees.length}</span>
+        </div>
+        {attendees.length === 0
+          ? <div class="empty-state">No attendee records yet.</div>
+          : attendees.map((a: any) => (
+            <div class="attendee-row">
+              <div class="attendee-name">
+                {(a.contacts_crm as any)?.id
+                  ? <a href={`/dashboard/crm/${(a.contacts_crm as any).id}`}>{contactName(a)}</a>
+                  : <span>{contactName(a)}</span>
+                }
+                {a.registration_source && (
+                  <div class="attendee-sub">{a.registration_source}</div>
+                )}
+              </div>
+              <span class={`status-pill ${a.attended_at ? 'status-attended' : 'status-registered'}`}>
+                {a.attended_at ? 'attended' : 'registered'}
+              </span>
+              {a.amount_paid && Number(a.amount_paid) > 0 && (
+                <span class="attendee-paid">{fmtCurrency(a.amount_paid)}</span>
+              )}
+              {a.notes && (
+                <span style="font-size:11px;color:var(--text-muted);margin-left:6px;">{a.notes}</span>
+              )}
+            </div>
+          ))
+        }
+      </div>
+
+      {/* 7. Revenue */}
+      <div class="card">
+        <div class="card-header"><span class="card-title">Revenue</span></div>
+        <div class="card-body">
+          <div class="metric-grid">
+            <div class="metric-card">
+              <p class="metric-label">Tickets</p>
+              <p class="metric-value">{revenue ? `${revenue.tickets_sold ?? '—'}` : '—'}</p>
+              {revenue?.tickets_capacity && (
+                <p class="metric-sub">of {revenue.tickets_capacity} capacity</p>
+              )}
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Gross</p>
+              <p class="metric-value">{revenue ? fmtCurrency(revenue.gross_revenue) : '—'}</p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Total costs</p>
+              <p class="metric-value">{revenue ? fmtCurrency(revenue.total_costs) : '—'}</p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-label">Net</p>
+              <p class="metric-value">{revenue ? fmtCurrency(revenue.net_revenue) : '—'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  )}
+
+</main>
+
+<script>
+  // Show more attendees
+  const showMoreBtn = document.getElementById('show-more-attendees')
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener('click', () => {
+      document.querySelectorAll('.attendee-more').forEach(el => {
+        (el as HTMLElement).style.display = 'flex'
+      })
+      showMoreBtn.remove()
+    })
+  }
+</script>
+</DashboardLayout>

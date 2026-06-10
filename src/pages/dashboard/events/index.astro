@@ -1,0 +1,297 @@
+---
+export const prerender = false
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
+
+const { data: rawEvents } = await supabase
+  .from('v_events_dashboard')
+  .select('*')
+
+const events = rawEvents ?? []
+
+const planned  = events.filter((e: any) => e.event_timing === 'draft')
+const upcoming = events
+  .filter((e: any) => e.event_timing === 'upcoming')
+  .sort((a: any, b: any) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+const past = events
+  .filter((e: any) => e.event_timing === 'past')
+  .sort((a: any, b: any) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime())
+
+const totalCount    = events.length
+const upcomingCount = upcoming.length
+const plannedCount  = planned.length
+const pastVisible   = past.slice(0, 10)
+const pastHidden    = past.slice(10)
+
+function fmtDate(ts: string | null, tz?: string | null): string {
+  if (!ts) return 'No date set'
+  return new Date(ts).toLocaleDateString('en-AU', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    timeZone: tz ?? 'Australia/Sydney',
+  })
+}
+
+function trackBadgeHtml(track: string | null): string {
+  if (!track) return ''
+  const map: Record<string, [string, string, string]> = {
+    builders: ['#E6F1FB', '#185FA5', 'Builders'],
+    appliers:  ['#E1F5EE', '#0F6E56', 'Appliers'],
+    both:      ['#EEEDFE', '#3C3489', 'Both'],
+  }
+  const entry = map[track.toLowerCase()]
+  if (!entry) return ''
+  return `<span class="track-badge" style="background:${entry[0]};color:${entry[1]}">${entry[2]}</span>`
+}
+
+function dotColor(e: any): string {
+  if (e.event_timing === 'draft') return 'rgba(47,47,47,0.22)'
+  if (e.event_timing === 'upcoming') {
+    return (e.loops_connected && e.stripe_connected && Number(e.open_actions) === 0)
+      ? '#7BBE9A' : '#E07020'
+  }
+  return Number(e.open_actions) > 0 ? '#E07020' : '#7BBE9A'
+}
+
+function missingConns(e: any): string[] {
+  const m: string[] = []
+  if (!e.loops_connected) m.push('Loops missing')
+  if (!e.stripe_connected) m.push('Stripe missing')
+  return m
+}
+
+function locationLine(e: any): string {
+  const parts = [fmtDate(e.start_at, e.timezone)]
+  if (e.location_name) parts.push(e.location_name)
+  return parts.join(' · ')
+}
+---
+
+<DashboardLayout title="The Signal OS — Events">
+<style>
+  .content { padding: 28px 32px; overflow-x: hidden; min-height: 100vh; }
+
+  .page-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .page-header h1 { font-family: var(--heading); font-size: 22px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
+  .page-header-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+  .section { margin-bottom: 28px; }
+  .section-title {
+    font-family: var(--body); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .event-list {
+    border: 0.5px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .event-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 0.5px solid var(--border);
+    text-decoration: none;
+    transition: background 0.1s;
+    cursor: pointer;
+  }
+  .event-row:last-child { border-bottom: none; }
+  .event-row:hover { background: rgba(47,47,47,0.025); }
+
+  .ev-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .ev-main { flex: 1; min-width: 0; }
+  .ev-title {
+    font-size: 13px; font-weight: 500; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ev-sub {
+    font-size: 11px; color: var(--text-muted); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .track-badge {
+    font-size: 10px; font-weight: 500; border-radius: 4px;
+    padding: 2px 7px; flex-shrink: 0; display: inline-block;
+  }
+
+  .ev-status {
+    display: flex; flex-direction: column; align-items: flex-end;
+    gap: 3px; flex-shrink: 0; min-width: 120px; text-align: right;
+  }
+
+  .badge-draft {
+    display: inline-block;
+    font-size: 10px; font-weight: 500; border-radius: 4px;
+    padding: 2px 7px; background: rgba(47,47,47,0.07); color: var(--text-muted);
+  }
+
+  .ev-reg-count { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+  .ev-missing   { font-size: 11px; color: #E07020; }
+  .ev-open-actions { font-size: 11px; color: #E07020; }
+  .ev-insights  { font-size: 11px; color: #0F6E56; }
+  .ev-no-actions { font-size: 11px; color: var(--text-muted); }
+  .ev-rating    { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+
+  .show-more-btn {
+    display: flex; align-items: center; justify-content: center;
+    padding: 10px 16px;
+    font-family: var(--body); font-size: 12px; color: var(--text-muted);
+    background: none; border: none; border-top: 0.5px solid var(--border);
+    cursor: pointer; width: 100%;
+    transition: color 0.12s, background 0.12s;
+  }
+  .show-more-btn:hover { color: var(--text-primary); background: rgba(47,47,47,0.02); }
+
+  .past-hidden { display: none; }
+</style>
+
+<main class="content">
+
+  <header class="page-header">
+    <div>
+      <h1>Events</h1>
+      <p class="page-header-sub">{totalCount} total · {upcomingCount} upcoming · {plannedCount} planned</p>
+    </div>
+  </header>
+
+  <!-- Planned -->
+  {planned.length > 0 && (
+    <section class="section">
+      <p class="section-title">Planned</p>
+      <div class="event-list">
+        {planned.map((e: any) => (
+          <a href={`/dashboard/events/${e.event_id}`} class="event-row">
+            <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
+            <div class="ev-main">
+              <div class="ev-title">{e.title}</div>
+              <div class="ev-sub">{locationLine(e)}</div>
+            </div>
+            <Fragment set:html={trackBadgeHtml(e.audience_track)} />
+            <div class="ev-status">
+              <span class="badge-draft">draft</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
+  )}
+
+  <!-- Upcoming -->
+  {upcoming.length > 0 && (
+    <section class="section">
+      <p class="section-title">Upcoming</p>
+      <div class="event-list">
+        {upcoming.map((e: any) => {
+          const missing = missingConns(e)
+          return (
+            <a href={`/dashboard/events/${e.event_id}`} class="event-row">
+              <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
+              <div class="ev-main">
+                <div class="ev-title">{e.title}</div>
+                <div class="ev-sub">{locationLine(e)}</div>
+              </div>
+              <Fragment set:html={trackBadgeHtml(e.audience_track)} />
+              <div class="ev-status">
+                <span class="ev-reg-count">{e.registered_count ?? 0} registered</span>
+                {missing.map(m => <span class="ev-missing">{m}</span>)}
+              </div>
+            </a>
+          )
+        })}
+      </div>
+    </section>
+  )}
+
+  <!-- Past -->
+  {past.length > 0 && (
+    <section class="section">
+      <p class="section-title">Past</p>
+      <div class="event-list" id="past-list">
+        {pastVisible.map((e: any) => {
+          const openActions = Number(e.open_actions ?? 0)
+          return (
+            <a href={`/dashboard/events/${e.event_id}`} class="event-row">
+              <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
+              <div class="ev-main">
+                <div class="ev-title">{e.title}</div>
+                <div class="ev-sub">{locationLine(e)}</div>
+              </div>
+              <Fragment set:html={trackBadgeHtml(e.audience_track)} />
+              <div class="ev-status">
+                {e.avg_rating
+                  ? <span class="ev-rating">★ {e.avg_rating} ({e.feedback_count})</span>
+                  : e.feedback_count > 0
+                    ? <span class="ev-rating">{e.feedback_count} responses</span>
+                    : <span class="ev-no-actions">—</span>
+                }
+                {openActions > 0
+                  ? <span class="ev-open-actions">{openActions} action{openActions !== 1 ? 's' : ''} open</span>
+                  : e.has_insights
+                    ? <span class="ev-insights">insights captured</span>
+                    : Number(e.total_actions ?? 0) === 0
+                      ? <span class="ev-no-actions">no actions yet</span>
+                      : null
+                }
+              </div>
+            </a>
+          )
+        })}
+        {pastHidden.map((e: any) => {
+          const openActions = Number(e.open_actions ?? 0)
+          return (
+            <a href={`/dashboard/events/${e.event_id}`} class="event-row past-hidden">
+              <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
+              <div class="ev-main">
+                <div class="ev-title">{e.title}</div>
+                <div class="ev-sub">{locationLine(e)}</div>
+              </div>
+              <Fragment set:html={trackBadgeHtml(e.audience_track)} />
+              <div class="ev-status">
+                {e.avg_rating
+                  ? <span class="ev-rating">★ {e.avg_rating} ({e.feedback_count})</span>
+                  : e.feedback_count > 0
+                    ? <span class="ev-rating">{e.feedback_count} responses</span>
+                    : <span class="ev-no-actions">—</span>
+                }
+                {openActions > 0
+                  ? <span class="ev-open-actions">{openActions} action{openActions !== 1 ? 's' : ''} open</span>
+                  : e.has_insights
+                    ? <span class="ev-insights">insights captured</span>
+                    : Number(e.total_actions ?? 0) === 0
+                      ? <span class="ev-no-actions">no actions yet</span>
+                      : null
+                }
+              </div>
+            </a>
+          )
+        })}
+        {pastHidden.length > 0 && (
+          <button class="show-more-btn" id="show-more-past">
+            Show {pastHidden.length} more
+          </button>
+        )}
+      </div>
+    </section>
+  )}
+
+</main>
+
+<script>
+  const btn = document.getElementById('show-more-past')
+  if (btn) {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.past-hidden').forEach(el => {
+        (el as HTMLElement).style.display = 'flex'
+      })
+      btn.remove()
+    })
+  }
+</script>
+</DashboardLayout>
