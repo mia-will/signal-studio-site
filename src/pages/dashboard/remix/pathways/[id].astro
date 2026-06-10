@@ -1,0 +1,498 @@
+---
+export const prerender = false
+import { supabaseAdmin as supabase } from '../../../../lib/supabase-admin'
+import DashboardLayout from '../../../../layouts/DashboardLayout.astro'
+
+const { id } = Astro.params
+if (!id) return Astro.redirect('/dashboard/remix/pathways')
+
+const [pathwayRes, modulesRes, cohortsRes, enrolmentsRes, campaignsRes] = await Promise.all([
+  supabase.from('pathways').select('*').eq('id', id).maybeSingle(),
+  supabase.from('pathway_modules')
+    .select('id, week_number, module_order, module_title, module_summary, session_focus, activities, outcomes, resources, home_practice, delivery_type, is_optional, is_visible')
+    .eq('pathway_id', id)
+    .order('week_number', { ascending: true })
+    .order('module_order', { ascending: true }),
+  supabase.from('pathway_cohorts')
+    .select('id, cohort_name, delivery_mode, start_date, end_date, facilitator, max_enrolments, status')
+    .eq('pathway_id', id)
+    .order('start_date', { ascending: true }),
+  supabase.from('pathway_enrolments')
+    .select('id, contact_id, cohort_id, status, amount_paid, currency, enrolled_at, contacts_crm(id, first_name, last_name, email), pathway_cohorts(cohort_name)')
+    .eq('pathway_id', id)
+    .order('enrolled_at', { ascending: false }),
+  supabase.from('campaigns')
+    .select('id, title, campaign_type, status, starts_at, ends_at, target_count, result_count')
+    .eq('linked_pathway_id', id)
+    .order('starts_at', { ascending: false }),
+])
+
+const pathway = pathwayRes.data
+if (!pathway) return Astro.rewrite('/404')
+
+const modules    = modulesRes.data ?? []
+const cohorts    = cohortsRes.data ?? []
+const enrolments = enrolmentsRes.data ?? []
+const campaigns  = campaignsRes.data ?? []
+
+// Enrolment count per cohort
+const cohortEnrolCount = new Map<string, number>()
+for (const e of enrolments) {
+  if (e.cohort_id) cohortEnrolCount.set(e.cohort_id, (cohortEnrolCount.get(e.cohort_id) ?? 0) + 1)
+}
+
+// Helpers
+function fmt(d: string | null | undefined, opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }): string {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('en-AU', opts)
+}
+
+function fmtAUD(n: number | null | undefined): string {
+  if (!n) return '—'
+  return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 0 }).format(n)
+}
+
+function toList(val: any): string[] {
+  if (!val) return []
+  if (Array.isArray(val)) return val.filter(Boolean).map(String)
+  const s = String(val).trim()
+  return s ? [s] : []
+}
+
+function statusClass(s: string | null): string {
+  if (s === 'active' || s === 'open') return 'status-active'
+  if (s === 'coming_soon') return 'status-pending'
+  if (s === 'completed' || s === 'draft') return 'status-muted'
+  return 'status-muted'
+}
+
+function statusLabel(s: string | null): string {
+  if (!s) return '—'
+  return s.replace(/_/g, ' ')
+}
+
+const stripeConnected = !!(pathway.stripe_product_id || pathway.stripe_price_id)
+const loopsConnected  = !!pathway.loops_transactional_id
+
+const startDisplay = (() => {
+  if (pathway.start_date) return fmt(pathway.start_date)
+  if (pathway.start_label) return pathway.start_label
+  if (pathway.pathway_status === 'coming_soon') return 'Coming soon'
+  return 'TBA'
+})()
+---
+
+<DashboardLayout title={`Pathway — ${pathway.title}`}>
+<style>
+  .content { padding: 28px 32px; min-height: 100vh; overflow-x: hidden; }
+
+  /* ── BACK LINK ─────────────────────────────────────────────────────── */
+  .back-link { font-size: 12px; color: var(--text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; margin-bottom: 14px; }
+  .back-link:hover { color: var(--teal); }
+
+  /* ── HEADER ────────────────────────────────────────────────────────── */
+  .pathway-header {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(47,47,47,0.06);
+  }
+  .pathway-header h1 { font-family: var(--heading); font-size: 22px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+  .badge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+  .meta-row  { display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px; color: var(--text-muted); }
+  .meta-item { display: flex; align-items: center; gap: 5px; }
+  .meta-label { font-weight: 500; color: var(--text-secondary); }
+
+  /* ── BADGES ────────────────────────────────────────────────────────── */
+  .badge { display: inline-block; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 500; }
+  .badge + .badge { margin-left: 2px; }
+  .status-active  { background: rgba(123,190,154,0.15); color: #2D5A35; }
+  .status-pending { background: rgba(255,138,51,0.12);  color: #E07020; }
+  .status-muted   { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+  .badge-outline  { background: none; border: 1px solid var(--border); color: var(--text-secondary); }
+
+  /* ── INT DOTS ──────────────────────────────────────────────────────── */
+  .int-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .int-dot--on  { background: #7BBE9A; }
+  .int-dot--off { background: rgba(47,47,47,0.18); }
+  .int-label { font-size: 11px; }
+
+  /* ── TAB BAR ───────────────────────────────────────────────────────── */
+  .tab-bar { display: flex; gap: 2px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    font-family: var(--body); font-size: 13px; font-weight: 500;
+    color: var(--text-muted); background: none; border: none;
+    padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: color 0.12s, border-color 0.12s;
+  }
+  .tab-btn.active { color: var(--teal); border-bottom-color: var(--teal); }
+  .tab-btn:hover:not(.active) { color: var(--text-secondary); }
+
+  /* ── PANELS ────────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(47,47,47,0.06);
+  }
+  .panel-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-header h2 { font-family: var(--heading); font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .badge-count { background: var(--orange); color: #fff; font-size: 11px; font-weight: 600; border-radius: 20px; padding: 1px 7px; }
+  .empty-state { padding: 28px 20px; font-size: 13px; color: var(--text-muted); font-style: italic; text-align: center; }
+  .empty-dashed { border: 2px dashed var(--border); border-radius: 12px; padding: 28px 20px; font-size: 13px; color: var(--text-muted); font-style: italic; text-align: center; margin-bottom: 16px; }
+
+  /* ── TABLES ────────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; padding: 9px 16px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  tbody td { padding: 10px 16px; color: var(--text-secondary); border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ── MODULE CARDS ──────────────────────────────────────────────────── */
+  .module-card {
+    border-bottom: 1px solid var(--border); padding: 14px 20px;
+  }
+  .module-card:last-child { border-bottom: none; }
+  .module-card.is-hidden { opacity: 0.45; }
+  .module-summary-row {
+    display: flex; align-items: flex-start; gap: 12px; cursor: pointer;
+  }
+  .module-week { font-size: 11px; font-weight: 600; color: var(--text-muted); white-space: nowrap; padding-top: 1px; min-width: 52px; }
+  .module-title-wrap { flex: 1; min-width: 0; }
+  .module-title { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+  .module-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+  .module-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .module-chevron { font-size: 11px; color: var(--text-muted); flex-shrink: 0; padding-top: 3px; transition: transform 0.15s; }
+  .module-summary-row.open .module-chevron { transform: rotate(90deg); }
+
+  .module-detail { display: none; padding-top: 12px; }
+  .module-detail.open { display: block; }
+
+  .detail-section { margin-bottom: 12px; }
+  .detail-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 4px; }
+  .detail-list { list-style: disc; padding-left: 18px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+  .detail-text { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+  /* ── SHOW MORE ─────────────────────────────────────────────────────── */
+  .show-more-row td { text-align: center; padding: 10px; }
+  .btn-show-more {
+    font-family: var(--body); font-size: 12px; color: var(--teal);
+    background: none; border: none; cursor: pointer; padding: 4px 8px;
+  }
+  .btn-show-more:hover { text-decoration: underline; }
+
+  .link-teal { color: var(--teal); text-decoration: none; font-size: 12px; }
+  .link-teal:hover { text-decoration: underline; }
+
+  @media (max-width: 768px) { .content { padding: 20px 16px; } }
+</style>
+
+<div class="content">
+
+  <a href="/dashboard/remix/pathways" class="back-link">← All pathways</a>
+
+  <!-- ── HEADER ──────────────────────────────────────────────────────── -->
+  <div class="pathway-header">
+    <h1>{pathway.title}</h1>
+    <div class="badge-row">
+      <span class={`badge ${statusClass(pathway.status)}`}>{statusLabel(pathway.status)}</span>
+      {pathway.pathway_status && <span class={`badge ${statusClass(pathway.pathway_status)}`}>{statusLabel(pathway.pathway_status)}</span>}
+      {pathway.audience && <span class="badge badge-outline">{pathway.audience}</span>}
+      {pathway.delivery_mode && <span class="badge badge-outline">{pathway.delivery_mode}</span>}
+    </div>
+    <div class="meta-row">
+      <div class="meta-item">
+        <span class="meta-label">Start</span>
+        <span>{startDisplay}</span>
+      </div>
+      {pathway.duration_weeks && (
+        <div class="meta-item">
+          <span class="meta-label">Duration</span>
+          <span>{pathway.duration_weeks} {pathway.duration_weeks === 1 ? 'week' : 'weeks'}</span>
+        </div>
+      )}
+      {pathway.price_amount && (
+        <div class="meta-item">
+          <span class="meta-label">Price</span>
+          <span>{fmtAUD(pathway.price_amount)}</span>
+        </div>
+      )}
+      <div class="meta-item" style="gap:6px;">
+        <span class={`int-dot int-dot--${stripeConnected ? 'on' : 'off'}`} title={stripeConnected ? 'Stripe connected' : 'Stripe not connected'}></span>
+        <span class="int-label" style={stripeConnected ? 'color:var(--text-secondary)' : 'color:var(--text-muted)'}>Stripe</span>
+      </div>
+      <div class="meta-item" style="gap:6px;">
+        <span class={`int-dot int-dot--${loopsConnected ? 'on' : 'off'}`} title={loopsConnected ? 'Loops connected' : 'Loops not connected'}></span>
+        <span class="int-label" style={loopsConnected ? 'color:var(--text-secondary)' : 'color:var(--text-muted)'}>Loops</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB BAR ─────────────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="modules">Modules</button>
+    <button class="tab-btn" data-tab="people">Campaign &amp; people</button>
+  </div>
+
+  <!-- ── MODULES TAB ─────────────────────────────────────────────────── -->
+  <div id="tab-modules">
+
+    {modules.length === 0 ? (
+      <div class="empty-dashed">No modules yet.</div>
+    ) : (
+      <div class="panel">
+        {modules.map((m: any) => {
+          const sessionFocus = toList(m.session_focus)
+          const activities   = toList(m.activities)
+          const outcomes     = toList(m.outcomes)
+          const resources    = toList(m.resources)
+          const homePractice = toList(m.home_practice)
+          const hasDetail    = sessionFocus.length || activities.length || outcomes.length || resources.length || homePractice.length || m.delivery_type
+          return (
+            <div class:list={['module-card', { 'is-hidden': m.is_visible === false }]}>
+              <div class="module-summary-row" data-module-toggle>
+                <div class="module-week">Wk {m.week_number}</div>
+                <div class="module-title-wrap">
+                  <div class="module-title">{m.module_title}</div>
+                  {m.module_summary && <div class="module-sub">{m.module_summary}</div>}
+                  <div class="module-tags">
+                    {m.is_optional && <span class="badge status-muted">optional</span>}
+                    {m.is_visible === false && <span class="badge status-muted">hidden</span>}
+                    {m.delivery_type && <span class="badge badge-outline" style="font-size:10px;">{m.delivery_type}</span>}
+                  </div>
+                </div>
+                {hasDetail && <span class="module-chevron">▸</span>}
+              </div>
+              {hasDetail && (
+                <div class="module-detail">
+                  {sessionFocus.length > 0 && (
+                    <div class="detail-section">
+                      <div class="detail-label">Session focus</div>
+                      {sessionFocus.length === 1 ? (
+                        <div class="detail-text">{sessionFocus[0]}</div>
+                      ) : (
+                        <ul class="detail-list">{sessionFocus.map(s => <li>{s}</li>)}</ul>
+                      )}
+                    </div>
+                  )}
+                  {activities.length > 0 && (
+                    <div class="detail-section">
+                      <div class="detail-label">Activities</div>
+                      <ul class="detail-list">{activities.map(s => <li>{s}</li>)}</ul>
+                    </div>
+                  )}
+                  {outcomes.length > 0 && (
+                    <div class="detail-section">
+                      <div class="detail-label">Outcomes</div>
+                      <ul class="detail-list">{outcomes.map(s => <li>{s}</li>)}</ul>
+                    </div>
+                  )}
+                  {resources.length > 0 && (
+                    <div class="detail-section">
+                      <div class="detail-label">Resources</div>
+                      <ul class="detail-list">{resources.map(s => <li>{s}</li>)}</ul>
+                    </div>
+                  )}
+                  {homePractice.length > 0 && (
+                    <div class="detail-section">
+                      <div class="detail-label">Home practice</div>
+                      <ul class="detail-list">{homePractice.map(s => <li>{s}</li>)}</ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )}
+
+    <!-- Cohorts section -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Cohorts</h2>
+        {cohorts.length > 0 && <span class="badge-count">{cohorts.length}</span>}
+      </div>
+      {cohorts.length === 0 ? (
+        <div class="empty-state">No cohorts yet.</div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Cohort</th>
+              <th>Mode</th>
+              <th>Dates</th>
+              <th>Facilitator</th>
+              <th>Enrolled</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cohorts.map((c: any) => {
+              const enrolCount = cohortEnrolCount.get(c.id) ?? 0
+              return (
+                <tr>
+                  <td style="font-weight:500; color:var(--text-primary);">{c.cohort_name ?? '—'}</td>
+                  <td style="font-size:12px;">{c.delivery_mode ?? '—'}</td>
+                  <td style="font-size:12px; color:var(--text-muted);">
+                    {c.start_date ? fmt(c.start_date, { day: 'numeric', month: 'short' }) : '—'}
+                    {c.end_date ? ` – ${fmt(c.end_date, { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                  </td>
+                  <td style="font-size:12px;">{c.facilitator ?? '—'}</td>
+                  <td style="font-size:12px;">
+                    {enrolCount}{c.max_enrolments ? ` / ${c.max_enrolments}` : ''}
+                  </td>
+                  <td>
+                    {c.status && <span class={`badge ${statusClass(c.status)}`}>{statusLabel(c.status)}</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+
+  </div>
+  <!-- /tab-modules -->
+
+  <!-- ── CAMPAIGN & PEOPLE TAB ───────────────────────────────────────── -->
+  <div id="tab-people" style="display:none">
+
+    <!-- Campaigns -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Campaigns</h2>
+        {campaigns.length > 0 && <span class="badge-count">{campaigns.length}</span>}
+      </div>
+      {campaigns.length === 0 ? (
+        <div class="empty-state">No campaigns linked to this pathway yet.</div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Dates</th>
+              <th>Target</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {campaigns.map((c: any) => (
+              <tr>
+                <td style="font-weight:500; color:var(--text-primary);">{c.title}</td>
+                <td style="font-size:12px; color:var(--text-muted);">{c.campaign_type ?? '—'}</td>
+                <td>
+                  {c.status && <span class={`badge ${statusClass(c.status)}`}>{statusLabel(c.status)}</span>}
+                </td>
+                <td style="font-size:12px; color:var(--text-muted);">
+                  {c.starts_at ? fmt(c.starts_at, { day: 'numeric', month: 'short' }) : '—'}
+                  {c.ends_at ? ` – ${fmt(c.ends_at, { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                </td>
+                <td style="font-size:12px;">{c.target_count ?? '—'}</td>
+                <td style="font-size:12px;">{c.result_count ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+
+    <!-- Enrolments -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Enrolments</h2>
+        {enrolments.length > 0 && <span class="badge-count">{enrolments.length}</span>}
+      </div>
+      {enrolments.length === 0 ? (
+        <div class="empty-state">No enrolments yet.</div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Contact</th>
+              <th>Email</th>
+              <th>Cohort</th>
+              <th>Status</th>
+              <th>Paid</th>
+              <th>Enrolled</th>
+            </tr>
+          </thead>
+          <tbody id="enrolment-rows">
+            {enrolments.map((e: any, i: number) => {
+              const contact = e.contacts_crm as any
+              const cohort  = e.pathway_cohorts as any
+              const name    = contact ? `${contact.first_name ?? ''} ${contact.last_name ?? ''}`.trim() : '—'
+              return (
+                <tr class:list={[{ 'overflow-row': i >= 10 }]} style={i >= 10 ? 'display:none' : ''}>
+                  <td style="font-weight:500; color:var(--text-primary);">
+                    {contact?.id ? (
+                      <a href={`/dashboard/crm/${contact.id}`} class="link-teal">{name}</a>
+                    ) : name}
+                  </td>
+                  <td style="font-size:12px; color:var(--text-muted);">{contact?.email ?? '—'}</td>
+                  <td style="font-size:12px;">{cohort?.cohort_name ?? '—'}</td>
+                  <td>
+                    {e.status && <span class={`badge ${statusClass(e.status)}`}>{statusLabel(e.status)}</span>}
+                  </td>
+                  <td style="font-size:12px;">{fmtAUD(e.amount_paid)}</td>
+                  <td style="font-size:12px; color:var(--text-muted);">{fmt(e.enrolled_at, { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+          {enrolments.length > 10 && (
+            <tfoot>
+              <tr class="show-more-row" id="more-enrolments">
+                <td colspan="6">
+                  <button class="btn-show-more" id="btn-more-enrolments">Show {enrolments.length - 10} more</button>
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      )}
+    </div>
+
+  </div>
+  <!-- /tab-people -->
+
+</div>
+
+<script>
+  // Tab switching
+  const tabBtns   = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
+  const tabPanels = { modules: document.getElementById('tab-modules')!, people: document.getElementById('tab-people')! }
+
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab as 'modules' | 'people'
+      tabBtns.forEach(b => b.classList.toggle('active', b === btn))
+      Object.entries(tabPanels).forEach(([k, el]) => { el.style.display = k === tab ? '' : 'none' })
+    })
+  })
+
+  // Module expand/collapse
+  document.querySelectorAll<HTMLElement>('[data-module-toggle]').forEach(row => {
+    const card   = row.closest('.module-card')!
+    const detail = card.querySelector<HTMLElement>('.module-detail')
+    if (!detail) return
+    row.addEventListener('click', () => {
+      const open = detail.classList.toggle('open')
+      row.classList.toggle('open', open)
+    })
+  })
+
+  // Enrolments show more
+  document.getElementById('btn-more-enrolments')?.addEventListener('click', () => {
+    document.querySelectorAll<HTMLElement>('#enrolment-rows tr.overflow-row').forEach(r => { r.style.display = '' })
+    document.getElementById('more-enrolments')?.remove()
+  })
+</script>
+</DashboardLayout>

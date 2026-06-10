@@ -1,0 +1,336 @@
+---
+export const prerender = false
+import { supabaseAdmin as supabase } from '../../../../lib/supabase-admin'
+import DashboardLayout from '../../../../layouts/DashboardLayout.astro'
+
+const { data: rawPathways } = await supabase
+  .from('v_pathways_dashboard')
+  .select('pathway_id, title, status, pathway_status, start_date, next_cohort_date, module_count, missing_modules, active_cohorts, scheduled_cohorts, total_enrolments, active_enrolments, stripe_connected, loops_connected')
+
+const pathways = rawPathways ?? []
+
+const activeCount      = pathways.filter(p => p.status === 'active').length
+const activeEnrolments = pathways.reduce((s, p) => s + (p.active_enrolments ?? 0), 0)
+const upcomingCohorts  = pathways.reduce((s, p) => s + (p.scheduled_cohorts ?? 0), 0)
+
+const today = new Date()
+today.setHours(0, 0, 0, 0)
+
+function getDate(p: any): Date | null {
+  const d = p.next_cohort_date ?? p.start_date
+  return d ? new Date(d) : null
+}
+
+function startDisplay(p: any): string {
+  const d = getDate(p)
+  if (d) return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+  if (p.pathway_status === 'coming_soon') return 'Coming soon'
+  return 'TBA'
+}
+
+function isUpcoming(p: any): boolean {
+  if (['open', 'coming_soon'].includes(p.pathway_status)) return true
+  const d = getDate(p)
+  return d !== null && d >= today
+}
+
+function isPast(p: any): boolean {
+  if (p.pathway_status === 'completed') return true
+  const d = getDate(p)
+  return d !== null && d < today && !['open', 'coming_soon'].includes(p.pathway_status)
+}
+
+const upcoming = pathways.filter(isUpcoming).sort((a, b) => {
+  if (a.status === 'draft' && b.status !== 'draft') return 1
+  if (b.status === 'draft' && a.status !== 'draft') return -1
+  const da = getDate(a); const db = getDate(b)
+  if (da && db) return da.getTime() - db.getTime()
+  if (da) return -1; if (db) return 1; return 0
+})
+
+const past = pathways.filter(isPast).sort((a, b) => {
+  const da = getDate(a); const db = getDate(b)
+  if (da && db) return db.getTime() - da.getTime()
+  return 0
+})
+
+function statusClass(s: string): string {
+  if (s === 'active') return 'status-active'
+  return 'status-draft'
+}
+
+function pathwayStatusClass(s: string): string {
+  if (s === 'open') return 'status-active'
+  if (s === 'coming_soon') return 'status-pending'
+  if (s === 'completed') return 'status-to_build'
+  return 'status-draft'
+}
+
+function pathwayStatusLabel(s: string): string {
+  if (s === 'coming_soon') return 'coming soon'
+  return s ?? '—'
+}
+---
+
+<DashboardLayout title="The Signal OS — Pathways">
+<style>
+  .content { padding: 28px 32px; overflow-x: hidden; min-height: 100vh; }
+
+  .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; gap: 16px; }
+  .page-header h1 { font-family: var(--heading); font-size: 22px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
+  .page-header p  { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+  /* ── SUMMARY CARDS ─────────────────────────────────────────────────── */
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 24px; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(47,47,47,0.06);
+  }
+  .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 6px; }
+  .stat-value { font-family: var(--heading); font-size: 28px; font-weight: 700; color: var(--text-primary); line-height: 1; }
+
+  /* ── TABS ──────────────────────────────────────────────────────────── */
+  .tab-bar { display: flex; gap: 2px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    font-family: var(--body); font-size: 13px; font-weight: 500;
+    color: var(--text-muted); background: none; border: none;
+    padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: color 0.12s, border-color 0.12s;
+  }
+  .tab-btn.active { color: var(--teal); border-bottom-color: var(--teal); }
+  .tab-btn:hover:not(.active) { color: var(--text-secondary); }
+
+  /* ── PANEL ─────────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(47,47,47,0.06);
+  }
+  .empty-state { padding: 24px 20px; font-size: 13px; color: var(--text-muted); font-style: italic; text-align: center; }
+
+  /* ── TABLE ─────────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; padding: 9px 16px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-muted); border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  tbody td { padding: 10px 16px; color: var(--text-secondary); border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover td { background: rgba(60,138,126,0.03); }
+  tr.is-draft td { opacity: 0.55; }
+
+  /* ── BADGES ────────────────────────────────────────────────────────── */
+  .badge { display: inline-block; border-radius: 20px; padding: 2px 9px; font-size: 11px; font-weight: 500; }
+  .badge + .badge { margin-left: 4px; }
+  .status-active   { background: rgba(123,190,154,0.15); color: #2D5A35; }
+  .status-draft,
+  .status-to_build { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+  .status-pending  { background: rgba(255,138,51,0.12);  color: #E07020; }
+  .status-completed{ background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
+
+  /* ── INTEGRATION DOTS ──────────────────────────────────────────────── */
+  .dots { display: flex; gap: 4px; align-items: center; }
+  .int-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block; flex-shrink: 0;
+  }
+  .int-dot--on  { background: #7BBE9A; }
+  .int-dot--off { background: rgba(47,47,47,0.18); }
+
+  /* ── WARN ICON ─────────────────────────────────────────────────────── */
+  .warn { color: #E07020; font-size: 13px; margin-left: 4px; vertical-align: middle; }
+
+  /* ── SHOW MORE ─────────────────────────────────────────────────────── */
+  .show-more-row td { text-align: center; padding: 10px; }
+  .btn-show-more {
+    font-family: var(--body); font-size: 12px; color: var(--teal);
+    background: none; border: none; cursor: pointer; padding: 4px 8px;
+  }
+  .btn-show-more:hover { text-decoration: underline; }
+
+  .link-plain { color: var(--text-primary); font-weight: 500; text-decoration: none; }
+  .link-plain:hover { color: var(--teal); }
+
+  @media (max-width: 768px) {
+    .content { padding: 20px 16px; }
+    .stat-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+
+<div class="content">
+
+  <header class="page-header">
+    <div>
+      <h1>Pathways</h1>
+      <p>All learning pathways across The Remix — enrolments, cohorts, and status.</p>
+    </div>
+  </header>
+
+  <!-- ── SUMMARY CARDS ───────────────────────────────────────────────── -->
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-label">Active pathways</div>
+      <div class="stat-value">{activeCount}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active enrolments</div>
+      <div class="stat-value">{activeEnrolments}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Upcoming cohorts</div>
+      <div class="stat-value">{upcomingCohorts}</div>
+    </div>
+  </div>
+
+  <!-- ── TAB BAR ─────────────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="upcoming">Upcoming</button>
+    <button class="tab-btn" data-tab="past">Past</button>
+  </div>
+
+  <!-- ── UPCOMING PANEL ──────────────────────────────────────────────── -->
+  <div id="panel-upcoming" class="panel">
+    {upcoming.length === 0 ? (
+      <div class="empty-state">No upcoming pathways.</div>
+    ) : (
+      <table>
+        <thead>
+          <tr>
+            <th>Pathway</th>
+            <th>Start</th>
+            <th>Modules</th>
+            <th>Cohorts</th>
+            <th>Enrolled</th>
+            <th>Status</th>
+            <th>Integrations</th>
+          </tr>
+        </thead>
+        <tbody id="rows-upcoming">
+          {upcoming.map((p: any, i: number) => (
+            <tr
+              class:list={['clickable', { 'is-draft': p.status === 'draft', 'overflow-row': i >= 10 }]}
+              style={i >= 10 ? 'display:none' : ''}
+              onclick={`location.href='/dashboard/remix/pathways/${p.pathway_id}'`}
+            >
+              <td>
+                <a href={`/dashboard/remix/pathways/${p.pathway_id}`} class="link-plain">{p.title}</a>
+              </td>
+              <td style="font-size:12px; color:var(--text-muted);">{startDisplay(p)}</td>
+              <td style="font-size:12px;">
+                {p.module_count ?? 0}
+                {p.missing_modules && <span class="warn" title="Missing required modules">⚠</span>}
+              </td>
+              <td style="font-size:12px;">{(p.active_cohorts ?? 0) + (p.scheduled_cohorts ?? 0)}</td>
+              <td style="font-size:12px;">{p.total_enrolments ?? 0}</td>
+              <td>
+                <span class={`badge ${statusClass(p.status)}`}>{p.status}</span>
+                <span class={`badge ${pathwayStatusClass(p.pathway_status)}`}>{pathwayStatusLabel(p.pathway_status)}</span>
+              </td>
+              <td>
+                <div class="dots">
+                  <span class={`int-dot int-dot--${p.stripe_connected ? 'on' : 'off'}`} title={p.stripe_connected ? 'Stripe connected' : 'Stripe not connected'}></span>
+                  <span class={`int-dot int-dot--${p.loops_connected ? 'on' : 'off'}`} title={p.loops_connected ? 'Loops connected' : 'Loops not connected'}></span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        {upcoming.length > 10 && (
+          <tfoot>
+            <tr class="show-more-row" id="more-upcoming">
+              <td colspan="7">
+                <button class="btn-show-more" data-target="upcoming">Show {upcoming.length - 10} more</button>
+              </td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    )}
+  </div>
+
+  <!-- ── PAST PANEL ──────────────────────────────────────────────────── -->
+  <div id="panel-past" class="panel" style="display:none">
+    {past.length === 0 ? (
+      <div class="empty-state">No past pathways.</div>
+    ) : (
+      <table>
+        <thead>
+          <tr>
+            <th>Pathway</th>
+            <th>Start</th>
+            <th>Modules</th>
+            <th>Cohorts</th>
+            <th>Enrolled</th>
+            <th>Status</th>
+            <th>Integrations</th>
+          </tr>
+        </thead>
+        <tbody id="rows-past">
+          {past.map((p: any, i: number) => (
+            <tr
+              class:list={['clickable', { 'overflow-row': i >= 10 }]}
+              style={i >= 10 ? 'display:none' : ''}
+              onclick={`location.href='/dashboard/remix/pathways/${p.pathway_id}'`}
+            >
+              <td>
+                <a href={`/dashboard/remix/pathways/${p.pathway_id}`} class="link-plain">{p.title}</a>
+              </td>
+              <td style="font-size:12px; color:var(--text-muted);">{startDisplay(p)}</td>
+              <td style="font-size:12px;">{p.module_count ?? 0}</td>
+              <td style="font-size:12px;">{(p.active_cohorts ?? 0) + (p.scheduled_cohorts ?? 0)}</td>
+              <td style="font-size:12px;">{p.total_enrolments ?? 0}</td>
+              <td>
+                <span class={`badge ${statusClass(p.status)}`}>{p.status}</span>
+                <span class={`badge ${pathwayStatusClass(p.pathway_status)}`}>{pathwayStatusLabel(p.pathway_status)}</span>
+              </td>
+              <td>
+                <div class="dots">
+                  <span class={`int-dot int-dot--${p.stripe_connected ? 'on' : 'off'}`} title={p.stripe_connected ? 'Stripe connected' : 'Stripe not connected'}></span>
+                  <span class={`int-dot int-dot--${p.loops_connected ? 'on' : 'off'}`} title={p.loops_connected ? 'Loops connected' : 'Loops not connected'}></span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        {past.length > 10 && (
+          <tfoot>
+            <tr class="show-more-row" id="more-past">
+              <td colspan="7">
+                <button class="btn-show-more" data-target="past">Show {past.length - 10} more</button>
+              </td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    )}
+  </div>
+
+</div>
+
+<script>
+  // Tab switching
+  const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
+  const panels  = { upcoming: document.getElementById('panel-upcoming')!, past: document.getElementById('panel-past')! }
+
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab as 'upcoming' | 'past'
+      tabBtns.forEach(b => b.classList.toggle('active', b === btn))
+      Object.entries(panels).forEach(([k, el]) => { el.style.display = k === tab ? '' : 'none' })
+    })
+  })
+
+  // Show more
+  document.querySelectorAll<HTMLButtonElement>('.btn-show-more').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.target!
+      const tbody = document.getElementById(`rows-${target}`)
+      tbody?.querySelectorAll<HTMLElement>('tr.overflow-row').forEach(row => { row.style.display = '' })
+      btn.closest('tr')?.remove()
+    })
+  })
+</script>
+</DashboardLayout>
