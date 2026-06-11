@@ -17,15 +17,15 @@ const today = new Date()
 today.setHours(0, 0, 0, 0)
 
 function getDate(p: any): Date | null {
-  const d = p.next_cohort_date ?? p.start_date
-  return d ? new Date(d) : null
+  return p.start_date ? new Date(p.start_date) : null
 }
 
 function startDisplay(p: any): string {
   const d = getDate(p)
   if (d) return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+  if (p.pathway_status === 'completed') return 'Completed'
   if (p.pathway_status === 'coming_soon') return 'Coming soon'
-  return 'TBA'
+  return 'Coming soon'
 }
 
 function isUpcoming(p: any): boolean {

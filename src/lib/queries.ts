@@ -329,7 +329,7 @@ export async function getHomepageEvents(limit = 3): Promise<Event[]> {
 export async function getHomepagePathways(siteId: string, limit = 3): Promise<Pathway[]> {
   const { data, error } = await supabase
     .from('pathways')
-    .select('id, slug, sort_order, label, title, short_description, start_date, start_label, cta_label, cta_link, topic, audience, pathway_status, status')
+    .select('id, slug, sort_order, label, title, short_description, start_date, cta_label, cta_link, topic, audience, pathway_status, status')
     .eq('site_id', siteId)
     .in('status', ['active', 'live'])
     .eq('pathway_status', 'open')

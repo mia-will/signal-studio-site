@@ -76,9 +76,9 @@ const loopsConnected  = !!pathway.loops_transactional_id
 
 const startDisplay = (() => {
   if (pathway.start_date) return fmt(pathway.start_date)
-  if (pathway.start_label) return pathway.start_label
+  if (pathway.pathway_status === 'completed') return 'Completed'
   if (pathway.pathway_status === 'coming_soon') return 'Coming soon'
-  return 'TBA'
+  return 'Coming soon'
 })()
 ---
 

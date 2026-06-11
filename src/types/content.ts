@@ -72,7 +72,6 @@ export interface Pathway {
   accent_colour: string | null;
   time_commitment_label: string | null;
   location_label: string | null;
-  start_label: string | null;
   start_date: string | null;
   cta_label: string | null;
   cta_link: string | null;
@@ -80,7 +79,7 @@ export interface Pathway {
   cta_secondary_link: string | null;
   topic: string | null;
   audience: string | null;
-  pathway_status?: 'coming_soon' | 'open' | 'complete';
+  pathway_status?: 'coming_soon' | 'open' | 'complete' | 'completed';
 }
 
 export interface PageSEO {

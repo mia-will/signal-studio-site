@@ -42,7 +42,8 @@ function formatStartMonth(pathway: Pathway): string {
   if (pathway.start_date) {
     return new Date(pathway.start_date).toLocaleDateString('en-AU', { month: 'long' });
   }
-  return pathway.start_label ?? 'TBA';
+  if (pathway.pathway_status === 'complete') return 'Completed';
+  return 'Coming soon';
 }
 
 function pathwayHref(pathway: Pathway): string {

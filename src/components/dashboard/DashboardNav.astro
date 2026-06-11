@@ -22,13 +22,27 @@ function routeStatus(route: string): Status {
 
 const pathname = Astro.url.pathname
 
+interface LivePathway {
+  id: string
+  title: string | null
+}
+
+const { livePathways = [] } = Astro.props as { livePathways?: LivePathway[] }
+
 function isActive(href: string): boolean {
   if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/dashboard/'
   return pathname === href || pathname.startsWith(href + '/')
 }
 
-interface NavItem { label: string; href: string }
+interface NavItem { label: string; href: string; children?: NavItem[] }
 interface NavSection { label?: string; items: NavItem[] }
+
+const pathwayChildren: NavItem[] = livePathways
+  .filter(pathway => pathway.id && pathway.title)
+  .map(pathway => ({
+    label: pathway.title!,
+    href: `/dashboard/remix/pathways/${pathway.id}`,
+  }))
 
 const sections: NavSection[] = [
   {
@@ -47,7 +61,7 @@ const sections: NavSection[] = [
     label: 'The Remix',
     items: [
       { label: 'Events',   href: '/dashboard/events' },
-      { label: 'Pathways', href: '/dashboard/remix/pathways' },
+      { label: 'Pathways', href: '/dashboard/remix/pathways', children: pathwayChildren },
       { label: 'Site',     href: '/dashboard/remix/site' },
     ],
   },
@@ -118,14 +132,34 @@ const sections: NavSection[] = [
           const status = routeStatus(item.href)
           const active = isActive(item.href)
           return (
-            <a
-              href={item.href}
-              class:list={['nav-item', { active }]}
-              aria-current={active ? 'page' : undefined}
-            >
-              <span class={`dot dot--${status}`} aria-hidden="true"></span>
-              <span class="nav-label">{item.label}</span>
-            </a>
+            <>
+              <a
+                href={item.href}
+                class:list={['nav-item', { active }]}
+                aria-current={active ? 'page' : undefined}
+              >
+                <span class={`dot dot--${status}`} aria-hidden="true"></span>
+                <span class="nav-label">{item.label}</span>
+              </a>
+              {item.children && item.children.length > 0 && (
+                <div class="nav-children">
+                  {item.children.map(child => {
+                    const childActive = pathname === child.href
+                    const childStatus = routeStatus('/dashboard/remix/pathways/[id]')
+                    return (
+                      <a
+                        href={child.href}
+                        class:list={['nav-item', 'nav-child', { active: childActive }]}
+                        aria-current={childActive ? 'page' : undefined}
+                      >
+                        <span class={`dot dot--${childStatus}`} aria-hidden="true"></span>
+                        <span class="nav-label">{child.label}</span>
+                      </a>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )
         })}
       </div>
@@ -239,6 +273,15 @@ const sections: NavSection[] = [
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .nav-children {
+    margin: 0 0 2px;
+  }
+
+  .nav-child {
+    font-size: 12px;
+    padding-left: 28px;
   }
 
   /* ── STATUS DOTS ───────────────────────────────────────────────── */

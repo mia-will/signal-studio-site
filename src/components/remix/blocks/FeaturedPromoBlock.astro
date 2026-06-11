@@ -62,15 +62,17 @@ if (featuredId && featuredType) {
   } else if (featuredType === 'pathway') {
     const { data } = await supabase
       .from('pathways')
-      .select('id, title, short_description, who_its_for, time_commitment_label, start_label, cta_label, cta_link, cta_secondary_label, cta_secondary_link, featured_image_asset_id')
+      .select('id, title, short_description, who_its_for, time_commitment_label, start_date, pathway_status, cta_label, cta_link, cta_secondary_label, cta_secondary_link, featured_image_asset_id')
       .eq('id', featuredId)
-      .single();
+      .maybeSingle();
 
     if (data) {
       imageAssetId = data.featured_image_asset_id ?? null;
       const meta: { label: string; value: string }[] = [];
       if (data.time_commitment_label) meta.push({ label: 'Format', value: data.time_commitment_label });
-      if (data.start_label)           meta.push({ label: 'Starts', value: data.start_label });
+      if (data.start_date)            meta.push({ label: 'Starts', value: new Date(data.start_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) });
+      else if (data.pathway_status === 'completed') meta.push({ label: 'Starts', value: 'Completed' });
+      else                            meta.push({ label: 'Starts', value: 'Coming soon' });
       if (data.who_its_for) meta.push({ label: 'For', value: data.who_its_for });
 
       record = {
