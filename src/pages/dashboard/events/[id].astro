@@ -133,6 +133,7 @@ const feedback      = feedbackRes.data    ?? []
 const attendees     = attendeesRes.data   ?? []
 const revenue       = revenueRes.data     ?? null
 const insight       = insights[0] ?? null
+const olderInsights = insights.slice(1)
 
 // ── production mode data ───────────────────────────────────────────────────
 const rawAssets     = (assetsRes.data     ?? []).filter((a: any) => a.status !== 'archived')
@@ -157,9 +158,41 @@ for (const row of peopleRows) {
 const ROLE_ORDER = ['speaker', 'facilitator', 'host', 'other']
 
 // Actions summary
-const doneActions      = actions.filter((a: any) => a.status === 'done')
-const checklistFirst10 = actions.slice(0, 10)
-const checklistRest    = actions.slice(10)
+const eventStartTime = event.start_at ? new Date(event.start_at).getTime() : null
+const isPreEventAction = (a: any) => !!a.due_at && eventStartTime !== null && new Date(a.due_at).getTime() <= eventStartTime
+const preEventActions = actions.filter(isPreEventAction)
+const doneActions = actions.filter((a: any) => a.status === 'done')
+const donePreEventActions = preEventActions.filter((a: any) => a.status === 'done')
+const checklistFirst10 = preEventActions.slice(0, 10)
+
+const PHASE_ORDER = ['setup_publish', 'launch_announce', 'build_momentum', 'final_week', 'day_of', 'post_event', 'unphased']
+const PHASE_LABELS: Record<string, string> = {
+  setup_publish: 'Setup + publish',
+  launch_announce: 'Launch + announce',
+  build_momentum: 'Build momentum',
+  final_week: 'Final week',
+  day_of: 'Day of',
+  post_event: 'Post-event',
+  unphased: 'Unphased',
+}
+
+function actionPhase(a: any): string | null {
+  const source = [a.description, a.notes].filter(Boolean).join(' · ')
+  const match = source.match(/Phase:\s*([a-z0-9_-]+)/i)
+  return match?.[1]?.toLowerCase() ?? null
+}
+
+function phaseGroupForAction(a: any): string {
+  const parsed = actionPhase(a)
+  if (parsed) return parsed
+  if (a.due_at && eventStartTime !== null && new Date(a.due_at).getTime() > eventStartTime) return 'post_event'
+  return 'unphased'
+}
+
+const phaseGroups = PHASE_ORDER.map(phase => {
+  const items = actions.filter((a: any) => phaseGroupForAction(a) === phase || (phase === 'post_event' && phaseGroupForAction(a) === 'post-event'))
+  return { phase, label: PHASE_LABELS[phase] ?? phase.replace(/_/g, ' '), items, done: items.filter((a: any) => a.status === 'done').length }
+}).filter(group => group.items.length > 0)
 
 // Asset coverage
 // move to Supabase config later — currently a page constant
@@ -181,6 +214,14 @@ const rawIds = new Set(rawAssets.map((a: any) => a.id))
 for (const la of legacyAssets) {
   if (!rawIds.has(la.id)) allDisplayAssets.push(la)
 }
+
+const actionOutputAssetIds = Array.from(new Set(actions
+  .filter((a: any) => a.output_table === 'media_assets' && a.output_record_id)
+  .map((a: any) => a.output_record_id)))
+const { data: actionOutputAssetsData } = actionOutputAssetIds.length > 0
+  ? await supabase.from('media_assets').select('id, image_url, file_path, title, alt_text, role, tags, width, height, status').in('id', actionOutputAssetIds)
+  : { data: [] }
+const actionAssetMap = new Map([...allDisplayAssets, ...(actionOutputAssetsData ?? [])].map((asset: any) => [asset.id, asset]))
 
 const coverageMap: Record<string, boolean> = {}
 for (const use of EXPECTED_ASSET_USES) {
@@ -293,6 +334,10 @@ function outputLink(table: string | null, rid: string | null, label: string): st
   return route ? `<a href="${route(rid)}" class="output-link">${label}</a>` : label
 }
 
+function mediaAssetUrl(asset: any): string | null {
+  return asset?.image_url ?? asset?.file_path ?? null
+}
+
 function assetTags(asset: any): string[] {
   const tags = asset.tags
   if (!tags) return []
@@ -301,12 +346,62 @@ function assetTags(asset: any): string[] {
   return []
 }
 
+function valueToText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map(valueToText).filter(Boolean).join('\n')
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, val]) => {
+        const text = valueToText(val)
+        return text ? `${key}: ${text}` : ''
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+  return String(value)
+}
+
+function valueToLines(value: unknown): string[] {
+  return valueToText(value)
+    .split('\n')
+    .map(line => line.trim().replace(/^[-•*]\s*/, ''))
+    .filter(Boolean)
+}
+
+function hasInsightValue(row: any, keys: string[]): boolean {
+  return keys.some(key => valueToText(row?.[key]).trim().length > 0)
+}
+
+const contentInsightFields = [
+  { key: 'key_themes',         label: 'Key themes' },
+  { key: 'questions_asked',    label: 'Questions asked' },
+  { key: 'messaging_insights', label: 'Messaging insights' },
+  { key: 'follow_up_signals',  label: 'Follow-up signals' },
+]
+
+const reviewInsightFields = [
+  { key: 'what_was_promised',      label: 'What was promised' },
+  { key: 'what_actually_happened', label: 'What actually happened' },
+  { key: 'facilitation_notes',     label: 'Facilitation notes' },
+  { key: 'audience_mix_notes',     label: 'Audience mix' },
+  { key: 'facilitator_reflection', label: 'Facilitator reflection' },
+  { key: 'energy_level',           label: 'Energy level' },
+]
+
+const hasContentMaterial = hasInsightValue(insight, ['fireflies_url', ...contentInsightFields.map(field => field.key)])
+const whatLandedLines = valueToLines(insight?.what_landed)
+const whatDidntLandLines = valueToLines(insight?.what_didnt_land)
+const hasLandedReview = whatLandedLines.length > 0 || whatDidntLandLines.length > 0 || hasInsightValue(insight, reviewInsightFields.map(field => field.key))
+
 // Date header line
 const startLabel = event.start_at ? fmtDateTime(event.start_at, event.timezone) : null
 const endLabel   = event.end_at   ? fmtTime(event.end_at, event.timezone) : null
 const dateLabel  = startLabel
   ? endLabel ? `${startLabel} – ${endLabel}` : startLabel
   : null
+const headerRevenue = revenue ? (revenue.gross_revenue ?? revenue.total_income ?? revenue.net_revenue) : null
+const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' : `${countdown} day${countdown !== 1 ? 's' : ''}`
 ---
 
 <DashboardLayout title={`The Signal OS — ${event.title}`}>
@@ -322,7 +417,11 @@ const dateLabel  = startLabel
   .back-link:hover { color: var(--text-primary); }
 
   /* ── PAGE HEADER ───────────────────────────── */
-  .page-header { margin-bottom: 20px; }
+  .page-header {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(47,47,47,0.06);
+  }
   .header-top-row {
     display: flex; align-items: flex-start; justify-content: space-between;
     gap: 12px; flex-wrap: wrap; margin-bottom: 6px;
@@ -343,9 +442,25 @@ const dateLabel  = startLabel
     font-size: 10px; font-weight: 500; border-radius: 4px; padding: 2px 8px;
     display: inline-block;
   }
-  .header-meta { display: flex; flex-direction: column; gap: 3px; }
+  .header-meta { display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
   .meta-line { font-size: 13px; color: var(--text-secondary); }
   .meta-muted { color: var(--text-muted); }
+  .stat-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border-top: 0.5px solid var(--border); padding-top: 12px; }
+  .stat-item { border: 0.5px solid var(--border); border-radius: 8px; padding: 9px 12px; background: rgba(47,47,47,0.015); }
+  .stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+  .stat-value { font-family: var(--heading); font-size: 18px; font-weight: 500; color: var(--text-primary); }
+  @media (max-width: 700px) { .stat-strip { grid-template-columns: 1fr; } }
+
+  .tab-bar { display: flex; gap: 2px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    font-family: var(--body); font-size: 13px; font-weight: 500;
+    color: var(--text-muted); background: none; border: none;
+    padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: color 0.12s, border-color 0.12s;
+  }
+  .tab-btn.active { color: var(--teal); border-bottom-color: var(--teal); }
+  .tab-btn:hover:not(.active) { color: var(--text-secondary); }
+  .tab-panel[hidden] { display: none; }
 
   /* ── DRAFT BANNER ──────────────────────────── */
   .draft-banner {
@@ -434,6 +549,21 @@ const dateLabel  = startLabel
   .plan-title.done { text-decoration: line-through; color: var(--text-muted); }
   .plan-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
   .plan-notes { font-size: 11px; color: var(--text-secondary); margin-top: 3px; font-style: italic; }
+  .phase-group { border-top: 0.5px solid var(--border); }
+  .phase-group:first-of-type { border-top: none; }
+  .phase-group summary {
+    padding: 10px 16px; list-style: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .phase-group summary::-webkit-details-marker { display: none; }
+  .phase-group summary::before { content: '▶'; font-size: 9px; color: var(--text-muted); margin-right: 8px; }
+  .phase-group[open] summary::before { content: '▼'; }
+  .phase-label { flex: 1; font-weight: 500; color: var(--text-primary); }
+  .phase-count { font-size: 11px; color: var(--text-muted); }
+  .phase-muted { opacity: 0.56; }
+  .action-asset-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--teal); text-decoration: none; font-size: 11px; }
+  .action-asset-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 5px; background: rgba(47,47,47,0.05); }
 
   /* ── READINESS ROWS ────────────────────────── */
   .readiness-item {
@@ -641,6 +771,11 @@ const dateLabel  = startLabel
         {!event.price_amount || Number(event.price_amount) === 0 ? 'Free' : fmtCurrency(Number(event.price_amount))}
       </span>
     </div>
+    <div class="stat-strip" aria-label="Event stats">
+      <div class="stat-item"><p class="stat-label">Registered</p><p class="stat-value">{attendees.length}</p></div>
+      <div class="stat-item"><p class="stat-label">Revenue</p><p class="stat-value">{headerRevenue === null ? '—' : fmtCurrency(headerRevenue)}</p></div>
+      <div class="stat-item"><p class="stat-label">Days to go</p><p class="stat-value">{headerDaysLabel}</p></div>
+    </div>
   </header>
 
   {/* ─────────────── DRAFT BANNER ─────────────── */}
@@ -656,55 +791,97 @@ const dateLabel  = startLabel
 
   {/* ─────────────── PRODUCTION MODE ─────────────────────────────────── */}
   {(eventTiming === 'upcoming' || eventTiming === 'draft') && (
-    <div class="detail-grid">
+    <>
+      <div class="tab-bar" role="tablist" aria-label="Event detail sections">
+        <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="plan">Plan</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="marketing">Marketing</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="delivery">Delivery</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="registrations">Registrations</button>
+      </div>
 
-      {/* ── LEFT COLUMN ──────────────────────── */}
-      <div>
+      <section class="tab-panel" id="tab-plan" data-tab-panel="plan">
+        {eventTiming === 'draft' && (
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Publish readiness</span>
+              <span class="card-counter">{publishReadyCount} of {publishChecks.length} ready</span>
+            </div>
+            {publishChecks.map(check => (
+              <div class="pr-row">
+                <span class={check.ok ? 'pr-icon-ok' : 'pr-icon-fail'}>{check.ok ? '✓' : '✗'}</span>
+                <span>{check.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
-        {/* Card 1 — Production checklist */}
         <div class="card">
           <div class="card-header">
             <span class="card-title">Production checklist</span>
-            <span class="card-counter">{doneActions.length} of {actions.length} done</span>
+            <span class="card-counter">{donePreEventActions.length} of {preEventActions.length} pre-event done</span>
           </div>
-          {actions.length === 0 ? (
+          {preEventActions.length === 0 ? (
             <div class="empty-state">
-              No production steps defined yet. Pre-event steps will be seeded from the event_production_checklist process once defined.
+              No pre-event production steps due before this event yet.
             </div>
           ) : (
-            <>
-              {checklistFirst10.map((a: any) => {
-                const overdue = isOverdue(a.due_at, a.status)
-                return (
-                  <div class={`action-item ${a.status === 'done' ? 'action-done' : 'action-pending'}`}>
-                    <span class="action-icon">{a.status === 'done' ? '✓' : '○'}</span>
-                    <div>
-                      <div class="action-title">{a.title}</div>
-                      {(a.owner || a.due_at) && (
-                        <div class="action-meta">
-                          {a.owner && <span>{a.owner}</span>}
-                          {a.owner && a.due_at && <span> · </span>}
-                          {a.due_at && (
-                            <span class={overdue ? 'due-overdue' : ''}>
-                              due {fmtDate(a.due_at)}{overdue ? ' — overdue' : ''}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+            checklistFirst10.map((a: any) => {
+              const overdue = isOverdue(a.due_at, a.status)
+              const linkedAsset = a.output_table === 'media_assets' ? actionAssetMap.get(a.output_record_id) : null
+              const linkedAssetUrl = mediaAssetUrl(linkedAsset)
+              return (
+                <div class={`action-item ${a.status === 'done' ? 'action-done' : 'action-pending'}`}>
+                  <span class="action-icon">{a.status === 'done' ? '✓' : '○'}</span>
+                  <div>
+                    <div class="action-title">{a.title}</div>
+                    {(a.owner || a.due_at) && (
+                      <div class="action-meta">
+                        {a.owner && <span>{a.owner}</span>}
+                        {a.owner && a.due_at && <span> · </span>}
+                        {a.due_at && (
+                          <span class={overdue ? 'due-overdue' : ''}>
+                            due {fmtDate(a.due_at)}{overdue ? ' — overdue' : ''}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {linkedAsset && linkedAssetUrl && (
+                      <a href={linkedAssetUrl} target="_blank" rel="noopener" class="action-asset-link">
+                        <img src={linkedAssetUrl} alt={linkedAsset.alt_text ?? linkedAsset.title ?? ''} class="action-asset-thumb" loading="lazy" />
+                        <span>{linkedAsset.title ?? 'Open asset'}</span>
+                      </a>
+                    )}
                   </div>
-                )
-              })}
-              <details class="expand-plan">
-                <summary>View full plan ({actions.length} step{actions.length !== 1 ? 's' : ''})</summary>
-                {actions.map((a: any) => {
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Full plan</span>
+            <span class="card-counter">{actions.length} step{actions.length !== 1 ? 's' : ''}</span>
+          </div>
+          {actions.length === 0 ? (
+            <div class="empty-state">No production steps defined yet.</div>
+          ) : (
+            phaseGroups.map((group) => (
+              <details class:list={['phase-group', { 'phase-muted': group.phase === 'post_event' }]} open={group.phase !== 'post_event'}>
+                <summary>
+                  <span class="phase-label">{group.label}</span>
+                  <span class="phase-count">{group.done} of {group.items.length}</span>
+                </summary>
+                {group.items.map((a: any) => {
                   const overdue = isOverdue(a.due_at, a.status)
+                  const linkedAsset = a.output_table === 'media_assets' ? actionAssetMap.get(a.output_record_id) : null
+                  const linkedAssetUrl = mediaAssetUrl(linkedAsset)
                   return (
                     <div class="plan-action-row">
                       <span class="action-icon" style="margin-top:1px;">{a.status === 'done' ? '✓' : '○'}</span>
                       <div style="flex:1;min-width:0;">
                         <div class={`plan-title${a.status === 'done' ? ' done' : ''}`}>
-                          {a.status === 'done' && a.output_table && a.output_record_id
+                          {a.status === 'done' && a.output_table && a.output_record_id && a.output_table !== 'media_assets'
                             ? <Fragment set:html={outputLink(a.output_table, a.output_record_id, a.title)} />
                             : a.title
                           }
@@ -720,154 +897,24 @@ const dateLabel  = startLabel
                             )}
                           </div>
                         )}
+                        {linkedAsset && linkedAssetUrl && (
+                          <a href={linkedAssetUrl} target="_blank" rel="noopener" class="action-asset-link">
+                            <img src={linkedAssetUrl} alt={linkedAsset.alt_text ?? linkedAsset.title ?? ''} class="action-asset-thumb" loading="lazy" />
+                            <span>{linkedAsset.title ?? 'Open asset'}</span>
+                          </a>
+                        )}
                         {a.notes && <div class="plan-notes">{a.notes}</div>}
                       </div>
                     </div>
                   )
                 })}
               </details>
-            </>
-          )}
-        </div>
-
-        {/* Card 4 — Assets panel */}
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Assets</span>
-            <span class="card-counter">{allDisplayAssets.length} linked</span>
-          </div>
-
-          {/* Coverage gaps */}
-          {EXPECTED_ASSET_USES.filter(use => !coverageMap[use]).map(use => (
-            <div class="coverage-gap">
-              <span>⚠</span>
-              <span>Nothing labelled for {use} yet</span>
-            </div>
-          ))}
-
-          {allDisplayAssets.length === 0 && EXPECTED_ASSET_USES.every(u => !coverageMap[u]) ? (
-            <div class="empty-state">No assets linked to this event yet.</div>
-          ) : (
-            allDisplayAssets.map((asset: any) => {
-              const tags = assetTags(asset)
-              const slotLabel = LEGACY_SLOTS[asset.id]
-              const imgUrl = asset.image_url ?? null
-              return (
-                <div class="asset-thumb-row">
-                  {imgUrl
-                    ? <img src={imgUrl} alt={asset.alt_text ?? asset.title ?? ''} class="asset-thumb" loading="lazy" />
-                    : <div class="asset-thumb-placeholder">🖼</div>
-                  }
-                  <div class="asset-info">
-                    <div class="asset-name">{asset.title ?? asset.alt_text ?? 'Untitled'}</div>
-                    {(asset.width && asset.height) && (
-                      <div class="asset-dims">{asset.width} × {asset.height}</div>
-                    )}
-                    <div class="asset-tags">
-                      {slotLabel && <span class="tag-pill tag-pill-legacy">{slotLabel}</span>}
-                      {tags.map((t: string) => <span class="tag-pill">{t}</span>)}
-                    </div>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-
-        {/* Card 5 — Run sheet prep */}
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Run sheet prep</span>
-          </div>
-          {!runSheetResult || !runSheetResult.runSheet ? (
-            <div class="empty-state">
-              No prior run sheet for this event type yet — this one starts the template.
-            </div>
-          ) : (
-            <div class="runsheet-body">
-              <p class="runsheet-source">
-                Latest{runSheetResult.runSheet.version ? ` v${runSheetResult.runSheet.version}` : ''} from <strong>{runSheetResult.pastEvent.title}</strong> — start from this, not from scratch
-              </p>
-              <span class="runsheet-title">{runSheetResult.runSheet.title}</span>
-              {runSheetResult.runSheet.source_url && (
-                <> · <a href={runSheetResult.runSheet.source_url} target="_blank" rel="noopener" class="asset-link">↗ Open</a></>
-              )}
-              {(runSheetResult.runSheet.improved_content ?? runSheetResult.runSheet.original_content) && (
-                <div class="runsheet-excerpt">
-                  {runSheetResult.runSheet.improved_content ?? runSheetResult.runSheet.original_content}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Card 6 — People */}
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">People</span>
-            <span class="card-counter">{peopleRows.length} linked</span>
-          </div>
-          {peopleRows.length === 0 && !event.speakers_slugs && !event.facilitators_slugs && !event.hosts_slugs ? (
-            <div class="empty-state">No people linked to this event yet.</div>
-          ) : peopleRows.length > 0 ? (
-            ROLE_ORDER.filter(role => peopleByRole[role]?.length > 0).map(role => (
-              <>
-                <p class="role-label">{role === 'other' ? 'Other' : role.charAt(0).toUpperCase() + role.slice(1) + 's'}</p>
-                {peopleByRole[role].map((row: any) => {
-                  const p = row.people_bios as any
-                  const initials = p ? ((p.first_name ?? '').charAt(0) + (p.last_name ?? '').charAt(0)).toUpperCase() || '?' : '?'
-                  return (
-                    <div class="person-row">
-                      {p?.profile_image_url
-                        ? <img src={p.profile_image_url} alt={personName(row)} class="person-avatar" loading="lazy" />
-                        : <div class="person-avatar-placeholder">{initials}</div>
-                      }
-                      <div>
-                        <div class="person-name">{personName(row)}</div>
-                        {p?.headline && <div class="person-headline">{p.headline}</div>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </>
             ))
-          ) : (
-            /* Fallback: legacy slug arrays */
-            <>
-              {event.speakers_slugs?.length > 0 && (
-                <>
-                  <p class="role-label">Speakers</p>
-                  {(event.speakers_slugs as string[]).map(slug => (
-                    <div class="slug-fallback">{slug}</div>
-                  ))}
-                </>
-              )}
-              {event.facilitators_slugs?.length > 0 && (
-                <>
-                  <p class="role-label">Facilitators</p>
-                  {(event.facilitators_slugs as string[]).map(slug => (
-                    <div class="slug-fallback">{slug}</div>
-                  ))}
-                </>
-              )}
-              {event.hosts_slugs?.length > 0 && (
-                <>
-                  <p class="role-label">Hosts</p>
-                  {(event.hosts_slugs as string[]).map(slug => (
-                    <div class="slug-fallback">{slug}</div>
-                  ))}
-                </>
-              )}
-            </>
           )}
         </div>
+      </section>
 
-      </div>
-
-      {/* ── RIGHT COLUMN ─────────────────────── */}
-      <div>
-
-        {/* Card 2 — Marketing readiness */}
+      <section class="tab-panel" id="tab-marketing" data-tab-panel="marketing" hidden>
         <div class="card">
           <div class="card-header"><span class="card-title">Marketing readiness</span></div>
 
@@ -917,66 +964,180 @@ const dateLabel  = startLabel
           </div>
         </div>
 
-        {/* Card 3 — Registered */}
         <div class="card">
           <div class="card-header">
-            <span class="card-title">Registered</span>
+            <span class="card-title">Assets</span>
+            <span class="card-counter">{allDisplayAssets.length} linked</span>
           </div>
-          <div class="big-count">{attendees.length}</div>
-          {attendees.length === 0 ? (
-            <div class="big-count-sub">Registrations appear here as they come in</div>
+          {EXPECTED_ASSET_USES.filter(use => !coverageMap[use]).map(use => (
+            <div class="coverage-gap">
+              <span>⚠</span>
+              <span>Nothing labelled for {use} yet</span>
+            </div>
+          ))}
+          {allDisplayAssets.length === 0 && EXPECTED_ASSET_USES.every(u => !coverageMap[u]) ? (
+            <div class="empty-state">No assets linked to this event yet.</div>
           ) : (
-            <div class="big-count-sub">{attendees.length} registration{attendees.length !== 1 ? 's' : ''}</div>
+            allDisplayAssets.map((asset: any) => {
+              const tags = assetTags(asset)
+              const slotLabel = LEGACY_SLOTS[asset.id]
+              const imgUrl = asset.image_url ?? null
+              return (
+                <div class="asset-thumb-row">
+                  {imgUrl
+                    ? <img src={imgUrl} alt={asset.alt_text ?? asset.title ?? ''} class="asset-thumb" loading="lazy" />
+                    : <div class="asset-thumb-placeholder">🖼</div>
+                  }
+                  <div class="asset-info">
+                    <div class="asset-name">{asset.title ?? asset.alt_text ?? 'Untitled'}</div>
+                    {(asset.width && asset.height) && (
+                      <div class="asset-dims">{asset.width} × {asset.height}</div>
+                    )}
+                    <div class="asset-tags">
+                      {slotLabel && <span class="tag-pill tag-pill-legacy">{slotLabel}</span>}
+                      {tags.map((t: string) => <span class="tag-pill">{t}</span>)}
+                    </div>
+                  </div>
+                </div>
+              )
+            })
           )}
-          {attendees.slice(0, 5).map((a: any) => (
-            <div class="attendee-row">
-              <div class="attendee-name" style="flex:1;min-width:0;">
-                {(a.contacts_crm as any)?.id
-                  ? <a href={`/dashboard/crm/${(a.contacts_crm as any).id}`}>{contactName(a)}</a>
-                  : <span>{contactName(a)}</span>
-                }
-                {a.registration_source && <div class="attendee-sub">{a.registration_source}</div>}
-              </div>
-              {a.registered_at && <span class="attendee-sub">{fmtDate(a.registered_at)}</span>}
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-delivery" data-tab-panel="delivery" hidden>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Run sheet prep</span>
+          </div>
+          {!runSheetResult || !runSheetResult.runSheet ? (
+            <div class="empty-state">
+              No prior run sheet for this event type yet — this one starts the template.
             </div>
-          ))}
-          {attendees.slice(5, 10).map((a: any) => (
-            <div class="attendee-row hidden-row attendee-more">
-              <div class="attendee-name" style="flex:1;min-width:0;">
-                {(a.contacts_crm as any)?.id
-                  ? <a href={`/dashboard/crm/${(a.contacts_crm as any).id}`}>{contactName(a)}</a>
-                  : <span>{contactName(a)}</span>
-                }
-                {a.registration_source && <div class="attendee-sub">{a.registration_source}</div>}
-              </div>
-              {a.registered_at && <span class="attendee-sub">{fmtDate(a.registered_at)}</span>}
+          ) : (
+            <div class="runsheet-body">
+              <p class="runsheet-source">
+                Latest{runSheetResult.runSheet.version ? ` v${runSheetResult.runSheet.version}` : ''} from <strong>{runSheetResult.pastEvent.title}</strong> — start from this, not from scratch
+              </p>
+              <span class="runsheet-title">{runSheetResult.runSheet.title}</span>
+              {runSheetResult.runSheet.source_url && (
+                <> · <a href={runSheetResult.runSheet.source_url} target="_blank" rel="noopener" class="asset-link">↗ Open</a></>
+              )}
+              {(runSheetResult.runSheet.improved_content ?? runSheetResult.runSheet.original_content) && (
+                <div class="runsheet-excerpt">
+                  {runSheetResult.runSheet.improved_content ?? runSheetResult.runSheet.original_content}
+                </div>
+              )}
             </div>
-          ))}
-          {attendees.length > 5 && (
-            <button class="show-more-btn" id="show-more-attendees">
-              Show more ({attendees.length - 5} more)
-            </button>
           )}
         </div>
 
-        {/* Draft-only: Publish readiness card */}
-        {eventTiming === 'draft' && (
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">Publish readiness</span>
-              <span class="card-counter">{publishReadyCount} of {publishChecks.length} ready</span>
-            </div>
-            {publishChecks.map(check => (
-              <div class="pr-row">
-                <span class={check.ok ? 'pr-icon-ok' : 'pr-icon-fail'}>{check.ok ? '✓' : '✗'}</span>
-                <span>{check.label}</span>
-              </div>
-            ))}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">People</span>
+            <span class="card-counter">{peopleRows.length} linked</span>
           </div>
-        )}
+          {peopleRows.length === 0 && !event.speakers_slugs && !event.facilitators_slugs && !event.hosts_slugs ? (
+            <div class="empty-state">No people linked to this event yet.</div>
+          ) : peopleRows.length > 0 ? (
+            ROLE_ORDER.filter(role => peopleByRole[role]?.length > 0).map(role => (
+              <>
+                <p class="role-label">{role === 'other' ? 'Other' : role.charAt(0).toUpperCase() + role.slice(1) + 's'}</p>
+                {peopleByRole[role].map((row: any) => {
+                  const p = row.people_bios as any
+                  const initials = p ? ((p.first_name ?? '').charAt(0) + (p.last_name ?? '').charAt(0)).toUpperCase() || '?' : '?'
+                  return (
+                    <div class="person-row">
+                      {p?.profile_image_url
+                        ? <img src={p.profile_image_url} alt={personName(row)} class="person-avatar" loading="lazy" />
+                        : <div class="person-avatar-placeholder">{initials}</div>
+                      }
+                      <div>
+                        <div class="person-name">{personName(row)}</div>
+                        {p?.headline && <div class="person-headline">{p.headline}</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            ))
+          ) : (
+            <>
+              {event.speakers_slugs?.length > 0 && (
+                <>
+                  <p class="role-label">Speakers</p>
+                  {(event.speakers_slugs as string[]).map(slug => (
+                    <div class="slug-fallback">{slug}</div>
+                  ))}
+                </>
+              )}
+              {event.facilitators_slugs?.length > 0 && (
+                <>
+                  <p class="role-label">Facilitators</p>
+                  {(event.facilitators_slugs as string[]).map(slug => (
+                    <div class="slug-fallback">{slug}</div>
+                  ))}
+                </>
+              )}
+              {event.hosts_slugs?.length > 0 && (
+                <>
+                  <p class="role-label">Hosts</p>
+                  {(event.hosts_slugs as string[]).map(slug => (
+                    <div class="slug-fallback">{slug}</div>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </section>
 
-      </div>
-    </div>
+      <section class="tab-panel" id="tab-registrations" data-tab-panel="registrations" hidden>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Registrations</span>
+            <span class="card-counter">{attendees.length}</span>
+          </div>
+          {attendees.length === 0 ? (
+            <div class="empty-state">Registrations appear here as they come in.</div>
+          ) : (
+            <>
+              {attendees.slice(0, 10).map((a: any) => (
+                <div class="attendee-row">
+                  <div class="attendee-name" style="flex:1;min-width:0;">
+                    {(a.contacts_crm as any)?.id
+                      ? <a href={`/dashboard/crm/${(a.contacts_crm as any).id}`}>{contactName(a)}</a>
+                      : <span>{contactName(a)}</span>
+                    }
+                    {a.registration_source && <div class="attendee-sub">{a.registration_source}</div>}
+                  </div>
+                  {a.registered_at && <span class="attendee-sub">{fmtDate(a.registered_at)}</span>}
+                  {a.amount_paid && Number(a.amount_paid) > 0 && <span class="attendee-paid">{fmtCurrency(a.amount_paid)}</span>}
+                </div>
+              ))}
+              {attendees.slice(10).map((a: any) => (
+                <div class="attendee-row hidden-row attendee-more">
+                  <div class="attendee-name" style="flex:1;min-width:0;">
+                    {(a.contacts_crm as any)?.id
+                      ? <a href={`/dashboard/crm/${(a.contacts_crm as any).id}`}>{contactName(a)}</a>
+                      : <span>{contactName(a)}</span>
+                    }
+                    {a.registration_source && <div class="attendee-sub">{a.registration_source}</div>}
+                  </div>
+                  {a.registered_at && <span class="attendee-sub">{fmtDate(a.registered_at)}</span>}
+                  {a.amount_paid && Number(a.amount_paid) > 0 && <span class="attendee-paid">{fmtCurrency(a.amount_paid)}</span>}
+                </div>
+              ))}
+              {attendees.length > 10 && (
+                <button class="show-more-btn" id="show-more-attendees">
+                  Show more ({attendees.length - 10} more)
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    </>
   )}
 
   {/* ─────────────── PAST MODE (unchanged) ────────────────────────────── */}
@@ -1017,83 +1178,75 @@ const dateLabel  = startLabel
 
       {/* 2. Content material */}
       <div class="card">
-        <div class="card-header"><span class="card-title">Content material</span></div>
-        {!insight
-          ? <div class="empty-state">No insights captured yet.</div>
-          : (
+        <div class="card-header">
+          <span class="card-title">Content material</span>
+          <span class="card-counter">{insights.length} insight row{insights.length !== 1 ? 's' : ''}</span>
+        </div>
+        {!insight || !hasContentMaterial ? (
+          <div class="empty-state">No content material captured yet. Add key themes, questions, messaging insights, follow-up signals, or a transcript link.</div>
+        ) : (
             <div class="card-body">
-              {insight.fireflies_url && (
+              {valueToText(insight.fireflies_url) && (
                 <div class="insight-block" style="margin-bottom: 12px;">
-                  <a href={insight.fireflies_url} target="_blank" rel="noopener" class="insight-link">
+                  <a href={valueToText(insight.fireflies_url)} target="_blank" rel="noopener" class="insight-link">
                     ↗ Fireflies transcript
                   </a>
                 </div>
               )}
-              {([
-                { key: 'key_themes',         label: 'Key themes' },
-                { key: 'questions_asked',    label: 'Questions asked' },
-                { key: 'messaging_insights', label: 'Messaging insights' },
-                { key: 'follow_up_signals',  label: 'Follow-up signals' },
-              ] as { key: keyof typeof insight; label: string }[]).map(({ key, label }) =>
-                insight[key] ? (
+              {contentInsightFields.map(({ key, label }) =>
+                valueToText(insight[key]).trim() ? (
                   <div class="insight-block">
                     <p class="insight-section-label">{label}</p>
-                    <p class="insight-text">{insight[key] as string}</p>
+                    <p class="insight-text">{valueToText(insight[key])}</p>
                   </div>
                 ) : null
               )}
             </div>
-          )
-        }
+          )}
       </div>
 
       {/* 3. What landed / what didn't */}
-      {insight && (insight.what_landed || insight.what_didnt_land) && (
-        <div class="card">
-          <div class="card-header"><span class="card-title">What landed / what didn't</span></div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">What landed / what didn't</span></div>
+        {!insight || !hasLandedReview ? (
+          <div class="empty-state">No review notes captured yet. Add what landed, what did not land, promises, delivery notes, facilitation notes, audience mix, or energy level.</div>
+        ) : (
           <div class="card-body">
-            {insight.what_landed && (
+            {whatLandedLines.length > 0 && (
               <div class="insight-block">
                 <p class="insight-section-label">What landed</p>
                 <ul class="landed-list">
-                  {(insight.what_landed as string).split('\n').filter((l: string) => l.trim()).map((line: string) => (
+                  {whatLandedLines.map((line: string) => (
                     <li class="landed-item">
                       <span class="landed-icon landed-up">↑</span>
-                      <span>{line.replace(/^[-•*]\s*/, '')}</span>
+                      <span>{line}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
-            {insight.what_didnt_land && (
+            {whatDidntLandLines.length > 0 && (
               <div class="insight-block">
                 <p class="insight-section-label">What didn't land</p>
                 <ul class="landed-list">
-                  {(insight.what_didnt_land as string).split('\n').filter((l: string) => l.trim()).map((line: string) => (
+                  {whatDidntLandLines.map((line: string) => (
                     <li class="landed-item">
                       <span class="landed-icon landed-down">↓</span>
-                      <span>{line.replace(/^[-•*]\s*/, '')}</span>
+                      <span>{line}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
-            {(insight.what_was_promised || insight.what_actually_happened || insight.facilitation_notes || insight.audience_mix_notes || insight.facilitator_reflection || insight.energy_level) && (
+            {hasInsightValue(insight, reviewInsightFields.map(field => field.key)) && (
               <details class="expandable">
                 <summary>More notes</summary>
                 <div class="expandable-body">
-                  {([
-                    { key: 'what_was_promised',     label: 'What was promised' },
-                    { key: 'what_actually_happened', label: 'What actually happened' },
-                    { key: 'facilitation_notes',    label: 'Facilitation notes' },
-                    { key: 'audience_mix_notes',    label: 'Audience mix' },
-                    { key: 'facilitator_reflection', label: 'Facilitator reflection' },
-                    { key: 'energy_level',          label: 'Energy level' },
-                  ] as { key: keyof typeof insight; label: string }[]).map(({ key, label }) =>
-                    insight[key] ? (
+                  {reviewInsightFields.map(({ key, label }) =>
+                    valueToText(insight[key]).trim() ? (
                       <div class="insight-block">
                         <p class="insight-section-label">{label}</p>
-                        <p class="insight-text">{insight[key] as string}</p>
+                        <p class="insight-text">{valueToText(insight[key])}</p>
                       </div>
                     ) : null
                   )}
@@ -1101,99 +1254,134 @@ const dateLabel  = startLabel
               </details>
             )}
           </div>
+        )}
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Older insight rows</span>
+          <span class="card-counter">{olderInsights.length}</span>
         </div>
-      )}
+        {olderInsights.length === 0 ? (
+          <div class="empty-state">No older insight rows. New captures will appear here after a newer primary insight is added.</div>
+        ) : (
+          <div class="card-body">
+            <details class="expandable">
+              <summary>View older insight rows</summary>
+              <div class="expandable-body">
+                {olderInsights.map((row: any) => (
+                  <div class="insight-block">
+                    <p class="insight-section-label">{row.created_at ? fmtDate(row.created_at) : 'Older insight'}</p>
+                    {[...contentInsightFields, ...reviewInsightFields].map(({ key, label }) =>
+                      valueToText(row[key]).trim() ? (
+                        <p class="insight-text"><strong>{label}:</strong> {valueToText(row[key])}</p>
+                      ) : null
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
+        )}
+      </div>
 
       {/* 4. Feedback */}
-      {feedback.length > 0 && (
-        <div>
-          <div class="card-header" style="margin-bottom: 8px; padding: 0;">
-            <span class="card-title" style="font-size:10px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--text-muted);">
-              Feedback · {feedback.length} response{feedback.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-          {feedback.map((f: any) => (
-            <div class="feedback-card">
-              <div class="feedback-row-top">
-                <span class="feedback-name">{f.name || 'Anonymous'}</span>
-                {f.rating != null && (
-                  <span class="feedback-rating">★ {f.rating}</span>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Feedback</span>
+          <span class="card-counter">{feedback.length} response{feedback.length !== 1 ? 's' : ''}</span>
+        </div>
+        {feedback.length === 0 ? (
+          <div class="empty-state">No attendee feedback captured yet. Add ratings, value notes, improvement notes, or follow-up interest.</div>
+        ) : (
+          <div class="card-body">
+            {feedback.map((f: any) => (
+              <div class="feedback-card">
+                <div class="feedback-row-top">
+                  <span class="feedback-name">{f.name || 'Anonymous'}</span>
+                  {f.rating != null && (
+                    <span class="feedback-rating">★ {f.rating}</span>
+                  )}
+                </div>
+                {f.got_most_value && (
+                  <div class="feedback-field">
+                    <p class="feedback-field-label">Got most value from</p>
+                    <p class="feedback-field-value">{valueToText(f.got_most_value)}</p>
+                  </div>
+                )}
+                {f.one_thing_different && (
+                  <div class="feedback-field">
+                    <p class="feedback-field-label">One thing different</p>
+                    <p class="feedback-field-value">{valueToText(f.one_thing_different)}</p>
+                  </div>
+                )}
+                {f.next_step_interest && (
+                  <div class="feedback-field">
+                    <p class="feedback-field-label">Next step interest</p>
+                    <p class="feedback-field-value">{valueToText(f.next_step_interest)}</p>
+                    <span class="interest-flag">Follow-up signal</span>
+                  </div>
                 )}
               </div>
-              {f.got_most_value && (
-                <div class="feedback-field">
-                  <p class="feedback-field-label">Got most value from</p>
-                  <p class="feedback-field-value">{f.got_most_value}</p>
-                </div>
-              )}
-              {f.one_thing_different && (
-                <div class="feedback-field">
-                  <p class="feedback-field-label">One thing different</p>
-                  <p class="feedback-field-value">{f.one_thing_different}</p>
-                </div>
-              )}
-              {f.next_step_interest && (
-                <div class="feedback-field">
-                  <p class="feedback-field-label">Next step interest</p>
-                  <p class="feedback-field-value">{f.next_step_interest}</p>
-                  <span class="interest-flag">Follow-up signal</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* 5. Session library */}
-      {sessionLib.length > 0 && (
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Session library</span>
-            <span class="card-counter">{sessionLib.length} asset{sessionLib.length !== 1 ? 's' : ''}</span>
-          </div>
-          {sessionLib.map((asset: any) => (
-            <div>
-              <div class="asset-row">
-                <div class="asset-main">
-                  <div class="asset-title">{asset.title}</div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Session library</span>
+          <span class="card-counter">{sessionLib.length} asset{sessionLib.length !== 1 ? 's' : ''}</span>
+        </div>
+        {sessionLib.length === 0 ? (
+          <div class="empty-state">No session library assets captured yet. Add run sheets, transcripts, source material, or improved versions.</div>
+        ) : (
+          <>
+            {sessionLib.map((asset: any) => (
+              <div>
+                <div class="asset-row">
+                  <div class="asset-main">
+                    <div class="asset-title">{asset.title ?? 'Untitled session asset'}</div>
+                  </div>
+                  <span class="asset-badge">{asset.asset_type}</span>
+                  {asset.version && <span class="asset-version">v{asset.version}</span>}
+                  {asset.source_url && (
+                    <a href={asset.source_url} target="_blank" rel="noopener" class="asset-link">↗</a>
+                  )}
                 </div>
-                <span class="asset-badge">{asset.asset_type}</span>
-                {asset.version && <span class="asset-version">v{asset.version}</span>}
-                {asset.source_url && (
-                  <a href={asset.source_url} target="_blank" rel="noopener" class="asset-link">↗</a>
+                {(asset.recommended_changes || asset.improved_content) && (
+                  <div class="vchain">
+                    <details class="expandable" style="margin-top:0;">
+                      <summary>Version chain</summary>
+                      <div class="expandable-body">
+                        {asset.original_content && (
+                          <div class="vchain-step">
+                            <p class="vchain-label">Original</p>
+                            <p class="vchain-text">{valueToText(asset.original_content)}</p>
+                          </div>
+                        )}
+                        {asset.recommended_changes && (
+                          <div class="vchain-step">
+                            <p class="vchain-label">Recommended changes</p>
+                            <p class="vchain-text">{valueToText(asset.recommended_changes)}</p>
+                          </div>
+                        )}
+                        {asset.improved_content && (
+                          <div class="vchain-step">
+                            <p class="vchain-label">Improved</p>
+                            <p class="vchain-text">{valueToText(asset.improved_content)}</p>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  </div>
                 )}
               </div>
-              {(asset.recommended_changes || asset.improved_content) && (
-                <div class="vchain">
-                  <details class="expandable" style="margin-top:0;">
-                    <summary>Version chain</summary>
-                    <div class="expandable-body">
-                      {asset.original_content && (
-                        <div class="vchain-step">
-                          <p class="vchain-label">Original</p>
-                          <p class="vchain-text">{asset.original_content}</p>
-                        </div>
-                      )}
-                      {asset.recommended_changes && (
-                        <div class="vchain-step">
-                          <p class="vchain-label">Recommended changes</p>
-                          <p class="vchain-text">{asset.recommended_changes}</p>
-                        </div>
-                      )}
-                      {asset.improved_content && (
-                        <div class="vchain-step">
-                          <p class="vchain-label">Improved</p>
-                          <p class="vchain-text">{asset.improved_content}</p>
-                        </div>
-                      )}
-                    </div>
-                  </details>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </>
+        )}
+      </div>
 
       {/* 6. Attendees */}
       <div class="card">
@@ -1262,6 +1450,23 @@ const dateLabel  = startLabel
 </main>
 
 <script>
+  const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
+  const tabPanels = document.querySelectorAll<HTMLElement>('[data-tab-panel]')
+
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab
+      tabBtns.forEach(item => {
+        const active = item === btn
+        item.classList.toggle('active', active)
+        item.setAttribute('aria-selected', active ? 'true' : 'false')
+      })
+      tabPanels.forEach(panel => {
+        panel.hidden = panel.dataset.tabPanel !== tab
+      })
+    })
+  })
+
   // Show more attendees
   const showMoreBtn = document.getElementById('show-more-attendees')
   if (showMoreBtn) {

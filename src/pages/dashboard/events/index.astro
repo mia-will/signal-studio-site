@@ -20,8 +20,8 @@ const past = events
 const totalCount    = events.length
 const upcomingCount = upcoming.length
 const plannedCount  = planned.length
-const pastVisible   = past.slice(0, 10)
-const pastHidden    = past.slice(10)
+const pastVisible   = past
+const pastHidden    = []
 
 function fmtDate(ts: string | null, tz?: string | null): string {
   if (!ts) return 'No date set'
@@ -29,6 +29,35 @@ function fmtDate(ts: string | null, tz?: string | null): string {
     day: 'numeric', month: 'short', year: 'numeric',
     timeZone: tz ?? 'Australia/Sydney',
   })
+}
+
+const trackOrder = ['builders', 'appliers']
+const trackValues = Array.from(new Set(events.map((e: any) => e.audience_track).filter(Boolean).map((v: string) => v.toLowerCase())))
+  .sort((a: string, b: string) => {
+    const ai = trackOrder.indexOf(a)
+    const bi = trackOrder.indexOf(b)
+    if (ai !== -1 || bi !== -1) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+    return a.localeCompare(b)
+  })
+
+const formatValues = Array.from(new Set(events.map((e: any) => formatFilterValue(e)).filter(Boolean)))
+const canShowOutOfArea = formatValues.includes('out-of-area')
+const orderedFormats = ['online', 'in-person', ...(canShowOutOfArea ? ['out-of-area'] : [])].filter(v => formatValues.includes(v))
+
+function labelFromValue(value: string): string {
+  return value.split(/[-_\s]+/).filter(Boolean).map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
+}
+
+function formatFilterValue(e: any): string {
+  const format = String(e.event_format ?? '').toLowerCase()
+  const location = String(e.location_name ?? '').toLowerCase()
+  if (format.includes('online') || location === 'online' || location.includes('zoom')) return 'online'
+  if (format.includes('online')) return 'online'
+  if (e.location_name || format.includes('person') || format.includes('venue')) {
+    if (location && !location.includes('byron') && !location.includes('sae')) return 'out-of-area'
+    return 'in-person'
+  }
+  return ''
 }
 
 function trackBadgeHtml(track: string | null): string {
@@ -64,6 +93,7 @@ function locationLine(e: any): string {
   if (e.location_name) parts.push(e.location_name)
   return parts.join(' · ')
 }
+
 ---
 
 <DashboardLayout title="The Signal OS — Events">
@@ -83,6 +113,21 @@ function locationLine(e: any): string {
     letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted);
     margin-bottom: 8px;
   }
+
+  .filter-bar {
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    margin: -6px 0 24px; padding: 10px 0; border-block: 0.5px solid var(--border);
+  }
+  .filter-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .filter-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-right: 2px; }
+  .filter-pill {
+    font-family: var(--body); font-size: 11px; font-weight: 500;
+    border: 0.5px solid var(--border); border-radius: 999px;
+    background: var(--surface); color: var(--text-secondary);
+    padding: 4px 10px; cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .filter-pill:hover { color: var(--text-primary); border-color: rgba(47,47,47,0.22); }
+  .filter-pill.is-active { background: rgba(60,138,126,0.10); color: var(--teal); border-color: rgba(60,138,126,0.22); }
 
   .event-list {
     border: 0.5px solid var(--border);
@@ -149,7 +194,9 @@ function locationLine(e: any): string {
   }
   .show-more-btn:hover { color: var(--text-primary); background: rgba(47,47,47,0.02); }
 
-  .past-hidden { display: none; }
+  .event-row.is-hidden { display: none; }
+  .event-row.is-overflow-hidden { display: none; }
+  .empty-filter-state { display: none; padding: 18px 16px; font-size: 13px; color: var(--text-muted); text-align: center; }
 </style>
 
 <main class="content">
@@ -161,13 +208,36 @@ function locationLine(e: any): string {
     </div>
   </header>
 
+  <div class="filter-bar" data-event-filters>
+    <div class="filter-group" aria-label="Filter by time">
+      <span class="filter-label">Time</span>
+      {[['upcoming', 'Upcoming'], ['past', 'Past']].map(([value, label]) => (
+        <button class:list={["filter-pill", { "is-active": value === 'upcoming' }]} type="button" data-filter-group="time" data-filter-value={value} aria-pressed={value === 'upcoming' ? 'true' : 'false'}>{label}</button>
+      ))}
+    </div>
+    <div class="filter-group" aria-label="Filter by audience">
+      <span class="filter-label">Audience</span>
+      <button class="filter-pill is-active" type="button" data-filter-group="audience" data-filter-value="all" aria-pressed="true">All</button>
+      {trackValues.map((track: string) => (
+        <button class="filter-pill" type="button" data-filter-group="audience" data-filter-value={track} aria-pressed="false">{labelFromValue(track)}</button>
+      ))}
+    </div>
+    <div class="filter-group" aria-label="Filter by format or location">
+      <span class="filter-label">Format</span>
+      <button class="filter-pill is-active" type="button" data-filter-group="format" data-filter-value="all" aria-pressed="true">All</button>
+      {orderedFormats.map((format: string) => (
+        <button class="filter-pill" type="button" data-filter-group="format" data-filter-value={format} aria-pressed="false">{format === 'out-of-area' ? 'Out of area' : labelFromValue(format)}</button>
+      ))}
+    </div>
+  </div>
+
   <!-- Planned -->
   {planned.length > 0 && (
-    <section class="section">
+    <section class="section" data-event-section>
       <p class="section-title">Planned</p>
       <div class="event-list">
         {planned.map((e: any) => (
-          <a href={`/dashboard/events/${e.event_id}`} class="event-row">
+          <a href={`/dashboard/events/${e.event_id}`} class="event-row" data-event-row data-time={e.event_timing} data-audience={(e.audience_track ?? '').toLowerCase()} data-format={formatFilterValue(e)}>
             <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
             <div class="ev-main">
               <div class="ev-title">{e.title}</div>
@@ -185,13 +255,13 @@ function locationLine(e: any): string {
 
   <!-- Upcoming -->
   {upcoming.length > 0 && (
-    <section class="section">
+    <section class="section" data-event-section>
       <p class="section-title">Upcoming</p>
       <div class="event-list">
         {upcoming.map((e: any) => {
           const missing = missingConns(e)
           return (
-            <a href={`/dashboard/events/${e.event_id}`} class="event-row">
+            <a href={`/dashboard/events/${e.event_id}`} class="event-row" data-event-row data-time={e.event_timing} data-audience={(e.audience_track ?? '').toLowerCase()} data-format={formatFilterValue(e)}>
               <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
               <div class="ev-main">
                 <div class="ev-title">{e.title}</div>
@@ -211,13 +281,13 @@ function locationLine(e: any): string {
 
   <!-- Past -->
   {past.length > 0 && (
-    <section class="section">
+    <section class="section" data-event-section>
       <p class="section-title">Past</p>
       <div class="event-list" id="past-list">
         {pastVisible.map((e: any) => {
           const openActions = Number(e.open_actions ?? 0)
           return (
-            <a href={`/dashboard/events/${e.event_id}`} class="event-row">
+            <a href={`/dashboard/events/${e.event_id}`} class="event-row" data-event-row data-time={e.event_timing} data-audience={(e.audience_track ?? '').toLowerCase()} data-format={formatFilterValue(e)}>
               <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
               <div class="ev-main">
                 <div class="ev-title">{e.title}</div>
@@ -246,7 +316,7 @@ function locationLine(e: any): string {
         {pastHidden.map((e: any) => {
           const openActions = Number(e.open_actions ?? 0)
           return (
-            <a href={`/dashboard/events/${e.event_id}`} class="event-row past-hidden">
+            <a href={`/dashboard/events/${e.event_id}`} class="event-row" data-event-row data-time={e.event_timing} data-audience={(e.audience_track ?? '').toLowerCase()} data-format={formatFilterValue(e)}>
               <span class="ev-dot" style={`background:${dotColor(e)}`}></span>
               <div class="ev-main">
                 <div class="ev-title">{e.title}</div>
@@ -272,26 +342,74 @@ function locationLine(e: any): string {
             </a>
           )
         })}
-        {pastHidden.length > 0 && (
-          <button class="show-more-btn" id="show-more-past">
-            Show {pastHidden.length} more
-          </button>
-        )}
       </div>
     </section>
   )}
 
+  <button class="show-more-btn" id="show-more-filtered" type="button" style="display:none">Show more</button>
+  <div class="empty-filter-state" id="empty-filter-state">No events match these filters.</div>
+
 </main>
 
 <script>
-  const btn = document.getElementById('show-more-past')
-  if (btn) {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.past-hidden').forEach(el => {
-        (el as HTMLElement).style.display = 'flex'
-      })
-      btn.remove()
+  const filterState = { time: 'upcoming', audience: 'all', format: 'all' }
+  let expanded = false
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-event-row]'))
+  const pills = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-filter-group]'))
+  const moreBtn = document.getElementById('show-more-filtered') as HTMLButtonElement | null
+  const emptyState = document.getElementById('empty-filter-state') as HTMLElement | null
+  const sections = Array.from(document.querySelectorAll<HTMLElement>('[data-event-section]'))
+
+  function applyFilters() {
+    const matches = rows.filter(row => {
+      const timeOk = row.dataset.time === filterState.time || (filterState.time === 'upcoming' && row.dataset.time === 'draft')
+      const audienceOk = filterState.audience === 'all' || row.dataset.audience === filterState.audience
+      const formatOk = filterState.format === 'all' || row.dataset.format === filterState.format
+      return timeOk && audienceOk && formatOk
     })
+
+    rows.forEach(row => {
+      row.classList.add('is-hidden')
+      row.classList.remove('is-overflow-hidden')
+    })
+
+    matches.forEach((row, index) => {
+      row.classList.remove('is-hidden')
+      if (!expanded && index >= 10) row.classList.add('is-overflow-hidden')
+    })
+
+    if (moreBtn) {
+      const remaining = Math.max(matches.length - 10, 0)
+      moreBtn.style.display = !expanded && remaining > 0 ? 'flex' : 'none'
+      moreBtn.textContent = `Show ${remaining} more`
+    }
+    sections.forEach(section => {
+      const visibleRows = section.querySelectorAll('[data-event-row]:not(.is-hidden)').length
+      section.style.display = visibleRows > 0 ? '' : 'none'
+    })
+    if (emptyState) emptyState.style.display = matches.length === 0 ? 'block' : 'none'
   }
+
+  pills.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.dataset.filterGroup as keyof typeof filterState
+      filterState[group] = btn.dataset.filterValue ?? 'all'
+      expanded = false
+      pills.filter(p => p.dataset.filterGroup === group).forEach(p => {
+        const active = p === btn
+        p.classList.toggle('is-active', active)
+        p.setAttribute('aria-pressed', active ? 'true' : 'false')
+      })
+      applyFilters()
+    })
+  })
+
+  moreBtn?.addEventListener('click', () => {
+    expanded = true
+    applyFilters()
+  })
+
+  applyFilters()
+
 </script>
 </DashboardLayout>
