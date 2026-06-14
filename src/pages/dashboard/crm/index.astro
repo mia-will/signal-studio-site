@@ -30,7 +30,7 @@ const contacts       = contactsRes.data ?? []
 const michelle       = michelleRes.data
 const needsAttnDB    = needsAttentionRes.data ?? []
 const mainContacts   = contacts.filter(c => c.subscriber === true && c.do_not_contact === false)
-const allCount       = mainContacts.length
+const allCount       = contacts.length
 const builderCount   = mainContacts.filter(c => c.audience_track === 'builder').length
 const applierCount   = mainContacts.filter(c => c.audience_track === 'applier').length
 const bothCount      = mainContacts.filter(c => c.audience_track === 'both').length
@@ -40,12 +40,12 @@ const needsAttnCount = needsAttnDB.length
 
 <DashboardLayout title="The Signal OS — CRM">
 <style>
-  .content { padding: 28px 32px; overflow-x: hidden; min-height: 100vh; }
+  .content { padding: 0; overflow-x: hidden; min-height: 100vh; }
 
   /* ── PAGE HEADER ─────────────────────────── */
   .page-header {
     display: flex; align-items: flex-start; justify-content: space-between;
-    margin-bottom: 20px; gap: 16px;
+    padding: 20px 24px 12px; gap: 16px;
   }
   .page-header h1 { font-family: var(--heading); font-size: 22px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
   .page-header-sub { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-top: 3px; }
@@ -71,29 +71,30 @@ const needsAttnCount = needsAttnDB.length
   .top-panel {
     display: grid;
     grid-template-columns: 1fr 240px;
-    gap: 12px;
-    margin-bottom: 16px;
+    gap: 14px;
+    padding: 0 24px 20px;
     align-items: start;
   }
 
   /* ── STAT CARDS ──────────────────────────── */
-  .stat-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .stat-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; align-items: start; }
 
   .stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
+    align-self: start;
+    background: var(--color-background-secondary, var(--surface));
+    border: 0.5px solid var(--color-border-tertiary, var(--border));
+    border-radius: var(--border-radius-lg);
+    padding: 1rem 1.25rem;
     cursor: pointer;
     transition: border-color 0.15s;
   }
   .stat-card:hover { border-color: rgba(47,47,47,0.18); }
-  .stat-card.active { border: 1.5px solid #FD6F2F; }
+  .stat-card.active { border: 1.5px solid var(--color-border-info); }
 
   .stat-card-top { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
   .stat-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
-  .stat-value { font-family: var(--heading); font-size: 20px; font-weight: 500; color: var(--text-primary); line-height: 1; }
-  .stat-label { font-family: var(--body); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+  .stat-value { font-family: var(--heading); font-size: 1.75rem; font-weight: 500; color: var(--text-primary); line-height: 1; }
+  .stat-label { font-family: var(--body); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 
   /* ── NEEDS ATTENTION PANEL ───────────────── */
   .needs-attention-panel {
@@ -143,7 +144,7 @@ const needsAttnCount = needsAttnDB.length
   .tab-bar {
     display: flex; align-items: center; gap: 0;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 14px;
+    margin: 0 24px 14px;
   }
   .tab {
     font-family: var(--body); font-size: 13px; font-weight: 400;
@@ -165,7 +166,7 @@ const needsAttnCount = needsAttnDB.length
   .tab.active .tab-badge { background: #FD6F2F; color: #fff; }
 
   /* ── TOOLBAR ─────────────────────────────── */
-  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .toolbar { display: flex; align-items: center; gap: 8px; margin: 0 24px 10px; }
 
   .search-input {
     flex: 1;
@@ -196,7 +197,7 @@ const needsAttnCount = needsAttnDB.length
   /* ── COLUMN TOGGLES ──────────────────────── */
   .col-toggles {
     display: flex; align-items: center; gap: 6px;
-    margin-bottom: 12px; flex-wrap: wrap;
+    margin: 0 24px 12px; flex-wrap: wrap;
   }
   .col-label { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-right: 2px; }
   .col-pill {
@@ -214,6 +215,7 @@ const needsAttnCount = needsAttnDB.length
     border: 0.5px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
+    margin: 0 24px;
   }
 
   table {
@@ -246,25 +248,20 @@ const needsAttnCount = needsAttnDB.length
   thead th.sort-desc::after { content: ' ↓'; color: #FD6F2F; }
 
   tbody td {
-    padding: 14px 12px; color: var(--text-secondary);
+    padding: 12px; color: var(--text-secondary);
     border-bottom: 0.5px solid var(--border);
     vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  tbody td:first-child { padding: 12px 24px; }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr { cursor: pointer; transition: background 0.1s; }
   tbody tr:hover td { background: rgba(47,47,47,0.025); }
 
   /* ── NAME CELL ───────────────────────────── */
-  .name-cell { display: flex; align-items: center; gap: 9px; }
-  .contact-avatar {
-    width: 26px; height: 26px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 600; flex-shrink: 0;
-    font-family: var(--body);
-  }
+  .name-cell { display: flex; align-items: center; }
   .name-block { min-width: 0; }
   .contact-name { font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .contact-email { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .contact-email { font-size: 12px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .contact-email.dnc { text-decoration: line-through; }
 
   .dnc-pill {
@@ -279,13 +276,30 @@ const needsAttnCount = needsAttnDB.length
   .track-applier { background: #E6F1FB; color: #185FA5; }
   .track-both    { background: #EEEDFE; color: #3C3489; }
 
+  /* ── STATE BADGE ─────────────────────────── */
+  .state-badge { font-size: 9px; font-weight: 600; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; letter-spacing: 0.03em; }
+  .state-subscriber { background: #E1F5EE; color: #0F6E56; }
+  .state-crm        { background: rgba(47,47,47,0.07); color: var(--text-muted); }
+
+  /* ── STATE FILTER TOGGLE ─────────────────── */
+  .state-filter { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+  .state-btn {
+    font-family: var(--body); font-size: 11px; color: var(--text-muted);
+    background: var(--surface); border: none; padding: 7px 10px;
+    cursor: pointer; border-right: 1px solid var(--border);
+    transition: background 0.12s, color 0.12s;
+  }
+  .state-btn:last-child { border-right: none; }
+  .state-btn:hover { background: rgba(47,47,47,0.04); color: var(--text-primary); }
+  .state-btn.active { background: #2F2F2F; color: #fff; }
+
   /* ── EMPTY + LOADING ─────────────────────── */
   .table-message { padding: 36px 20px; text-align: center; color: var(--text-muted); font-family: var(--body); font-size: 13px; font-style: italic; }
 
   /* ── PAGINATION ──────────────────────────── */
   .pagination {
     display: flex; align-items: center; justify-content: flex-end;
-    gap: 6px; padding-top: 12px;
+    gap: 6px; padding: 12px 24px 0;
     font-family: var(--body); font-size: 13px; color: var(--text-muted);
   }
   .pagination-info { margin-right: 8px; }
@@ -405,7 +419,11 @@ const needsAttnCount = needsAttnDB.length
       <option value="created_at">Date added</option>
       <option value="name">Name A–Z</option>
     </select>
-    <button class="btn-outline">Filter</button>
+    <div class="state-filter" id="state-filter">
+      <button class="state-btn active" data-state="all">All</button>
+      <button class="state-btn" data-state="subscriber">Subscribers</button>
+      <button class="state-btn" data-state="crm_only">CRM-only</button>
+    </div>
   </div>
 
   <!-- Column toggle pills -->
@@ -545,6 +563,7 @@ const needsAttnCount = needsAttnDB.length
 
   let showMichelle   = false
   let activeTrack    = 'all'      // 'all' | 'builder' | 'applier' | 'both' | 'unassigned' | 'general' | 'needs_attention'
+  let stateFilter    = 'all'      // 'all' | 'subscriber' | 'crm_only'
   let currentSort    = loadSort()
   let currentPage    = 0
   let visibleCols    = loadColumns()
@@ -607,7 +626,9 @@ const needsAttnCount = needsAttnDB.length
     } else if (activeTrack === 'general') {
       list = list.filter(isGeneralContact)
     } else {
-      list = list.filter(isMainContact)
+      // Apply state filter: defaults to 'all' (shows both subscribers and CRM-only contacts)
+      if (stateFilter === 'subscriber')     list = list.filter(isMainContact)
+      else if (stateFilter === 'crm_only') list = list.filter(c => c.subscriber !== true)
       if (activeTrack === 'builder')         list = list.filter(c => c.audience_track === 'builder')
       else if (activeTrack === 'applier')    list = list.filter(c => c.audience_track === 'applier')
       else if (activeTrack === 'both')       list = list.filter(c => c.audience_track === 'both')
@@ -674,8 +695,6 @@ const needsAttnCount = needsAttnDB.length
       tbody.innerHTML = `<tr><td colspan="10" class="table-message">No contacts match this filter.</td></tr>`
     } else {
         tbody.innerHTML = page.map(c => {
-        const color = avatarColor(c.email)
-        const initials = avatarInitials(c)
         const isDNC = c.do_not_contact === true
         const score = c.engagement_score
         const stage = c.readiness_stage ? c.readiness_stage.replace(/_/g,' ') : '—'
@@ -683,10 +702,10 @@ const needsAttnCount = needsAttnDB.length
         return `<tr onclick="window.location='/dashboard/crm/${c.id}'">
           <td>
             <div class="name-cell">
-              <div class="contact-avatar" style="background:${color}22;color:${color}">${initials}</div>
               <div class="name-block">
                 <div class="contact-name">${fullName(c)}</div>
                 <div class="contact-email${isDNC ? ' dnc' : ''}">${c.email ?? '—'}${isDNC ? '<span class="dnc-pill">Unsubscribed</span>' : ''}</div>
+                ${c.subscriber === true ? '<span class="state-badge state-subscriber">Subscriber</span>' : '<span class="state-badge state-crm">CRM-only</span>'}
               </div>
             </div>
           </td>
@@ -858,6 +877,16 @@ const needsAttnCount = needsAttnDB.length
     else visibleCols.add(col)
     localStorage.setItem(LS_COL, JSON.stringify([...visibleCols]))
     syncColPills()
+    render()
+  })
+
+  // ── Event: state filter ───────────────────
+  document.getElementById('state-filter')!.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('.state-btn') as HTMLElement | null
+    if (!btn) return
+    stateFilter = btn.dataset.state!
+    currentPage = 0
+    document.querySelectorAll('.state-btn').forEach(b => b.classList.toggle('active', b === btn))
     render()
   })
 
