@@ -213,7 +213,7 @@ const clientsCount    = contacts.filter(c => c.client_stage !== null).length
   tbody td {
     padding: 20px 12px; color: var(--color-text-secondary);
     border-bottom: 0.5px solid var(--color-border-tertiary);
-    vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    vertical-align: middle; overflow: hidden; text-overflow: ellipsis;
   }
   tbody td:first-child { padding: 20px 24px; }
   tbody tr:last-child td { border-bottom: none; }
@@ -675,7 +675,7 @@ const clientsCount    = contacts.filter(c => c.client_stage !== null).length
         const stage = c.readiness_stage ? c.readiness_stage.replace(/_/g, ' ') : '—'
         return `<tr data-id="${c.id}" onclick="window.location='/dashboard/crm/${c.id}'">
           <td>
-            <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">${fullName(c)}</div>
+            <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:4px">${fullName(c)}</div>
             <div style="font-size:12px;color:var(--color-text-secondary)">${c.email ?? '—'}</div>
           </td>
           ${cols.has('track')        ? `<td class="track-cell" data-id="${c.id}" data-track="${c.audience_track ?? ''}">${trackPillHtml(c.audience_track)}</td>` : ''}
