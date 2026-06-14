@@ -711,6 +711,33 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
   .expandable[open] summary::before { content: '▼'; }
   .expandable-body { margin-top: 10px; }
 
+  /* ── INLINE EDITING ─────────────────────────────────────────────── */
+  .editable-wrap { display: flex; align-items: flex-start; gap: 6px; flex: 1; }
+  .pencil-btn {
+    display: none; background: none; border: none; cursor: pointer;
+    font-size: 12px; color: var(--text-muted); padding: 0 2px;
+    line-height: 1.4; flex-shrink: 0; opacity: 0.7; transition: opacity 0.12s; margin-top: 1px;
+  }
+  .field-row:hover .pencil-btn { display: inline-block; }
+  .pencil-btn:hover { opacity: 1; color: var(--teal); }
+  .edit-input, .edit-textarea, .edit-select {
+    font-family: var(--body); font-size: 13px; color: var(--text-primary);
+    border: 1px solid var(--teal); border-radius: 6px; padding: 4px 8px;
+    background: var(--surface); outline: none; width: 100%; box-sizing: border-box;
+  }
+  .edit-textarea { resize: vertical; }
+  .edit-actions { display: flex; gap: 6px; margin-top: 5px; }
+  .edit-save, .edit-cancel {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    border-radius: 5px; padding: 3px 10px; cursor: pointer; border: 1px solid;
+    transition: opacity 0.12s;
+  }
+  .edit-save { background: var(--teal); color: #fff; border-color: var(--teal); }
+  .edit-save:hover { opacity: 0.85; }
+  .edit-cancel { background: none; color: var(--text-muted); border-color: var(--border); }
+  .edit-cancel:hover { color: var(--text-primary); background: rgba(47,47,47,0.04); }
+  .edit-error { font-size: 11px; color: #C0392B; margin-top: 3px; }
+
   /* ── MISC ──────────────────────────────────── */
   .empty-state { padding: 24px 16px; text-align: center; font-size: 13px; color: var(--text-muted); font-style: italic; }
   .insight-block { margin-bottom: 14px; }
@@ -808,6 +835,53 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
       </div>
     </div>
   )}
+
+  {/* ─────────────── DETAILS (inline editable) ──────────────────────── */}
+  <div class="card" id="event-details-card">
+    <div class="card-header"><span class="card-title">Event details</span></div>
+    <div class="field-row" data-field="title" data-type="text" data-api={`/api/dashboard/events/${event.id}`} data-raw={event.title ?? ''}>
+      <span class="field-label">Title</span>
+      <div class="editable-wrap">
+        <span class="field-display">{event.title || '—'}</span>
+        <button class="pencil-btn" aria-label="Edit title">✎</button>
+      </div>
+    </div>
+    <div class="field-row" data-field="publish_status" data-type="select" data-api={`/api/dashboard/events/${event.id}`} data-raw={event.publish_status ?? ''} data-options={JSON.stringify(['draft', 'published'])}>
+      <span class="field-label">Status</span>
+      <div class="editable-wrap">
+        <span class="field-display">{event.publish_status || '—'}</span>
+        <button class="pencil-btn" aria-label="Edit status">✎</button>
+      </div>
+    </div>
+    <div class="field-row" data-field="start_at" data-type="datetime" data-api={`/api/dashboard/events/${event.id}`} data-raw={event.start_at ?? ''}>
+      <span class="field-label">Start</span>
+      <div class="editable-wrap">
+        <span class="field-display">{event.start_at ? fmtDateTime(event.start_at, event.timezone) : '—'}</span>
+        <button class="pencil-btn" aria-label="Edit start date">✎</button>
+      </div>
+    </div>
+    <div class="field-row" data-field="end_at" data-type="datetime" data-api={`/api/dashboard/events/${event.id}`} data-raw={event.end_at ?? ''}>
+      <span class="field-label">End</span>
+      <div class="editable-wrap">
+        <span class="field-display">{event.end_at ? fmtDateTime(event.end_at, event.timezone) : '—'}</span>
+        <button class="pencil-btn" aria-label="Edit end date">✎</button>
+      </div>
+    </div>
+    <div class="field-row" data-field="summary" data-type="textarea" data-rows="3" data-api={`/api/dashboard/events/${event.id}`} data-raw={event.summary ?? ''}>
+      <span class="field-label">Summary</span>
+      <div class="editable-wrap">
+        <span class="field-display" style="white-space:pre-wrap;">{event.summary || '—'}</span>
+        <button class="pencil-btn" aria-label="Edit summary">✎</button>
+      </div>
+    </div>
+    <div class="field-row" data-field="description" data-type="textarea" data-rows="5" data-api={`/api/dashboard/events/${event.id}`} data-raw={event.description ?? ''}>
+      <span class="field-label">Description</span>
+      <div class="editable-wrap">
+        <span class="field-display" style="white-space:pre-wrap;">{event.description || '—'}</span>
+        <button class="pencil-btn" aria-label="Edit description">✎</button>
+      </div>
+    </div>
+  </div>
 
   {/* ─────────────── PRODUCTION MODE ─────────────────────────────────── */}
   {(eventTiming === 'upcoming' || eventTiming === 'draft') && (
@@ -1681,5 +1755,116 @@ if (_mediaModal && _mediaConfirm) {
   document.querySelectorAll<HTMLElement>('.btn-slot-pick').forEach(btn => btn.addEventListener('click', () => openPickerFor(btn.closest('.image-slot')!)))
   document.querySelectorAll<HTMLElement>('.btn-slot-remove').forEach(btn => btn.addEventListener('click', () => handleRemove(btn.closest('.image-slot')!)))
 }
+</script>
+
+<script>
+// ── Inline editing ────────────────────────────────────────────────────────────
+function toDatetimeLocal(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function makeEditable(row: HTMLElement) {
+  const api = row.dataset.api!
+  const field = row.dataset.field!
+  const type = row.dataset.type!
+  const rawValue = row.dataset.raw ?? ''
+  const wrap = row.querySelector<HTMLElement>('.editable-wrap')!
+  const display = wrap.querySelector<HTMLElement>('.field-display')!
+  const pencil = wrap.querySelector<HTMLButtonElement>('.pencil-btn')!
+
+  pencil.addEventListener('click', () => {
+    pencil.style.display = 'none'
+    display.style.display = 'none'
+
+    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    if (type === 'textarea') {
+      const ta = document.createElement('textarea')
+      ta.className = 'edit-textarea'
+      ta.rows = Number(row.dataset.rows ?? 3)
+      ta.value = rawValue
+      input = ta
+    } else if (type === 'select') {
+      const sel = document.createElement('select')
+      sel.className = 'edit-select'
+      const opts: string[] = JSON.parse(row.dataset.options ?? '[]')
+      opts.forEach(o => {
+        const opt = document.createElement('option')
+        opt.value = o; opt.textContent = o
+        if (o === rawValue) opt.selected = true
+        sel.appendChild(opt)
+      })
+      input = sel
+    } else {
+      const inp = document.createElement('input')
+      inp.className = 'edit-input'
+      inp.type = type === 'datetime' ? 'datetime-local' : type === 'number' ? 'number' : 'text'
+      inp.value = type === 'datetime' ? toDatetimeLocal(rawValue) : rawValue
+      input = inp
+    }
+
+    const actionsDiv = document.createElement('div')
+    actionsDiv.className = 'edit-actions'
+    const saveBtn = document.createElement('button')
+    saveBtn.className = 'edit-save'; saveBtn.type = 'button'; saveBtn.textContent = 'Save'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.className = 'edit-cancel'; cancelBtn.type = 'button'; cancelBtn.textContent = 'Cancel'
+    actionsDiv.appendChild(saveBtn); actionsDiv.appendChild(cancelBtn)
+
+    const errorEl = document.createElement('div')
+    errorEl.className = 'edit-error'; errorEl.style.display = 'none'
+
+    const editWrap = document.createElement('div')
+    editWrap.style.flex = '1'
+    editWrap.appendChild(input)
+    editWrap.appendChild(actionsDiv)
+    editWrap.appendChild(errorEl)
+    wrap.appendChild(editWrap)
+
+    input.focus()
+
+    function revert() {
+      editWrap.remove()
+      display.style.display = ''
+      pencil.style.display = ''
+    }
+
+    cancelBtn.addEventListener('click', revert)
+
+    saveBtn.addEventListener('click', async () => {
+      let value: unknown = input.value
+      if (type === 'datetime') value = value ? new Date(value as string).toISOString() : null
+      if (type === 'number') value = value !== '' ? Number(value) : null
+
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
+      errorEl.style.display = 'none'
+
+      try {
+        const res = await fetch(api, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field, value }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
+
+        row.dataset.raw = value !== null ? String(value) : ''
+        display.textContent = type === 'datetime' && value
+          ? new Date(value as string).toLocaleString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+          : String(value ?? '') || '—'
+        display.style.whiteSpace = type === 'textarea' ? 'pre-wrap' : ''
+        revert()
+      } catch (err: unknown) {
+        errorEl.textContent = err instanceof Error ? err.message : 'Save failed'
+        errorEl.style.display = 'block'
+        saveBtn.disabled = false; saveBtn.textContent = 'Save'
+      }
+    })
+  })
+}
+
+document.querySelectorAll<HTMLElement>('[data-field]').forEach(makeEditable)
 </script>
 </DashboardLayout>

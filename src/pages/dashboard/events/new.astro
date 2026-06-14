@@ -1,0 +1,446 @@
+---
+export const prerender = false
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
+---
+
+<DashboardLayout title="The Signal OS — New Event" currentPath="/dashboard/events/new">
+<style>
+  .create-shell {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: calc(100vh - 0px);
+    overflow: hidden;
+  }
+
+  /* ── LEFT: CHAT ──────────────────────────────────────────────────── */
+  .chat-col {
+    display: flex; flex-direction: column;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .chat-header {
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-header h2 { font-family: var(--heading); font-size: 16px; font-weight: 600; color: var(--text-primary); }
+  .chat-header p { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 14px 20px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .msg { max-width: 90%; }
+  .msg--assistant { align-self: flex-start; }
+  .msg--user { align-self: flex-end; }
+  .msg-bubble {
+    font-size: 13px; line-height: 1.55; border-radius: 10px; padding: 9px 13px;
+  }
+  .msg--assistant .msg-bubble { background: rgba(47,47,47,0.06); color: var(--text-primary); }
+  .msg--user .msg-bubble { background: var(--teal); color: #fff; }
+  .msg-ts { font-size: 10px; color: var(--text-muted); margin-top: 3px; padding: 0 2px; }
+
+  .chat-input-row {
+    display: flex; gap: 8px; padding: 12px 16px;
+    border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface);
+  }
+  .chat-input-row textarea {
+    flex: 1; font-family: var(--body); font-size: 13px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    resize: none; background: var(--bg); color: var(--text-primary);
+    outline: none; line-height: 1.45;
+    transition: border-color 0.12s;
+  }
+  .chat-input-row textarea:focus { border-color: var(--teal); }
+  .chat-btn-group { display: flex; flex-direction: column; gap: 5px; }
+  .btn-send {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    background: var(--teal); color: #fff; border: none; border-radius: 7px;
+    padding: 7px 14px; cursor: pointer; transition: opacity 0.12s; flex-shrink: 0;
+  }
+  .btn-send:hover { opacity: 0.85; }
+  .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-clip {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    background: none; border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 10px; cursor: not-allowed; color: var(--text-muted); flex-shrink: 0;
+    position: relative;
+  }
+  .btn-clip-tip {
+    display: none; position: absolute; bottom: calc(100% + 5px); right: 0;
+    background: var(--text-primary); color: #fff; font-size: 11px;
+    border-radius: 5px; padding: 4px 8px; white-space: nowrap; pointer-events: none; z-index: 10;
+  }
+  .btn-clip:hover .btn-clip-tip { display: block; }
+
+  /* ── RIGHT: FORM ─────────────────────────────────────────────────── */
+  .form-col {
+    display: flex; flex-direction: column;
+    background: var(--bg); overflow-y: auto;
+  }
+  .form-header {
+    padding: 14px 20px 12px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .form-header h3 { font-family: var(--heading); font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .form-actions { display: flex; gap: 8px; }
+  .btn-draft, .btn-publish {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    border-radius: 7px; padding: 6px 14px; cursor: pointer; border: 1px solid; transition: opacity 0.12s;
+  }
+  .btn-draft { background: none; border-color: var(--border); color: var(--text-secondary); }
+  .btn-draft:hover { background: rgba(47,47,47,0.04); }
+  .btn-publish { background: var(--teal); color: #fff; border-color: var(--teal); }
+  .btn-publish:hover { opacity: 0.85; }
+
+  .form-body { padding: 16px 20px; }
+  .form-section { margin-bottom: 18px; }
+  .form-section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px;
+  }
+  .form-row { margin-bottom: 10px; }
+  .form-row label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+  .form-row input, .form-row textarea, .form-row select {
+    width: 100%; font-family: var(--body); font-size: 13px; color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px;
+    background: var(--surface); outline: none; box-sizing: border-box;
+    transition: border-color 0.12s;
+  }
+  .form-row input:focus, .form-row textarea:focus, .form-row select:focus { border-color: var(--teal); }
+  .form-row textarea { resize: vertical; }
+  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+
+  .form-status-msg {
+    font-size: 12px; padding: 8px 12px; border-radius: 7px; margin-bottom: 10px; display: none;
+  }
+  .form-status-msg.error { background: rgba(192,57,43,0.08); color: #C0392B; border: 0.5px solid rgba(192,57,43,0.2); }
+  .form-status-msg.success { background: rgba(15,110,86,0.08); color: #0F6E56; border: 0.5px solid rgba(15,110,86,0.2); }
+</style>
+
+<div class="create-shell">
+
+  <!-- ── LEFT: CHAT ────────────────────────────────────────────────── -->
+  <div class="chat-col">
+    <div class="chat-header">
+      <h2>Create an event</h2>
+      <p>Describe your event and I'll fill in the details</p>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg msg--assistant">
+        <div class="msg-bubble">Tell me about your event — what is it, when, where, who is it for, and what does it cost?</div>
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <textarea id="chat-input" rows="2" placeholder="Describe your event…"></textarea>
+      <div class="chat-btn-group">
+        <button class="btn-send" id="btn-send">Send</button>
+        <button class="btn-clip" type="button">
+          📎
+          <span class="btn-clip-tip">Image and PDF attachments coming soon</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: FORM ───────────────────────────────────────────────── -->
+  <div class="form-col">
+    <div class="form-header">
+      <h3>Event details</h3>
+      <div class="form-actions">
+        <button class="btn-draft" id="btn-draft">Save as Draft</button>
+        <button class="btn-publish" id="btn-publish">Publish</button>
+      </div>
+    </div>
+    <div class="form-body">
+      <div id="form-status" class="form-status-msg"></div>
+
+      <div class="form-section">
+        <div class="form-section-label">Core</div>
+        <div class="form-row">
+          <label>Title *</label>
+          <input type="text" id="f-title" name="title" placeholder="Event title">
+        </div>
+        <div class="form-row">
+          <label>Slug</label>
+          <input type="text" id="f-slug" name="slug" placeholder="event-slug">
+        </div>
+        <div class="form-row-2">
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Start *</label>
+            <input type="datetime-local" id="f-start-at" name="start_at">
+          </div>
+          <div class="form-row" style="margin-bottom:0;">
+            <label>End</label>
+            <input type="datetime-local" id="f-end-at" name="end_at">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Price (0 = free)</label>
+          <input type="number" id="f-price" name="price_amount" min="0" step="1" placeholder="0">
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-label">Description</div>
+        <div class="form-row">
+          <label>Summary</label>
+          <textarea id="f-summary" name="summary" rows="2" placeholder="1–2 sentence summary"></textarea>
+        </div>
+        <div class="form-row">
+          <label>Description</label>
+          <textarea id="f-description" name="description" rows="5" placeholder="Full event description"></textarea>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-label">Venue</div>
+        <div class="form-row">
+          <label>Venue name</label>
+          <input type="text" id="f-location-name" name="location_name" placeholder="Venue or online">
+        </div>
+        <div class="form-row">
+          <label>Address</label>
+          <input type="text" id="f-location-address" name="location_address" placeholder="Street address">
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-label">Classification</div>
+        <div class="form-row-2">
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Audience</label>
+            <select id="f-audience" name="audience_track">
+              <option value="">— select —</option>
+              <option value="builders">builders</option>
+              <option value="appliers">appliers</option>
+              <option value="both">both</option>
+            </select>
+          </div>
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Experience level</label>
+            <select id="f-experience" name="experience_level">
+              <option value="">— select —</option>
+              <option value="all_welcome">all_welcome</option>
+              <option value="getting_started">getting_started</option>
+              <option value="building">building</option>
+              <option value="leading">leading</option>
+              <option value="curious">curious</option>
+              <option value="deep_practice">deep_practice</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row-2">
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Format</label>
+            <select id="f-format" name="event_format">
+              <option value="">— select —</option>
+              <option value="free">free</option>
+              <option value="paid">paid</option>
+              <option value="org">org</option>
+            </select>
+          </div>
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Pillar</label>
+            <select id="f-pillar" name="pillar">
+              <option value="">— select —</option>
+              <option value="ai">ai</option>
+              <option value="creativity">creativity</option>
+              <option value="wellbeing">wellbeing</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Publish status</label>
+          <select id="f-status" name="publish_status">
+            <option value="draft">draft</option>
+            <option value="published">published</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-label">SEO</div>
+        <div class="form-row">
+          <label>SEO title (~60 chars)</label>
+          <input type="text" id="f-meta-title" name="meta_title" placeholder="SEO page title">
+        </div>
+        <div class="form-row">
+          <label>SEO description (~155 chars)</label>
+          <textarea id="f-meta-desc" name="meta_description" rows="2" placeholder="SEO meta description"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const SESSION_ID = crypto.randomUUID()
+  const history: { role: 'user' | 'assistant'; content: string }[] = []
+
+  const messagesEl = document.getElementById('chat-messages')!
+  const inputEl    = document.getElementById('chat-input') as HTMLTextAreaElement
+  const sendBtn    = document.getElementById('btn-send') as HTMLButtonElement
+
+  function appendMsg(role: 'user' | 'assistant', text: string) {
+    const div = document.createElement('div')
+    div.className = `msg msg--${role}`
+    div.innerHTML = `<div class="msg-bubble">${text.replace(/</g,'&lt;')}</div>`
+    messagesEl.appendChild(div)
+    messagesEl.scrollTop = messagesEl.scrollHeight
+  }
+
+  function setField(id: string, value: unknown) {
+    if (value === undefined || value === null || value === '') return
+    const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
+    if (!el) return
+    if (el.tagName === 'SELECT') {
+      const opt = (el as HTMLSelectElement).querySelector<HTMLOptionElement>(`option[value="${String(value)}"]`)
+      if (opt) (el as HTMLSelectElement).value = String(value)
+    } else if (el.type === 'datetime-local' && typeof value === 'string') {
+      try {
+        const d = new Date(value)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        el.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+      } catch { /* ignore */ }
+    } else {
+      el.value = String(value)
+    }
+  }
+
+  function applyFields(fields: Record<string, unknown>) {
+    setField('f-title', fields.title)
+    setField('f-slug', fields.slug)
+    setField('f-start-at', fields.start_at)
+    setField('f-end-at', fields.end_at)
+    setField('f-price', fields.price_amount)
+    setField('f-summary', fields.summary)
+    setField('f-description', fields.description)
+    setField('f-location-name', fields.location_name)
+    setField('f-location-address', fields.location_address)
+    setField('f-audience', fields.audience_track)
+    setField('f-experience', fields.experience_level)
+    setField('f-format', fields.event_format)
+    setField('f-pillar', fields.pillar)
+    setField('f-meta-title', fields.meta_title)
+    setField('f-meta-desc', fields.meta_description)
+  }
+
+  // Auto-slug from title
+  document.getElementById('f-title')!.addEventListener('input', (e) => {
+    const slugEl = document.getElementById('f-slug') as HTMLInputElement
+    if (!slugEl.dataset.userEdited) {
+      slugEl.value = (e.target as HTMLInputElement).value
+        .toLowerCase().trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+    }
+  })
+  document.getElementById('f-slug')!.addEventListener('input', function () {
+    (this as HTMLInputElement).dataset.userEdited = '1'
+  })
+
+  async function sendMessage() {
+    const text = inputEl.value.trim()
+    if (!text) return
+    inputEl.value = ''
+    sendBtn.disabled = true
+    appendMsg('user', text)
+    history.push({ role: 'user', content: text })
+
+    try {
+      const res = await fetch('/api/dashboard/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: history.slice(-20), page_path: '/dashboard/events/new', session_id: SESSION_ID }),
+      })
+      const data = await res.json()
+      const reply = data.response ?? 'Sorry, something went wrong.'
+      appendMsg('assistant', reply)
+      history.push({ role: 'assistant', content: reply })
+      if (data.fields && typeof data.fields === 'object') applyFields(data.fields)
+    } catch {
+      appendMsg('assistant', 'Sorry, something went wrong.')
+    } finally {
+      sendBtn.disabled = false
+      inputEl.focus()
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage)
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+  })
+
+  function getFormData(status: 'draft' | 'published') {
+    const val = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)?.value?.trim() || null
+    const numVal = (id: string) => { const v = val(id); return v !== null ? Number(v) : null }
+    const dtVal = (id: string) => { const v = val(id); return v ? new Date(v).toISOString() : null }
+    return {
+      title: val('f-title'),
+      slug: val('f-slug'),
+      start_at: dtVal('f-start-at'),
+      end_at: dtVal('f-end-at'),
+      price_amount: numVal('f-price'),
+      summary: val('f-summary'),
+      description: val('f-description'),
+      location_name: val('f-location-name'),
+      location_address: val('f-location-address'),
+      audience_track: val('f-audience'),
+      experience_level: val('f-experience'),
+      event_format: val('f-format'),
+      pillar: val('f-pillar'),
+      meta_title: val('f-meta-title'),
+      meta_description: val('f-meta-desc'),
+      publish_status: status,
+      content_source: 'human',
+    }
+  }
+
+  async function submit(status: 'draft' | 'published') {
+    const statusEl = document.getElementById('form-status')!
+    statusEl.className = 'form-status-msg'
+    statusEl.style.display = 'none'
+
+    const data = getFormData(status)
+    if (!data.title) {
+      statusEl.textContent = 'Title is required.'
+      statusEl.className = 'form-status-msg error'
+      statusEl.style.display = 'block'
+      return
+    }
+    if (!data.start_at) {
+      statusEl.textContent = 'Start date/time is required.'
+      statusEl.className = 'form-status-msg error'
+      statusEl.style.display = 'block'
+      return
+    }
+
+    const draftBtn    = document.getElementById('btn-draft') as HTMLButtonElement
+    const publishBtn  = document.getElementById('btn-publish') as HTMLButtonElement
+    draftBtn.disabled = true; publishBtn.disabled = true
+
+    try {
+      const res = await fetch('/api/dashboard/events/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error ?? `Error ${res.status}`)
+      window.location.href = `/dashboard/events/${result.id}`
+    } catch (err: unknown) {
+      statusEl.textContent = err instanceof Error ? err.message : 'Save failed.'
+      statusEl.className = 'form-status-msg error'
+      statusEl.style.display = 'block'
+      draftBtn.disabled = false; publishBtn.disabled = false
+    }
+  }
+
+  document.getElementById('btn-draft')!.addEventListener('click', () => submit('draft'))
+  document.getElementById('btn-publish')!.addEventListener('click', () => submit('published'))
+</script>
+</DashboardLayout>

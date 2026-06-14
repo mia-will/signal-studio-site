@@ -71,12 +71,97 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ error: 'Missing required fields' }, 400)
   }
 
-  // Form-fill mode placeholder
-  if (
-    page_path.startsWith('/dashboard/events/new') ||
-    page_path.startsWith('/dashboard/remix/pathways/new')
-  ) {
-    return json({ response: 'Form-fill mode coming soon.' })
+  // Form-fill mode — events/new
+  if (page_path.startsWith('/dashboard/events/new')) {
+    const systemPrompt = `You are Signal OS helping Michelle create a new event for The Signal Studio or The Remix.
+
+Return BOTH:
+1. A short conversational message in "response"
+2. A "fields" JSON object with values you can confidently extract
+
+Fields to extract:
+- title, slug (lowercase hyphens from title)
+- summary (1–2 sentences), description (2–4 sentences)
+- start_at, end_at (ISO 8601 — infer 2026 if year not stated, 2hrs duration if end not stated)
+- price_amount (0 if free)
+- location_name, location_address
+- audience_track (one of: builders, appliers, both)
+- experience_level (one of: all_welcome, getting_started, building, leading, curious, deep_practice)
+- event_format (one of: free, paid, org)
+- pillar (one of: ai, creativity, wellbeing)
+- meta_title (~60 chars), meta_description (~155 chars)
+
+Only include confident fields. Ask in "response" if title, date, or location missing.
+Return valid JSON in "fields". Never use markdown in "fields".
+Your entire response must be valid JSON: { "response": "...", "fields": { ... } }`
+
+    const apiKey = import.meta.env.ANTHROPIC_API_KEY
+    if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500)
+
+    const messages = [...(history ?? []), { role: 'user', content: message }]
+    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 2048, system: systemPrompt, messages }),
+    })
+    if (!upstream.ok) return json({ error: await upstream.text() }, 502)
+    const upstreamData = await upstream.json() as { content: { type: string; text: string }[] }
+    const rawText = upstreamData.content.find(b => b.type === 'text')?.text ?? '{}'
+    let response = 'Tell me more about your event.'
+    let fields: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(rawText)
+      response = parsed.response ?? response
+      fields = parsed.fields ?? {}
+    } catch { response = rawText }
+    await supabaseAdmin.from('chat_log').insert([
+      { session_id, role: 'user', content: message, page_path, dashboard_role: 'admin' },
+      { session_id, role: 'assistant', content: response, page_path, dashboard_role: 'admin' },
+    ])
+    return json({ response, fields })
+  }
+
+  // Form-fill mode — pathways/new
+  if (page_path.startsWith('/dashboard/remix/pathways/new')) {
+    const systemPrompt = `You are Signal OS helping Michelle create a new pathway for The Remix.
+
+Return BOTH a "response" and a "fields" JSON object:
+- title, slug (lowercase hyphens)
+- short_description (1–2 sentences), overview (3–5 sentences)
+- who_its_for (1–2 sentences), what_youll_do
+- pathway_type: "pathway" or "workshop"
+- delivery_mode: "in_person", "live", or "self_paced"
+- duration_weeks (integer), price_amount (number)
+- audience (free text), capability_level
+
+Only include confident fields. Ask if title or outcomes missing.
+Return valid JSON in "fields". Never use markdown in "fields".
+Your entire response must be valid JSON: { "response": "...", "fields": { ... } }`
+
+    const apiKey = import.meta.env.ANTHROPIC_API_KEY
+    if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500)
+
+    const messages = [...(history ?? []), { role: 'user', content: message }]
+    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 2048, system: systemPrompt, messages }),
+    })
+    if (!upstream.ok) return json({ error: await upstream.text() }, 502)
+    const upstreamData = await upstream.json() as { content: { type: string; text: string }[] }
+    const rawText = upstreamData.content.find(b => b.type === 'text')?.text ?? '{}'
+    let response = 'Tell me about this pathway.'
+    let fields: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(rawText)
+      response = parsed.response ?? response
+      fields = parsed.fields ?? {}
+    } catch { response = rawText }
+    await supabaseAdmin.from('chat_log').insert([
+      { session_id, role: 'user', content: message, page_path, dashboard_role: 'admin' },
+      { session_id, role: 'assistant', content: response, page_path, dashboard_role: 'admin' },
+    ])
+    return json({ response, fields })
   }
 
   const contextJson = await fetchContext(page_path)

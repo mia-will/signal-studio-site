@@ -1,0 +1,389 @@
+---
+export const prerender = false
+import DashboardLayout from '../../../../layouts/DashboardLayout.astro'
+---
+
+<DashboardLayout title="The Signal OS — New Pathway" currentPath="/dashboard/remix/pathways/new">
+<style>
+  .create-shell {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: calc(100vh - 0px);
+    overflow: hidden;
+  }
+
+  /* ── LEFT: CHAT ──────────────────────────────────────────────────── */
+  .chat-col {
+    display: flex; flex-direction: column;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .chat-header {
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-header h2 { font-family: var(--heading); font-size: 16px; font-weight: 600; color: var(--text-primary); }
+  .chat-header p { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 14px 20px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .msg { max-width: 90%; }
+  .msg--assistant { align-self: flex-start; }
+  .msg--user { align-self: flex-end; }
+  .msg-bubble {
+    font-size: 13px; line-height: 1.55; border-radius: 10px; padding: 9px 13px;
+  }
+  .msg--assistant .msg-bubble { background: rgba(47,47,47,0.06); color: var(--text-primary); }
+  .msg--user .msg-bubble { background: var(--teal); color: #fff; }
+
+  .chat-input-row {
+    display: flex; gap: 8px; padding: 12px 16px;
+    border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface);
+  }
+  .chat-input-row textarea {
+    flex: 1; font-family: var(--body); font-size: 13px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    resize: none; background: var(--bg); color: var(--text-primary);
+    outline: none; line-height: 1.45; transition: border-color 0.12s;
+  }
+  .chat-input-row textarea:focus { border-color: var(--teal); }
+  .chat-btn-group { display: flex; flex-direction: column; gap: 5px; }
+  .btn-send {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    background: var(--teal); color: #fff; border: none; border-radius: 7px;
+    padding: 7px 14px; cursor: pointer; transition: opacity 0.12s;
+  }
+  .btn-send:hover { opacity: 0.85; }
+  .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-clip {
+    font-family: var(--body); font-size: 12px;
+    background: none; border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 10px; cursor: not-allowed; color: var(--text-muted);
+    position: relative;
+  }
+  .btn-clip-tip {
+    display: none; position: absolute; bottom: calc(100% + 5px); right: 0;
+    background: var(--text-primary); color: #fff; font-size: 11px;
+    border-radius: 5px; padding: 4px 8px; white-space: nowrap; pointer-events: none; z-index: 10;
+  }
+  .btn-clip:hover .btn-clip-tip { display: block; }
+
+  /* ── RIGHT: FORM ─────────────────────────────────────────────────── */
+  .form-col {
+    display: flex; flex-direction: column;
+    background: var(--bg); overflow-y: auto;
+  }
+  .form-header {
+    padding: 14px 20px 12px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .form-header h3 { font-family: var(--heading); font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .form-actions { display: flex; gap: 8px; }
+  .btn-draft, .btn-publish {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    border-radius: 7px; padding: 6px 14px; cursor: pointer; border: 1px solid; transition: opacity 0.12s;
+  }
+  .btn-draft { background: none; border-color: var(--border); color: var(--text-secondary); }
+  .btn-draft:hover { background: rgba(47,47,47,0.04); }
+  .btn-publish { background: var(--teal); color: #fff; border-color: var(--teal); }
+  .btn-publish:hover { opacity: 0.85; }
+
+  .form-body { padding: 16px 20px; }
+  .form-section { margin-bottom: 18px; }
+  .form-section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 8px;
+  }
+  .form-row { margin-bottom: 10px; }
+  .form-row label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+  .form-row input, .form-row textarea, .form-row select {
+    width: 100%; font-family: var(--body); font-size: 13px; color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px;
+    background: var(--surface); outline: none; box-sizing: border-box;
+    transition: border-color 0.12s;
+  }
+  .form-row input:focus, .form-row textarea:focus, .form-row select:focus { border-color: var(--teal); }
+  .form-row textarea { resize: vertical; }
+  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+
+  .form-status-msg {
+    font-size: 12px; padding: 8px 12px; border-radius: 7px; margin-bottom: 10px; display: none;
+  }
+  .form-status-msg.error { background: rgba(192,57,43,0.08); color: #C0392B; border: 0.5px solid rgba(192,57,43,0.2); }
+  .form-status-msg.success { background: rgba(15,110,86,0.08); color: #0F6E56; border: 0.5px solid rgba(15,110,86,0.2); }
+</style>
+
+<div class="create-shell">
+
+  <!-- ── LEFT: CHAT ────────────────────────────────────────────────── -->
+  <div class="chat-col">
+    <div class="chat-header">
+      <h2>Create a pathway</h2>
+      <p>Describe your pathway and I'll fill in the details</p>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg msg--assistant">
+        <div class="msg-bubble">Tell me about this pathway — what's it called, who's it for, what will they learn, and how is it delivered?</div>
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <textarea id="chat-input" rows="2" placeholder="Describe your pathway…"></textarea>
+      <div class="chat-btn-group">
+        <button class="btn-send" id="btn-send">Send</button>
+        <button class="btn-clip" type="button">
+          📎
+          <span class="btn-clip-tip">Image and PDF attachments coming soon</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: FORM ───────────────────────────────────────────────── -->
+  <div class="form-col">
+    <div class="form-header">
+      <h3>Pathway details</h3>
+      <div class="form-actions">
+        <button class="btn-draft" id="btn-draft">Save as Draft</button>
+        <button class="btn-publish" id="btn-publish">Publish (open)</button>
+      </div>
+    </div>
+    <div class="form-body">
+      <div id="form-status" class="form-status-msg"></div>
+
+      <div class="form-section">
+        <div class="form-section-label">Core</div>
+        <div class="form-row">
+          <label>Title *</label>
+          <input type="text" id="f-title" name="title" placeholder="Pathway title">
+        </div>
+        <div class="form-row">
+          <label>Slug</label>
+          <input type="text" id="f-slug" name="slug" placeholder="pathway-slug">
+        </div>
+        <div class="form-row-2">
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Duration (weeks)</label>
+            <input type="number" id="f-duration" name="duration_weeks" min="1" step="1" placeholder="8">
+          </div>
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Price (AUD)</label>
+            <input type="number" id="f-price" name="price_amount" min="0" step="1" placeholder="0">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-label">Description</div>
+        <div class="form-row">
+          <label>Short description</label>
+          <textarea id="f-short-desc" name="short_description" rows="2" placeholder="1–2 sentence overview"></textarea>
+        </div>
+        <div class="form-row">
+          <label>Overview</label>
+          <textarea id="f-overview" name="overview" rows="4" placeholder="3–5 sentence full description"></textarea>
+        </div>
+        <div class="form-row">
+          <label>Who it's for</label>
+          <textarea id="f-who-for" name="who_its_for" rows="2" placeholder="Audience description"></textarea>
+        </div>
+        <div class="form-row">
+          <label>What you'll do</label>
+          <textarea id="f-what-do" name="what_youll_do" rows="3" placeholder="Key activities and outcomes"></textarea>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section-label">Classification</div>
+        <div class="form-row-2">
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Type</label>
+            <select id="f-type" name="pathway_type">
+              <option value="">— select —</option>
+              <option value="pathway">pathway</option>
+              <option value="workshop">workshop</option>
+            </select>
+          </div>
+          <div class="form-row" style="margin-bottom:0;">
+            <label>Delivery</label>
+            <select id="f-delivery" name="delivery_mode">
+              <option value="">— select —</option>
+              <option value="in_person">in_person</option>
+              <option value="live">live</option>
+              <option value="self_paced">self_paced</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Audience (free text)</label>
+          <input type="text" id="f-audience" name="audience" placeholder="Who this is designed for">
+        </div>
+        <div class="form-row">
+          <label>Capability level</label>
+          <input type="text" id="f-capability" name="capability_level" placeholder="e.g. beginner, intermediate">
+        </div>
+        <div class="form-row">
+          <label>Status</label>
+          <select id="f-status" name="pathway_status">
+            <option value="coming_soon" selected>coming_soon</option>
+            <option value="open">open</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const SESSION_ID = crypto.randomUUID()
+  const history: { role: 'user' | 'assistant'; content: string }[] = []
+
+  const messagesEl = document.getElementById('chat-messages')!
+  const inputEl    = document.getElementById('chat-input') as HTMLTextAreaElement
+  const sendBtn    = document.getElementById('btn-send') as HTMLButtonElement
+
+  function appendMsg(role: 'user' | 'assistant', text: string) {
+    const div = document.createElement('div')
+    div.className = `msg msg--${role}`
+    div.innerHTML = `<div class="msg-bubble">${text.replace(/</g,'&lt;')}</div>`
+    messagesEl.appendChild(div)
+    messagesEl.scrollTop = messagesEl.scrollHeight
+  }
+
+  function setField(id: string, value: unknown) {
+    if (value === undefined || value === null || value === '') return
+    const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
+    if (!el) return
+    if (el.tagName === 'SELECT') {
+      const opt = (el as HTMLSelectElement).querySelector<HTMLOptionElement>(`option[value="${String(value)}"]`)
+      if (opt) (el as HTMLSelectElement).value = String(value)
+    } else {
+      el.value = String(value)
+    }
+  }
+
+  function applyFields(fields: Record<string, unknown>) {
+    setField('f-title', fields.title)
+    setField('f-slug', fields.slug)
+    setField('f-short-desc', fields.short_description)
+    setField('f-overview', fields.overview)
+    setField('f-who-for', fields.who_its_for)
+    setField('f-what-do', fields.what_youll_do)
+    setField('f-type', fields.pathway_type)
+    setField('f-delivery', fields.delivery_mode)
+    setField('f-duration', fields.duration_weeks)
+    setField('f-price', fields.price_amount)
+    setField('f-audience', fields.audience)
+    setField('f-capability', fields.capability_level)
+  }
+
+  // Auto-slug from title
+  document.getElementById('f-title')!.addEventListener('input', (e) => {
+    const slugEl = document.getElementById('f-slug') as HTMLInputElement
+    if (!slugEl.dataset.userEdited) {
+      slugEl.value = (e.target as HTMLInputElement).value
+        .toLowerCase().trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+    }
+  })
+  document.getElementById('f-slug')!.addEventListener('input', function () {
+    (this as HTMLInputElement).dataset.userEdited = '1'
+  })
+
+  async function sendMessage() {
+    const text = inputEl.value.trim()
+    if (!text) return
+    inputEl.value = ''
+    sendBtn.disabled = true
+    appendMsg('user', text)
+    history.push({ role: 'user', content: text })
+
+    try {
+      const res = await fetch('/api/dashboard/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: history.slice(-20), page_path: '/dashboard/remix/pathways/new', session_id: SESSION_ID }),
+      })
+      const data = await res.json()
+      const reply = data.response ?? 'Sorry, something went wrong.'
+      appendMsg('assistant', reply)
+      history.push({ role: 'assistant', content: reply })
+      if (data.fields && typeof data.fields === 'object') applyFields(data.fields)
+    } catch {
+      appendMsg('assistant', 'Sorry, something went wrong.')
+    } finally {
+      sendBtn.disabled = false
+      inputEl.focus()
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage)
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+  })
+
+  function getFormData(publishStatus: 'coming_soon' | 'open') {
+    const val = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)?.value?.trim() || null
+    const numVal = (id: string) => { const v = val(id); return v !== null ? Number(v) : null }
+    const statusVal = (document.getElementById('f-status') as HTMLSelectElement)?.value
+    return {
+      title:             val('f-title'),
+      slug:              val('f-slug'),
+      short_description: val('f-short-desc'),
+      overview:          val('f-overview'),
+      who_its_for:       val('f-who-for'),
+      what_youll_do:     val('f-what-do'),
+      pathway_type:      val('f-type'),
+      delivery_mode:     val('f-delivery'),
+      duration_weeks:    numVal('f-duration'),
+      price_amount:      numVal('f-price'),
+      audience:          val('f-audience'),
+      capability_level:  val('f-capability'),
+      pathway_status:    publishStatus === 'open' ? 'open' : (statusVal ?? 'coming_soon'),
+    }
+  }
+
+  async function submit(publishStatus: 'coming_soon' | 'open') {
+    const statusEl = document.getElementById('form-status')!
+    statusEl.className = 'form-status-msg'
+    statusEl.style.display = 'none'
+
+    const data = getFormData(publishStatus)
+    if (!data.title) {
+      statusEl.textContent = 'Title is required.'
+      statusEl.className = 'form-status-msg error'
+      statusEl.style.display = 'block'
+      return
+    }
+
+    const draftBtn    = document.getElementById('btn-draft') as HTMLButtonElement
+    const publishBtn  = document.getElementById('btn-publish') as HTMLButtonElement
+    draftBtn.disabled = true; publishBtn.disabled = true
+
+    try {
+      const res = await fetch('/api/dashboard/pathways/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error ?? `Error ${res.status}`)
+      window.location.href = `/dashboard/remix/pathways/${result.id}`
+    } catch (err: unknown) {
+      statusEl.textContent = err instanceof Error ? err.message : 'Save failed.'
+      statusEl.className = 'form-status-msg error'
+      statusEl.style.display = 'block'
+      draftBtn.disabled = false; publishBtn.disabled = false
+    }
+  }
+
+  document.getElementById('btn-draft')!.addEventListener('click', () => submit('coming_soon'))
+  document.getElementById('btn-publish')!.addEventListener('click', () => submit('open'))
+</script>
+</DashboardLayout>

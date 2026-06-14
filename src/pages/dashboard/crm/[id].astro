@@ -734,6 +734,40 @@ const activityHidden  = dedupedActivity.slice(10)
       padding: 10px 14px;
       font-style: italic;
     }
+
+    /* ── INLINE EDITING ──────────────────────── */
+    .edit-field-row {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 7px 14px; border-bottom: 0.5px solid var(--color-border-tertiary);
+      font-size: 12px;
+    }
+    .edit-field-row:last-child { border-bottom: none; }
+    .edit-field-key { color: var(--text-muted); min-width: 110px; flex-shrink: 0; font-size: 11px; padding-top: 2px; }
+    .editable-wrap { display: flex; align-items: flex-start; gap: 6px; flex: 1; }
+    .field-display { color: var(--text-secondary); flex: 1; }
+    .pencil-btn {
+      display: none; background: none; border: none; cursor: pointer;
+      font-size: 11px; color: var(--text-muted); padding: 0 2px; line-height: 1.4;
+      flex-shrink: 0; opacity: 0.7; transition: opacity 0.12s; margin-top: 1px;
+    }
+    .edit-field-row:hover .pencil-btn { display: inline-block; }
+    .pencil-btn:hover { opacity: 1; color: var(--color-teal); }
+    .edit-input, .edit-textarea {
+      font-family: var(--font-body, sans-serif); font-size: 12px; color: var(--text-primary);
+      border: 1px solid var(--color-teal); border-radius: 5px; padding: 3px 7px;
+      background: var(--color-surface); outline: none; width: 100%; box-sizing: border-box;
+    }
+    .edit-textarea { resize: vertical; }
+    .edit-actions { display: flex; gap: 5px; margin-top: 4px; }
+    .edit-save, .edit-cancel {
+      font-size: 11px; font-weight: 500; border-radius: 4px; padding: 2px 9px;
+      cursor: pointer; border: 1px solid; transition: opacity 0.12s;
+    }
+    .edit-save { background: var(--color-teal); color: #fff; border-color: var(--color-teal); }
+    .edit-save:hover { opacity: 0.85; }
+    .edit-cancel { background: none; color: var(--text-muted); border-color: var(--color-border-secondary); }
+    .edit-cancel:hover { color: var(--text-primary); }
+    .edit-error { font-size: 10px; color: #C0392B; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -862,6 +896,53 @@ const activityHidden  = dedupedActivity.slice(10)
             <div class="data-row">
               <span class="data-key">Created</span>
               <span class="data-val">{formatDate(contact.created_at)}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card: Edit contact (inline editing) -->
+        <div class="card" id="crm-edit-card">
+          <div class="card-label">edit contact</div>
+          <div class="edit-field-row" data-field="first_name" data-type="text" data-api={`/api/dashboard/contacts/${contact.id}`} data-raw={contact.first_name ?? ''}>
+            <span class="edit-field-key">First name</span>
+            <div class="editable-wrap">
+              <span class="field-display">{contact.first_name || '—'}</span>
+              <button class="pencil-btn" aria-label="Edit first name">✎</button>
+            </div>
+          </div>
+          <div class="edit-field-row" data-field="last_name" data-type="text" data-api={`/api/dashboard/contacts/${contact.id}`} data-raw={contact.last_name ?? ''}>
+            <span class="edit-field-key">Last name</span>
+            <div class="editable-wrap">
+              <span class="field-display">{contact.last_name || '—'}</span>
+              <button class="pencil-btn" aria-label="Edit last name">✎</button>
+            </div>
+          </div>
+          <div class="edit-field-row" data-field="organisation" data-type="text" data-api={`/api/dashboard/contacts/${contact.id}`} data-raw={contact.organisation ?? ''}>
+            <span class="edit-field-key">Organisation</span>
+            <div class="editable-wrap">
+              <span class="field-display">{contact.organisation || '—'}</span>
+              <button class="pencil-btn" aria-label="Edit organisation">✎</button>
+            </div>
+          </div>
+          <div class="edit-field-row" data-field="job_title" data-type="text" data-api={`/api/dashboard/contacts/${contact.id}`} data-raw={contact.job_title ?? ''}>
+            <span class="edit-field-key">Job title</span>
+            <div class="editable-wrap">
+              <span class="field-display">{contact.job_title || '—'}</span>
+              <button class="pencil-btn" aria-label="Edit job title">✎</button>
+            </div>
+          </div>
+          <div class="edit-field-row" data-field="notes" data-type="textarea" data-rows="5" data-api={`/api/dashboard/contacts/${contact.id}`} data-raw={contact.notes ?? ''}>
+            <span class="edit-field-key">Notes</span>
+            <div class="editable-wrap">
+              <span class="field-display" style="white-space:pre-wrap;">{contact.notes || '—'}</span>
+              <button class="pencil-btn" aria-label="Edit notes">✎</button>
+            </div>
+          </div>
+          <div class="edit-field-row" data-field="tags" data-type="tags" data-api={`/api/dashboard/contacts/${contact.id}`} data-raw={Array.isArray(contact.tags) ? (contact.tags as string[]).join(', ') : (contact.tags ?? '')}>
+            <span class="edit-field-key">Tags</span>
+            <div class="editable-wrap">
+              <span class="field-display">{Array.isArray(contact.tags) && (contact.tags as string[]).length > 0 ? (contact.tags as string[]).join(', ') : '—'}</span>
+              <button class="pencil-btn" aria-label="Edit tags">✎</button>
             </div>
           </div>
         </div>
@@ -1060,6 +1141,103 @@ const activityHidden  = dedupedActivity.slice(10)
     }
   </div>
 </div>
+
+<script>
+// ── Inline editing ─────────────────────────────────────────────────────────
+function makeEditable(row: HTMLElement) {
+  const api = row.dataset.api!
+  const field = row.dataset.field!
+  const type = row.dataset.type!
+  const rawValue = row.dataset.raw ?? ''
+  const wrap = row.querySelector<HTMLElement>('.editable-wrap')!
+  const display = wrap.querySelector<HTMLElement>('.field-display')!
+  const pencil = wrap.querySelector<HTMLButtonElement>('.pencil-btn')!
+
+  pencil.addEventListener('click', () => {
+    pencil.style.display = 'none'
+    display.style.display = 'none'
+
+    let input: HTMLInputElement | HTMLTextAreaElement
+    if (type === 'textarea' || type === 'tags') {
+      const ta = document.createElement('textarea')
+      ta.className = 'edit-textarea'
+      ta.rows = Number(row.dataset.rows ?? 3)
+      ta.value = rawValue
+      input = ta
+    } else {
+      const inp = document.createElement('input')
+      inp.className = 'edit-input'
+      inp.type = 'text'
+      inp.value = rawValue
+      input = inp
+    }
+
+    const actionsDiv = document.createElement('div')
+    actionsDiv.className = 'edit-actions'
+    const saveBtn = document.createElement('button')
+    saveBtn.className = 'edit-save'; saveBtn.type = 'button'; saveBtn.textContent = 'Save'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.className = 'edit-cancel'; cancelBtn.type = 'button'; cancelBtn.textContent = 'Cancel'
+    actionsDiv.appendChild(saveBtn); actionsDiv.appendChild(cancelBtn)
+
+    const errorEl = document.createElement('div')
+    errorEl.className = 'edit-error'; errorEl.style.display = 'none'
+
+    const editWrap = document.createElement('div')
+    editWrap.style.flex = '1'
+    editWrap.appendChild(input)
+    editWrap.appendChild(actionsDiv)
+    editWrap.appendChild(errorEl)
+    wrap.appendChild(editWrap)
+
+    input.focus()
+
+    function revert() {
+      editWrap.remove()
+      display.style.display = ''
+      pencil.style.display = ''
+    }
+
+    cancelBtn.addEventListener('click', revert)
+
+    saveBtn.addEventListener('click', async () => {
+      let value: unknown = input.value
+      if (type === 'tags') {
+        value = (input.value as string).split(',').map((s: string) => s.trim()).filter(Boolean)
+      }
+
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
+      errorEl.style.display = 'none'
+
+      try {
+        const res = await fetch(api, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field, value }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
+
+        if (type === 'tags' && Array.isArray(value)) {
+          row.dataset.raw = (value as string[]).join(', ')
+          display.textContent = (value as string[]).length > 0 ? (value as string[]).join(', ') : '—'
+        } else {
+          row.dataset.raw = String(value ?? '')
+          display.textContent = String(value ?? '') || '—'
+          if (type === 'textarea') display.style.whiteSpace = 'pre-wrap'
+        }
+        revert()
+      } catch (err: unknown) {
+        errorEl.textContent = err instanceof Error ? err.message : 'Save failed'
+        errorEl.style.display = 'block'
+        saveBtn.disabled = false; saveBtn.textContent = 'Save'
+      }
+    })
+  })
+}
+
+document.querySelectorAll<HTMLElement>('[data-field]').forEach(makeEditable)
+</script>
 
 <script is:inline>
   (function () {

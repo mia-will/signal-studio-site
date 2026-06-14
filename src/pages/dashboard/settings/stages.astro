@@ -1,0 +1,310 @@
+---
+export const prerender = false
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
+
+const { data: stages } = await supabase
+  .from('capability_stages')
+  .select('id, stage_key, stage_number, label, description, summary, result_heading, result_summary, primary_cta_label, primary_cta_url, next_step_short, next_step_href')
+  .order('stage_number', { ascending: true })
+
+const stageList = stages ?? []
+
+const session = Astro.cookies.get('dashboard_session')?.value
+const adminSecret = import.meta.env.DASHBOARD_SECRET
+const isAdmin = !!(adminSecret && session === adminSecret)
+---
+
+<DashboardLayout title="The Signal OS — Capability Stages">
+<style>
+  .content { padding: 28px 32px; min-height: 100vh; overflow-x: hidden; max-width: 960px; }
+
+  .page-header { margin-bottom: 24px; }
+  .page-title { font-family: var(--heading); font-size: 22px; font-weight: 500; color: var(--text-primary); }
+  .page-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+  .stage-card {
+    background: var(--surface); border: 0.5px solid var(--border);
+    border-radius: 12px; overflow: hidden; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(47,47,47,0.05);
+  }
+  .stage-header {
+    padding: 12px 18px; border-bottom: 0.5px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .stage-num {
+    font-family: var(--heading); font-size: 13px; font-weight: 600;
+    color: var(--text-muted); min-width: 24px;
+  }
+  .stage-label { font-family: var(--heading); font-size: 15px; font-weight: 600; color: var(--text-primary); flex: 1; }
+  .stage-key {
+    font-size: 10px; font-weight: 500; background: rgba(47,47,47,0.07);
+    color: var(--text-muted); border-radius: 4px; padding: 2px 7px;
+  }
+
+  .section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-muted); padding: 10px 18px 4px; border-top: 0.5px solid var(--border);
+  }
+  .section-label:first-of-type { border-top: none; }
+
+  .field-row {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 18px; border-bottom: 0.5px solid var(--border); font-size: 13px;
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-label { color: var(--text-muted); min-width: 140px; flex-shrink: 0; font-size: 12px; padding-top: 1px; }
+  .field-display { color: var(--text-secondary); flex: 1; }
+  .field-display.muted { color: var(--text-muted); font-style: italic; }
+  .field-display[style*="pre-wrap"] { white-space: pre-wrap; }
+
+  .display-only { color: var(--text-secondary); flex: 1; }
+  .display-only.muted { color: var(--text-muted); font-style: italic; }
+
+  /* ── INLINE EDITING ──────────────────────── */
+  .editable-wrap { display: flex; align-items: flex-start; gap: 6px; flex: 1; }
+  .pencil-btn {
+    display: none; background: none; border: none; cursor: pointer;
+    font-size: 12px; color: var(--text-muted); padding: 0 2px;
+    line-height: 1.4; flex-shrink: 0; opacity: 0.7; transition: opacity 0.12s; margin-top: 1px;
+  }
+  .field-row:hover .pencil-btn { display: inline-block; }
+  .pencil-btn:hover { opacity: 1; color: var(--teal); }
+  .edit-input, .edit-textarea {
+    font-family: var(--body); font-size: 13px; color: var(--text-primary);
+    border: 1px solid var(--teal); border-radius: 6px; padding: 4px 8px;
+    background: var(--surface); outline: none; width: 100%; box-sizing: border-box;
+  }
+  .edit-textarea { resize: vertical; }
+  .edit-actions { display: flex; gap: 6px; margin-top: 5px; }
+  .edit-save, .edit-cancel {
+    font-family: var(--body); font-size: 12px; font-weight: 500;
+    border-radius: 5px; padding: 3px 10px; cursor: pointer; border: 1px solid;
+    transition: opacity 0.12s;
+  }
+  .edit-save { background: var(--teal); color: #fff; border-color: var(--teal); }
+  .edit-save:hover { opacity: 0.85; }
+  .edit-cancel { background: none; color: var(--text-muted); border-color: var(--border); }
+  .edit-cancel:hover { color: var(--text-primary); background: rgba(47,47,47,0.04); }
+  .edit-error { font-size: 11px; color: #C0392B; margin-top: 3px; }
+
+  .admin-notice {
+    font-size: 12px; color: var(--text-muted); padding: 10px 18px;
+    border: 0.5px solid var(--border); border-radius: 8px; margin-bottom: 20px;
+    background: rgba(47,47,47,0.015);
+  }
+</style>
+
+<main class="content">
+
+  <div class="page-header">
+    <h1 class="page-title">Capability Stages</h1>
+    <p class="page-sub">Assessment result content and calls-to-action per stage. Hover a field to edit.</p>
+  </div>
+
+  {!isAdmin && (
+    <div class="admin-notice">View only — editing is restricted to admin.</div>
+  )}
+
+  {stageList.map(stage => (
+    <div class="stage-card">
+      <div class="stage-header">
+        <span class="stage-num">{stage.stage_number}</span>
+        <span class="stage-label">{stage.label}</span>
+        <span class="stage-key">{stage.stage_key}</span>
+      </div>
+
+      <p class="section-label">Context (read only)</p>
+
+      <div class="field-row">
+        <span class="field-label">Description</span>
+        <span class="display-only">{stage.description || <em class="muted">Not set</em>}</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Summary</span>
+        <span class="display-only">{stage.summary || <em class="muted">Not set</em>}</span>
+      </div>
+
+      <p class="section-label">Result content {isAdmin ? '(editable)' : '(view only)'}</p>
+
+      <div class={`field-row${isAdmin ? '' : ' no-edit'}`}
+        data-field="result_heading" data-type="text"
+        data-api={`/api/dashboard/stages/${stage.id}`}
+        data-raw={stage.result_heading ?? ''}>
+        <span class="field-label">Result heading</span>
+        <div class="editable-wrap">
+          <span class={`field-display${!stage.result_heading ? ' muted' : ''}`}>
+            {stage.result_heading || 'Not set'}
+          </span>
+          {isAdmin && <button class="pencil-btn" aria-label="Edit result heading">✎</button>}
+        </div>
+      </div>
+
+      <div class={`field-row${isAdmin ? '' : ' no-edit'}`}
+        data-field="result_summary" data-type="textarea" data-rows="3"
+        data-api={`/api/dashboard/stages/${stage.id}`}
+        data-raw={stage.result_summary ?? ''}>
+        <span class="field-label">Result summary</span>
+        <div class="editable-wrap">
+          <span class={`field-display${!stage.result_summary ? ' muted' : ''}`} style={stage.result_summary ? 'white-space:pre-wrap;' : ''}>
+            {stage.result_summary || 'Not set'}
+          </span>
+          {isAdmin && <button class="pencil-btn" aria-label="Edit result summary">✎</button>}
+        </div>
+      </div>
+
+      <div class={`field-row${isAdmin ? '' : ' no-edit'}`}
+        data-field="primary_cta_label" data-type="text"
+        data-api={`/api/dashboard/stages/${stage.id}`}
+        data-raw={stage.primary_cta_label ?? ''}>
+        <span class="field-label">Primary CTA label</span>
+        <div class="editable-wrap">
+          <span class={`field-display${!stage.primary_cta_label ? ' muted' : ''}`}>
+            {stage.primary_cta_label || 'Not set'}
+          </span>
+          {isAdmin && <button class="pencil-btn" aria-label="Edit primary CTA label">✎</button>}
+        </div>
+      </div>
+
+      <div class={`field-row${isAdmin ? '' : ' no-edit'}`}
+        data-field="primary_cta_url" data-type="text"
+        data-api={`/api/dashboard/stages/${stage.id}`}
+        data-raw={stage.primary_cta_url ?? ''}>
+        <span class="field-label">Primary CTA URL</span>
+        <div class="editable-wrap">
+          <span class={`field-display${!stage.primary_cta_url ? ' muted' : ''}`}>
+            {stage.primary_cta_url || 'Not set'}
+          </span>
+          {isAdmin && <button class="pencil-btn" aria-label="Edit primary CTA URL">✎</button>}
+        </div>
+      </div>
+
+      <div class={`field-row${isAdmin ? '' : ' no-edit'}`}
+        data-field="next_step_short" data-type="text"
+        data-api={`/api/dashboard/stages/${stage.id}`}
+        data-raw={stage.next_step_short ?? ''}>
+        <span class="field-label">Next step short</span>
+        <div class="editable-wrap">
+          <span class={`field-display${!stage.next_step_short ? ' muted' : ''}`}>
+            {stage.next_step_short || 'Not set'}
+          </span>
+          {isAdmin && <button class="pencil-btn" aria-label="Edit next step short">✎</button>}
+        </div>
+      </div>
+
+      <div class={`field-row${isAdmin ? '' : ' no-edit'}`}
+        data-field="next_step_href" data-type="text"
+        data-api={`/api/dashboard/stages/${stage.id}`}
+        data-raw={stage.next_step_href ?? ''}>
+        <span class="field-label">Next step URL</span>
+        <div class="editable-wrap">
+          <span class={`field-display${!stage.next_step_href ? ' muted' : ''}`}>
+            {stage.next_step_href || 'Not set'}
+          </span>
+          {isAdmin && <button class="pencil-btn" aria-label="Edit next step URL">✎</button>}
+        </div>
+      </div>
+    </div>
+  ))}
+
+</main>
+
+<script>
+// ── Inline editing (admin only — pencil buttons absent for coordinator) ────
+function makeEditable(row: HTMLElement) {
+  const api = row.dataset.api
+  const field = row.dataset.field
+  const type = row.dataset.type
+  if (!api || !field || !type) return
+
+  const wrap = row.querySelector<HTMLElement>('.editable-wrap')
+  const display = wrap?.querySelector<HTMLElement>('.field-display')
+  const pencil = wrap?.querySelector<HTMLButtonElement>('.pencil-btn')
+  if (!wrap || !display || !pencil) return
+
+  const rawValue = row.dataset.raw ?? ''
+
+  pencil.addEventListener('click', () => {
+    pencil.style.display = 'none'
+    display.style.display = 'none'
+
+    let input: HTMLInputElement | HTMLTextAreaElement
+    if (type === 'textarea') {
+      const ta = document.createElement('textarea')
+      ta.className = 'edit-textarea'
+      ta.rows = Number(row.dataset.rows ?? 3)
+      ta.value = rawValue
+      input = ta
+    } else {
+      const inp = document.createElement('input')
+      inp.className = 'edit-input'
+      inp.type = 'text'
+      inp.value = rawValue
+      input = inp
+    }
+
+    const actionsDiv = document.createElement('div')
+    actionsDiv.className = 'edit-actions'
+    const saveBtn = document.createElement('button')
+    saveBtn.className = 'edit-save'; saveBtn.type = 'button'; saveBtn.textContent = 'Save'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.className = 'edit-cancel'; cancelBtn.type = 'button'; cancelBtn.textContent = 'Cancel'
+    actionsDiv.appendChild(saveBtn); actionsDiv.appendChild(cancelBtn)
+
+    const errorEl = document.createElement('div')
+    errorEl.className = 'edit-error'; errorEl.style.display = 'none'
+
+    const editWrap = document.createElement('div')
+    editWrap.style.flex = '1'
+    editWrap.appendChild(input)
+    editWrap.appendChild(actionsDiv)
+    editWrap.appendChild(errorEl)
+    wrap.appendChild(editWrap)
+
+    input.focus()
+
+    function revert() {
+      editWrap.remove()
+      display.style.display = ''
+      pencil.style.display = ''
+    }
+
+    cancelBtn.addEventListener('click', revert)
+
+    saveBtn.addEventListener('click', async () => {
+      const value = input.value || null
+
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
+      errorEl.style.display = 'none'
+
+      try {
+        const res = await fetch(api, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field, value }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? `Error ${res.status}`)
+
+        row.dataset.raw = value ?? ''
+        if (value) {
+          display.textContent = value
+          display.classList.remove('muted')
+          if (type === 'textarea') display.style.whiteSpace = 'pre-wrap'
+        } else {
+          display.textContent = 'Not set'
+          display.classList.add('muted')
+        }
+        revert()
+      } catch (err: unknown) {
+        errorEl.textContent = err instanceof Error ? err.message : 'Save failed'
+        errorEl.style.display = 'block'
+        saveBtn.disabled = false; saveBtn.textContent = 'Save'
+      }
+    })
+  })
+}
+
+document.querySelectorAll<HTMLElement>('[data-field]').forEach(makeEditable)
+</script>
+</DashboardLayout>
