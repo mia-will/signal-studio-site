@@ -1,5 +1,9 @@
 # AGENTS.md — Shared Agent Rules
 
+## Dashboard contract — read this first
+
+Before working on any dashboard file, read `src/dashboard/DASHBOARD_CONTRACT.md` in full. This is mandatory. It governs all agent work on the Signal OS dashboard — patterns, data rules, write rules, nav rules, and known wrong patterns to never repeat.
+
 > This file is read-only for all agents. Do not modify, regenerate, or overwrite it.
 
 ## Session start — required
