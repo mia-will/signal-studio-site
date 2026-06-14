@@ -3,94 +3,43 @@ export const prerender = false
 import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
 import DashboardLayout from '../../../layouts/DashboardLayout.astro'
 
-// ── QUERIES ───────────────────────────────────────────────────────────────────
-
-const [
-  activeAgentsResult,
-  attentionAgentsResult,
-  qaLogFailResult,
-  automationsResult,
-  toBuildResult,
-] = await Promise.all([
-
+const [allAgentsResult, runLogsResult] = await Promise.all([
   supabase
     .from('agents_registry')
-    .select('id, name, status, area, last_run, last_status, qa_status')
-    .in('status', ['active', 'in_progress', 'to_build'])
-    .limit(30),
+    .select('id, name, area, status, last_run, security_approved')
+    .order('name', { ascending: true }),
 
   supabase
-    .from('agents_registry')
-    .select('id, name, status, qa_status, security_approved, last_status')
-    .or('qa_status.eq.fail,last_status.eq.error,and(security_approved.eq.false,status.eq.active)'),
-
-  supabase
-    .from('agent_qa_log')
-    .select('id, agent_id, result')
-    .eq('result', 'fail')
-    .limit(10),
-
-  supabase
-    .from('automations')
-    .select('id, name, status, last_run, last_status')
-    .order('last_run', { ascending: false, nullsFirst: false })
-    .limit(20),
-
-  supabase
-    .from('agents_registry')
-    .select('id, name, area, phase')
-    .eq('status', 'to_build')
-    .order('phase', { ascending: true, nullsFirst: false })
-    .limit(10),
+    .from('agent_run_logs')
+    .select('id, agent_key, run_started_at, run_completed_at, status, action_summary')
+    .order('run_started_at', { ascending: false, nullsFirst: false })
+    .limit(50),
 ])
 
-// ── DERIVED ───────────────────────────────────────────────────────────────────
+const allAgents = allAgentsResult.data ?? []
+const totalCount = allAgents.length
+const activeCount = allAgents.filter((a: any) => a.status === 'active').length
+const inProgressCount = allAgents.filter((a: any) => a.status === 'in_progress').length
+const runLogs = runLogsResult.data ?? []
 
-const STATUS_ORDER: Record<string, number> = { active: 1, in_progress: 2, to_build: 3 }
-const activeAgents = (activeAgentsResult.data ?? [])
-  .sort((a, b) => (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99))
-  .slice(0, 10)
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
-type AttentionItem = {
-  label: string
-  agentName: string
-  agentId: string
-  priority: 'high' | 'medium'
-}
-const seen = new Set<string>()
-const attentionItems: AttentionItem[] = []
+type NeedsItem = { name: string; id: string; label: string }
+const needsAttention: NeedsItem[] = []
+const needsSeen = new Set<string>()
 
-for (const a of attentionAgentsResult.data ?? []) {
-  if (seen.has(a.id)) continue
-  seen.add(a.id)
-  if (a.last_status === 'error') {
-    attentionItems.push({ label: 'Run error', agentName: a.name, agentId: a.id, priority: 'high' })
-  } else if (a.qa_status === 'fail') {
-    attentionItems.push({ label: 'QA failed', agentName: a.name, agentId: a.id, priority: 'high' })
-  } else if (!a.security_approved && a.status === 'active') {
-    attentionItems.push({ label: 'Security not approved', agentName: a.name, agentId: a.id, priority: 'medium' })
+for (const a of allAgents as any[]) {
+  if (a.status !== 'active') continue
+  const stale = !a.last_run || (Date.now() - new Date(a.last_run).getTime() > SEVEN_DAYS_MS)
+  if (stale && !needsSeen.has(a.id + '-stale')) {
+    needsSeen.add(a.id + '-stale')
+    needsAttention.push({ name: a.name, id: a.id, label: 'check needed' })
+  }
+  if (a.security_approved === false && !needsSeen.has(a.id + '-sec')) {
+    needsSeen.add(a.id + '-sec')
+    needsAttention.push({ name: a.name, id: a.id, label: 'security not approved' })
   }
 }
-
-const allKnownAgents = [...(activeAgentsResult.data ?? []), ...(attentionAgentsResult.data ?? [])]
-for (const log of qaLogFailResult.data ?? []) {
-  if (seen.has(log.agent_id)) continue
-  const agent = allKnownAgents.find(a => a.id === log.agent_id)
-  if (agent) {
-    attentionItems.push({ label: 'QA log fail', agentName: agent.name, agentId: agent.id, priority: 'high' })
-    seen.add(agent.id)
-  }
-}
-
-const needsAttention = attentionItems.slice(0, 10)
-
-const automations = (automationsResult.data ?? [])
-  .filter(a => a.status === 'active' || a.last_run !== null)
-  .slice(0, 10)
-
-const toBuild = toBuildResult.data ?? []
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
 
 function formatRelative(ts: string | null): string {
   if (!ts) return 'Never'
@@ -103,574 +52,491 @@ function formatRelative(ts: string | null): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function areaLabel(a: string | null): string {
-  return a ? a.replace(/_/g, ' ') : '—'
+function healthFlag(a: { status: string; last_run: string | null }): { label: string; cls: string } {
+  if (a.status === 'active') {
+    return a.last_run && Date.now() - new Date(a.last_run).getTime() <= SEVEN_DAYS_MS
+      ? { label: 'Running', cls: 'hf-success' }
+      : { label: 'Check needed', cls: 'hf-warning' }
+  }
+  if (a.status === 'in_progress') return { label: 'In progress', cls: 'hf-info' }
+  if (a.status === 'draft') return { label: 'Draft', cls: 'hf-muted' }
+  return { label: 'Not started', cls: 'hf-muted' }
 }
 ---
 
 <DashboardLayout title="The Signal OS — Agents">
 <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  .page-content-wrapper { transition: width 0.25s ease; width: 100%; }
+  .page-content-wrapper.chat-open { width: calc(100% - 380px); }
 
-    :root {
-      --bg:             #F5F4F1;
-      --surface:        #FFFFFF;
-      --text-primary:   #2F2F2F;
-      --text-secondary: #505050;
-      --text-muted:     #909090;
-      --border:         rgba(47,47,47,0.08);
-      --teal:           #3C8A7E;
-      --orange:         #FF8A33;
-      --green:          #7BBE9A;
-      --red:            #C0392B;
-      --dark:           #111111;
-      --heading:        'DM Sans', sans-serif;
-      --body:           'Inter', sans-serif;
-    }
+  #main-area { display: flex; height: 100vh; overflow: hidden; }
 
-    html, body { height: 100vh; overflow: hidden; background: var(--bg); color: var(--text-primary); font-family: var(--body); }
+  .dashboard-content { flex: 1; min-width: 0; overflow-y: auto; padding: 18px; }
 
-    /* ── SHELL ─────────────────────────────────────────────────────────── */
-    .os-shell {
-      display: grid;
-      grid-template-columns: 220px 1fr;
-      height: 100vh;
-      overflow: hidden;
-    }
+  /* ── Page header ──────────────────────────────────────────── */
+  .page-header {
+    padding: 20px 24px 12px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .page-header h1 {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    line-height: 1.2;
+  }
+  .page-header p { font-size: 13px; color: var(--color-text-secondary); margin-top: 4px; }
+  .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-top: 4px; }
+  .btn-dark {
+    background: var(--color-text-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--border-radius-md);
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
 
-    /* ── SIDEBAR ───────────────────────────────────────────────────────── */
-    .sidebar {
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow-y: auto;
-    }
-    .sidebar-logo {
-      padding: 20px 16px 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-family: var(--heading);
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      color: var(--text-primary);
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .nav-section-label {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      padding: 20px 16px 4px;
-    }
-    .nav-item {
-      display: block;
-      font-size: 13px;
-      color: var(--text-secondary);
-      padding: 6px 16px;
-      border-radius: 6px;
-      margin: 1px 8px;
-      text-decoration: none;
-    }
-    .nav-item.active { background: rgba(60,138,126,0.10); color: var(--teal); font-weight: 500; }
-    .sidebar-footer {
-      margin-top: auto;
-      padding: 14px 16px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-    .avatar {
-      width: 28px; height: 28px; border-radius: 50%;
-      background: var(--teal); color: white;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 600; flex-shrink: 0;
-    }
-    .footer-name { font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
-    .footer-role { font-size: 11px; color: var(--text-muted); }
+  /* ── Stat cards ───────────────────────────────────────────── */
+  .stat-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    padding: 0 24px 14px;
+    align-items: start;
+  }
+  .stat-card {
+    background: var(--color-background-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    padding: 1rem 1.25rem;
+    cursor: pointer;
+    align-self: start;
+    transition: border-color 0.15s;
+  }
+  .stat-card:hover { border-color: var(--color-border-secondary); }
+  .stat-card.card-highlight { border: 1.5px solid var(--color-border-info); }
+  .stat-number { font-size: 1.75rem; font-weight: 500; color: var(--color-text-primary); line-height: 1; }
+  .stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-secondary);
+    margin-top: 6px;
+  }
 
-    /* ── MAIN AREA (flex row — houses dashboard + slide-over panel) ──── */
-    .main-area {
-      display: flex;
-      height: 100vh;
-      overflow: hidden;
-    }
+  /* ── Tab row ──────────────────────────────────────────────── */
+  .tab-row {
+    display: flex;
+    align-items: flex-end;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    padding: 0 24px;
+    margin-bottom: 14px;
+  }
+  .tab-btn {
+    padding: 8px 16px 9px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    margin-bottom: -0.5px;
+  }
+  .tab-btn.active {
+    font-weight: 500;
+    color: var(--color-text-primary);
+    border-bottom: 2px solid var(--color-text-primary);
+  }
 
-    /* ── DASHBOARD CONTENT ─────────────────────────────────────────────── */
-    .dashboard-content {
-      flex: 1;
-      min-width: 0;
-      overflow-y: auto;
-      padding: 28px 32px;
-    }
+  /* ── Content grid ─────────────────────────────────────────── */
+  .content-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 185px;
+    gap: 10px;
+    align-items: start;
+    padding: 0 24px 18px;
+  }
 
-    /* ── PAGE HEADER ───────────────────────────────────────────────────── */
-    .page-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      margin-bottom: 24px;
-      gap: 16px;
-    }
-    .page-header h1 {
-      font-family: var(--heading);
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--text-primary);
-      line-height: 1.1;
-    }
-    .page-header p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
-    .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-top: 4px; }
-    .btn-dark {
-      background: var(--dark);
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 7px 14px;
-      font-family: var(--heading);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .btn-dark:hover { background: #2a2a2a; }
+  /* ── Tab panels ───────────────────────────────────────────── */
+  .tab-panel { display: none; }
+  .tab-panel.active-panel { display: block; }
 
-    /* ── LAYOUT ROWS ───────────────────────────────────────────────────── */
-    .row-2-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
-    .row-half { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  /* ── Secondary controls ───────────────────────────────────── */
+  .tab-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .search-input {
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 5px 10px;
+    font-size: 12px;
+    color: var(--color-text-primary);
+    background: var(--color-background-primary);
+    width: 180px;
+    outline: none;
+    font-family: 'Inter', sans-serif;
+  }
+  .search-input:focus { border-color: var(--color-border-secondary); }
+  .pill-group { display: flex; gap: 4px; }
+  .status-pill {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    background: none;
+    color: var(--color-text-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
+    white-space: nowrap;
+    font-family: 'Inter', sans-serif;
+  }
+  .status-pill.active { border: 0.5px solid var(--color-border-secondary); color: var(--color-text-primary); }
+  .columns-pill-wrap { margin-left: auto; position: relative; }
+  .columns-pill {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    background: none;
+    color: var(--color-text-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
+    font-family: 'Inter', sans-serif;
+  }
+  .col-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    background: var(--color-background-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 4px 0;
+    z-index: 10;
+    min-width: 140px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .col-dropdown.open { display: block; }
+  .col-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .col-option:hover { background: var(--color-background-secondary); }
+  .col-option input[type=checkbox] { cursor: pointer; }
 
-    /* ── PANELS ────────────────────────────────────────────────────────── */
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 1px 3px rgba(47,47,47,0.06);
-    }
-    .panel-header {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .panel-header h2 {
-      font-family: var(--heading);
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-    .panel-header a {
-      margin-left: auto;
-      font-size: 12px;
-      color: var(--teal);
-      text-decoration: none;
-    }
-    .badge-count {
-      background: var(--orange);
-      color: white;
-      font-size: 11px;
-      font-weight: 600;
-      border-radius: 20px;
-      padding: 1px 7px;
-    }
-    .empty-state {
-      padding: 20px 16px;
-      font-size: 13px;
-      color: var(--text-muted);
-      font-style: italic;
-    }
+  /* ── Registry table ───────────────────────────────────────── */
+  .agents-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--color-background-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    overflow: hidden;
+  }
+  .agents-table thead th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    white-space: nowrap;
+  }
+  .agents-table thead th.sortable { cursor: pointer; }
+  .agents-table thead th.sortable:hover { color: var(--color-text-secondary); }
+  .agents-table tbody td {
+    padding: 9px 12px;
+    color: var(--color-text-secondary);
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    vertical-align: middle;
+  }
+  .agents-table tbody tr:last-child td { border-bottom: none; }
+  .agents-table tbody tr { cursor: pointer; }
+  .agents-table tbody tr:hover td { background: var(--color-background-secondary); }
+  .agents-table tbody tr.row-muted td { color: var(--color-text-tertiary); opacity: 0.6; }
+  .show-more-row td {
+    text-align: center;
+    padding: 10px 12px !important;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    border-bottom: none !important;
+    opacity: 1 !important;
+  }
+  .show-more-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--color-text-secondary); font-size: 12px; padding: 0; text-decoration: underline;
+    font-family: 'Inter', sans-serif;
+  }
+  .view-all-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--color-text-tertiary); font-size: 12px; margin-left: 12px;
+    font-family: 'Inter', sans-serif; text-decoration: underline;
+  }
+  .hf-success { color: var(--color-text-success); font-size: 12px; font-weight: 500; }
+  .hf-warning { color: var(--color-text-warning); font-size: 12px; font-weight: 500; }
+  .hf-info    { color: var(--color-text-info);    font-size: 12px; font-weight: 500; }
+  .hf-muted   { color: var(--color-text-tertiary); font-size: 12px; }
+  .hidden-col { display: none !important; }
 
-    /* ── TABLES ────────────────────────────────────────────────────────── */
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    thead th {
-      text-align: left;
-      padding: 8px 16px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    tbody td {
-      padding: 9px 16px;
-      color: var(--text-secondary);
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-    tbody tr:last-child td { border-bottom: none; }
-    tbody tr.clickable { cursor: pointer; }
-    tbody tr.clickable:hover td { background: rgba(60,138,126,0.03); }
+  /* ── Placeholder text ─────────────────────────────────────── */
+  .placeholder-text { padding: 24px 0; font-size: 13px; color: var(--color-text-tertiary); font-style: italic; }
 
-    /* ── STATUS BADGES ─────────────────────────────────────────────────── */
-    .badge {
-      display: inline-block;
-      border-radius: 20px;
-      padding: 2px 9px;
-      font-size: 11px;
-      font-weight: 500;
-    }
-    .status-active, .status-live       { background: rgba(123,190,154,0.15); color: #2D5A35; }
-    .status-in_progress                { background: rgba(157,220,227,0.18); color: #1F7A82; }
-    .status-to_build, .status-draft    { background: rgba(47,47,47,0.08);    color: var(--text-secondary); }
-    .status-error, .status-blocked     { background: rgba(192,57,43,0.12);   color: var(--red); }
-    .status-success                    { background: rgba(123,190,154,0.15); color: #2D5A35; }
-    .status-not_tested, .status-pending { background: rgba(255,138,51,0.12); color: #E07020; }
-    .status-pass, .status-in_progress-qa { background: rgba(123,190,154,0.15); color: #2D5A35; }
-    .status-fail                       { background: rgba(192,57,43,0.12);   color: var(--red); }
+  /* ── Run logs table ───────────────────────────────────────── */
+  .logs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--color-background-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    overflow: hidden;
+  }
+  .logs-table thead th {
+    text-align: left;
+    padding: 7px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    white-space: nowrap;
+  }
+  .logs-table tbody td {
+    padding: 8px 12px;
+    color: var(--color-text-secondary);
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    vertical-align: middle;
+  }
+  .logs-table tbody tr:last-child td { border-bottom: none; }
 
-    /* ── ATTENTION LABEL ───────────────────────────────────────────────── */
-    .attention-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      font-weight: 500;
-      border-radius: 4px;
-      padding: 2px 7px;
-    }
-    .attention-high   { background: rgba(192,57,43,0.10); color: var(--red); }
-    .attention-medium { background: rgba(255,138,51,0.10); color: #E07020; }
+  /* ── Needs attention rail ─────────────────────────────────── */
+  .needs-rail {
+    align-self: start;
+    background: var(--color-background-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    padding: 12px 14px;
+  }
+  .rail-heading {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-warning);
+    margin-bottom: 10px;
+  }
+  .rail-item {
+    padding: 6px 0;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .rail-item:last-child { border-bottom: none; }
+  .rail-item a { color: var(--color-text-secondary); text-decoration: none; }
+  .rail-item a:hover { text-decoration: underline; }
+  .rail-healthy { color: var(--color-text-tertiary); font-style: italic; font-size: 12px; }
 
-    /* ── LINK STYLE ────────────────────────────────────────────────────── */
-    .link-teal { color: var(--teal); text-decoration: none; font-size: 12px; }
-    .link-teal:hover { text-decoration: underline; }
+  /* ── Builder slide-over ───────────────────────────────────── */
+  .builder-panel {
+    width: 0;
+    flex-shrink: 0;
+    overflow: hidden;
+    background: var(--color-background-secondary);
+    border-left: 0 solid var(--color-border-tertiary);
+    display: flex;
+    flex-direction: column;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  #main-area.panel-open .builder-panel { width: 50%; border-left-width: 1px; }
+  .builder-inner { display: flex; flex-direction: column; height: 100%; width: 100%; min-width: 0; }
+  .builder-header {
+    padding: 16px 20px 14px;
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    background: var(--color-background-primary);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .builder-header h2 { font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 700; color: var(--color-text-primary); flex: 1; }
+  .builder-header p { font-size: 11px; color: var(--color-text-tertiary); margin-top: 1px; }
+  .btn-close-panel { background: none; border: none; font-size: 16px; color: var(--color-text-tertiary); cursor: pointer; padding: 2px 4px; line-height: 1; }
+  .btn-close-panel:hover { color: var(--color-text-primary); }
+  .builder-messages { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+  .bld-msg { max-width: 88%; font-size: 13px; line-height: 1.55; border-radius: 10px; padding: 10px 14px; }
+  .bld-msg-assistant { background: var(--color-background-primary); color: var(--color-text-primary); border: 0.5px solid var(--color-border-tertiary); align-self: flex-start; border-bottom-left-radius: 3px; }
+  .bld-msg-user { background: var(--color-text-primary); color: #fff; align-self: flex-end; border-bottom-right-radius: 3px; }
+  .bld-msg-system { background: var(--color-background-info); color: var(--color-text-info); border: 0.5px solid var(--color-border-info); align-self: center; font-size: 12px; border-radius: 6px; }
+  .builder-footer { padding: 12px 20px; border-top: 0.5px solid var(--color-border-tertiary); background: var(--color-background-primary); flex-shrink: 0; }
+  .builder-input-row { display: flex; gap: 8px; align-items: flex-end; }
+  .builder-input { flex: 1; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 9px 12px; font-size: 13px; color: var(--color-text-primary); background: var(--color-background-secondary); resize: none; min-height: 38px; max-height: 100px; line-height: 1.4; font-family: 'Inter', sans-serif; }
+  .builder-input:focus { outline: none; border-color: var(--color-border-secondary); }
+  .builder-input:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-send { background: var(--color-text-primary); color: white; border: none; border-radius: var(--border-radius-md); padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; height: 38px; flex-shrink: 0; }
+  .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+  .save-status { margin-top: 8px; font-size: 12px; padding: 7px 11px; border-radius: 6px; }
+  .save-status-pending { background: var(--color-background-tertiary); color: var(--color-text-tertiary); }
+  .save-status-success { background: var(--color-background-success); color: var(--color-text-success); }
+  .save-status-error   { background: var(--color-background-danger);  color: var(--color-text-danger); }
+</style>
 
-    /* ── BUILDER SLIDE-OVER PANEL ──────────────────────────────────────── */
-    .builder-panel {
-      width: 0;
-      flex-shrink: 0;
-      overflow: hidden;
-      background: var(--bg);
-      border-left: 0 solid var(--border);
-      display: flex;
-      flex-direction: column;
-      transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
+<div class="page-content-wrapper" id="page-content-wrapper">
+<div id="main-area" class="main-area">
 
-    .main-area.panel-open .builder-panel {
-      width: 50%;
-      border-left-width: 1px;
-    }
+  <div class="dashboard-content">
 
-    .builder-inner {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      width: 100%;
-      min-width: 0;
-    }
+    <!-- ── Page header ─────────────────────────────────────────── -->
+    <header class="page-header">
+      <div>
+        <h1>Agents</h1>
+        <p>All registered agents, workflows, and run logs across Signal OS.</p>
+      </div>
+      <div class="header-actions">
+        <button id="btn-new-agent" class="btn-dark">+ New Agent</button>
+      </div>
+    </header>
 
-    .builder-header {
-      padding: 16px 20px 14px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-    .builder-header h2 {
-      font-family: var(--heading);
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text-primary);
-      flex: 1;
-    }
-    .builder-header p {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 1px;
-    }
-    .btn-close-panel {
-      background: none;
-      border: none;
-      font-size: 16px;
-      color: var(--text-muted);
-      cursor: pointer;
-      padding: 2px 4px;
-      line-height: 1;
-      flex-shrink: 0;
-    }
-    .btn-close-panel:hover { color: var(--text-primary); }
+    <!-- ── Stat cards ──────────────────────────────────────────── -->
+    <div class="stat-cards">
+      <div class="stat-card card-highlight" data-card-tab="registry" data-card-filter="all" role="button" tabindex="0">
+        <div class="stat-number">{totalCount}</div>
+        <div class="stat-label">Registry</div>
+      </div>
+      <div class="stat-card" data-card-tab="registry" data-card-filter="active" role="button" tabindex="0">
+        <div class="stat-number">{activeCount}</div>
+        <div class="stat-label">Active</div>
+      </div>
+      <div class="stat-card" data-card-tab="registry" data-card-filter="in_progress" role="button" tabindex="0">
+        <div class="stat-number">{inProgressCount}</div>
+        <div class="stat-label">In progress</div>
+      </div>
+    </div>
 
-    .builder-messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 18px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
+    <!-- ── Tab row ─────────────────────────────────────────────── -->
+    <div class="tab-row">
+      <button class="tab-btn active" data-tab="registry">Registry · {totalCount}</button>
+      <button class="tab-btn" data-tab="workflows">Workflows</button>
+      <button class="tab-btn" data-tab="runlogs">Run logs</button>
+    </div>
 
-    .bld-msg {
-      max-width: 88%;
-      font-size: 13px;
-      line-height: 1.55;
-      border-radius: 10px;
-      padding: 10px 14px;
-    }
-    .bld-msg-assistant {
-      background: var(--surface);
-      color: var(--text-primary);
-      border: 1px solid var(--border);
-      align-self: flex-start;
-      border-bottom-left-radius: 3px;
-    }
-    .bld-msg-user {
-      background: var(--dark);
-      color: #FFFFFF;
-      align-self: flex-end;
-      border-bottom-right-radius: 3px;
-    }
-    .bld-msg-system {
-      background: rgba(60,138,126,0.08);
-      color: var(--teal);
-      border: 1px solid rgba(60,138,126,0.15);
-      align-self: center;
-      font-size: 12px;
-      border-radius: 6px;
-    }
+    <!-- ── Content grid (table col + needs-attention rail) ─────── -->
+    <div class="content-grid">
 
-    .builder-footer {
-      padding: 12px 20px;
-      border-top: 1px solid var(--border);
-      background: var(--surface);
-      flex-shrink: 0;
-    }
-    .builder-input-row {
-      display: flex;
-      gap: 8px;
-      align-items: flex-end;
-    }
-    .builder-input {
-      flex: 1;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 9px 12px;
-      font-size: 13px;
-      font-family: var(--body);
-      color: var(--text-primary);
-      background: var(--bg);
-      resize: none;
-      min-height: 38px;
-      max-height: 100px;
-      line-height: 1.4;
-    }
-    .builder-input:focus { outline: none; border-color: var(--teal); }
-    .builder-input:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-send {
-      background: var(--dark);
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 9px 16px;
-      font-family: var(--heading);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      height: 38px;
-      flex-shrink: 0;
-    }
-    .btn-send:hover { background: #2a2a2a; }
-    .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
-    .save-status {
-      margin-top: 8px;
-      font-size: 12px;
-      padding: 7px 11px;
-      border-radius: 6px;
-    }
-    .save-status-pending { background: rgba(47,47,47,0.06); color: var(--text-muted); }
-    .save-status-success { background: rgba(123,190,154,0.15); color: #2D5A35; }
-    .save-status-error   { background: rgba(192,57,43,0.10); color: var(--red); }
-  </style>
+      <div>
 
-  <!-- ── MAIN AREA ─────────────────────────────────────────────────────── -->
-  <div id="main-area" class="main-area">
-
-    <!-- Dashboard content -->
-    <div class="dashboard-content">
-
-      <header class="page-header">
-        <div>
-          <h1>Agents</h1>
-          <p>Active agents, attention items, automations, and build queue.</p>
-        </div>
-        <div class="header-actions">
-          <button id="btn-new-agent" class="btn-dark">+ New Agent</button>
-        </div>
-      </header>
-
-      <!-- ── ROW 1: Active agents + Needs attention ─────────────────── -->
-      <div class="row-2-3">
-
-        <!-- Active Agents -->
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Active Agents</h2>
-            {activeAgents.length > 0 && <span class="badge-count">{activeAgents.length}</span>}
+        <!-- Registry panel -->
+        <div id="tab-registry" class="tab-panel active-panel">
+          <div class="tab-controls">
+            <input id="agent-search" class="search-input" type="text" placeholder="Search agents…" autocomplete="off" />
+            <div class="pill-group">
+              <button class="status-pill active" data-status="all">All</button>
+              <button class="status-pill" data-status="active">Active</button>
+              <button class="status-pill" data-status="draft">Draft</button>
+              <button class="status-pill" data-status="in_progress">In progress</button>
+            </div>
+            <div class="columns-pill-wrap">
+              <button id="columns-toggle" class="columns-pill">Columns ▾</button>
+              <div id="col-dropdown" class="col-dropdown">
+                <label class="col-option"><input type="checkbox" data-col="area" checked /> Area</label>
+                <label class="col-option"><input type="checkbox" data-col="status" checked /> Status</label>
+                <label class="col-option"><input type="checkbox" data-col="last_run" checked /> Last run</label>
+                <label class="col-option"><input type="checkbox" data-col="health" checked /> Health</label>
+              </div>
+            </div>
           </div>
-          {activeAgents.length === 0 ? (
-            <div class="empty-state">No active, in-progress, or to-build agents found.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th>Status</th>
-                  <th>Area</th>
-                  <th>Last run</th>
-                  <th>Last status</th>
-                  <th>QA</th>
-                  <th style="width:48px;"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeAgents.map((agent: any) => (
+
+          <table class="agents-table" id="registry-table">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort="name">Name ↕</th>
+                <th data-col="area">Area</th>
+                <th data-col="status">Status</th>
+                <th class="sortable" data-sort="last_run" data-col="last_run">Last run ↕</th>
+                <th data-col="health">Health</th>
+              </tr>
+            </thead>
+            <tbody id="registry-tbody">
+              {(allAgents as any[]).map((agent) => {
+                const hf = healthFlag(agent)
+                const isMuted = agent.status === 'draft' || agent.status === 'to_build'
+                const lastRunMs = agent.last_run ? new Date(agent.last_run).getTime() : 0
+                return (
                   <tr
-                    class="clickable"
+                    class={isMuted ? 'row-muted' : ''}
+                    data-name={String(agent.name ?? '').toLowerCase()}
+                    data-status={agent.status ?? ''}
+                    data-lastrun={String(lastRunMs)}
                     onclick={`location.href='/dashboard/agents/${agent.id}'`}
                   >
-                    <td style="font-weight:500; color:var(--text-primary);">{agent.name}</td>
-                    <td>
-                      <span class={`badge status-${(agent.status ?? '').replace(/[^a-z_]/g, '')}`}>
-                        {agent.status?.replace(/_/g, ' ') ?? '—'}
-                      </span>
-                    </td>
-                    <td style="font-size:12px; color:var(--text-muted);">{areaLabel(agent.area)}</td>
-                    <td style="font-size:12px; color:var(--text-muted);">{formatRelative(agent.last_run)}</td>
-                    <td>
-                      {agent.last_status ? (
-                        <span class={`badge status-${agent.last_status.replace(/[^a-z_]/g, '')}`}>
-                          {agent.last_status}
-                        </span>
-                      ) : <span style="color:var(--text-muted); font-size:12px;">—</span>}
-                    </td>
-                    <td>
-                      {agent.qa_status ? (
-                        <span class={`badge status-${agent.qa_status.replace(/[^a-z_]/g, '')}`}>
-                          {agent.qa_status.replace(/_/g, ' ')}
-                        </span>
-                      ) : <span style="color:var(--text-muted); font-size:12px;">—</span>}
-                    </td>
-                    <td>
-                      <a href={`/dashboard/agents/${agent.id}`} class="link-teal">Open →</a>
-                    </td>
+                    <td style="font-weight:500; color:var(--color-text-primary);">{agent.name ?? '—'}</td>
+                    <td data-col="area">{agent.area ?? '—'}</td>
+                    <td data-col="status">{agent.status ?? '—'}</td>
+                    <td data-col="last_run">{formatRelative(agent.last_run)}</td>
+                    <td data-col="health"><span class={hf.cls}>{hf.label}</span></td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr class="show-more-row" id="show-more-row" style="display:none;">
+                <td colspan="5">
+                  <button class="show-more-btn" id="show-more-btn">Show more</button>
+                  <button class="view-all-btn" id="view-all-btn">View all →</button>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
 
-        <!-- Needs Attention -->
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Needs Attention</h2>
-            {needsAttention.length > 0 && <span class="badge-count">{needsAttention.length}</span>}
-          </div>
-          {needsAttention.length === 0 ? (
-            <div class="empty-state">Nothing flagged — all clear.</div>
+        <!-- Workflows panel -->
+        <div id="tab-workflows" class="tab-panel">
+          <p class="placeholder-text">Workflows coming soon — agents will be linked to workflow steps here.</p>
+        </div>
+
+        <!-- Run logs panel -->
+        <div id="tab-runlogs" class="tab-panel">
+          {runLogs.length === 0 ? (
+            <p class="placeholder-text">Run logs coming soon — agent execution history will appear here.</p>
           ) : (
-            <table>
+            <table class="logs-table">
               <thead>
                 <tr>
-                  <th>Issue</th>
-                  <th>Agent</th>
-                  <th style="width:48px;"></th>
+                  <th>Agent key</th>
+                  <th>Status</th>
+                  <th>Started</th>
+                  <th>Completed</th>
+                  <th>Summary</th>
                 </tr>
               </thead>
               <tbody>
-                {needsAttention.map((item: any) => (
-                  <tr class="clickable" onclick={`location.href='/dashboard/agents/${item.agentId}'`}>
-                    <td>
-                      <span class={`attention-label attention-${item.priority}`}>
-                        {item.label}
-                      </span>
-                    </td>
-                    <td style="font-size:12px; color:var(--text-secondary);">{item.agentName}</td>
-                    <td>
-                      <a href={`/dashboard/agents/${item.agentId}`} class="link-teal">View →</a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-      </div>
-
-      <!-- ── ROW 2: Automations firing + Next to build ──────────────── -->
-      <div class="row-half">
-
-        <!-- Automations Firing -->
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Automations Firing</h2>
-            {automations.length > 0 && <span class="badge-count">{automations.length}</span>}
-          </div>
-          {automations.length === 0 ? (
-            <div class="empty-state">No active automations or recent runs.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Automation</th>
-                  <th>Last run</th>
-                  <th>Last status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {automations.map((a: any) => (
+                {(runLogs as any[]).map((log) => (
                   <tr>
-                    <td style="font-weight:500; color:var(--text-primary);">{a.name}</td>
-                    <td style="font-size:12px; color:var(--text-muted);">{formatRelative(a.last_run)}</td>
-                    <td>
-                      {a.last_status ? (
-                        <span class={`badge status-${a.last_status.replace(/[^a-z_]/g, '')}`}>
-                          {a.last_status}
-                        </span>
-                      ) : <span style="color:var(--text-muted); font-size:12px;">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <!-- Next to Build -->
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Next to Build</h2>
-            {toBuild.length > 0 && <span class="badge-count">{toBuild.length}</span>}
-          </div>
-          {toBuild.length === 0 ? (
-            <div class="empty-state">No agents in the build queue.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th>Phase</th>
-                  <th>Area</th>
-                </tr>
-              </thead>
-              <tbody>
-                {toBuild.map((agent: any) => (
-                  <tr class="clickable" onclick={`location.href='/dashboard/agents/${agent.id}'`}>
-                    <td style="font-weight:500; color:var(--text-primary);">{agent.name}</td>
-                    <td style="font-size:12px; color:var(--text-muted);">{agent.phase ?? '—'}</td>
-                    <td style="font-size:12px; color:var(--text-muted);">{areaLabel(agent.area)}</td>
+                    <td style="font-weight:500; color:var(--color-text-primary);">{log.agent_key ?? '—'}</td>
+                    <td>{log.status ?? '—'}</td>
+                    <td>{formatRelative(log.run_started_at)}</td>
+                    <td>{formatRelative(log.run_completed_at)}</td>
+                    <td style="color:var(--color-text-tertiary); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{log.action_summary ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -680,218 +546,407 @@ function areaLabel(a: string | null): string {
 
       </div>
 
+      <!-- ── Needs attention rail ───────────────────────────────── -->
+      <aside class="needs-rail">
+        <div class="rail-heading">Needs attention</div>
+        {needsAttention.length === 0 ? (
+          <div class="rail-healthy">All agents healthy</div>
+        ) : (
+          (needsAttention as NeedsItem[]).map((item) => (
+            <div class="rail-item">
+              <a href={`/dashboard/agents/${item.id}`}>{item.name}</a>
+              <span style="color:var(--color-text-tertiary);"> — {item.label}</span>
+            </div>
+          ))
+        )}
+      </aside>
+
     </div>
-    <!-- /dashboard-content -->
-
-    <!-- ── BUILDER SLIDE-OVER ─────────────────────────────────────────── -->
-    <div id="builder-panel" class="builder-panel" aria-hidden="true">
-      <div class="builder-inner">
-
-        <div class="builder-header">
-          <div style="flex:1; min-width:0;">
-            <h2>Agent Builder</h2>
-            <p>Claude asks questions one at a time. Answer each in turn — it will confirm before saving.</p>
-          </div>
-          <button id="btn-close-panel" class="btn-close-panel" aria-label="Close panel">✕</button>
-        </div>
-
-        <div class="builder-messages" id="builder-messages"></div>
-
-        <div class="builder-footer">
-          <div class="builder-input-row">
-            <textarea
-              id="builder-input"
-              class="builder-input"
-              rows="2"
-              placeholder="Type your answer… (Enter to send)"
-            ></textarea>
-            <button id="builder-send" class="btn-send">Send</button>
-          </div>
-          <div id="builder-save-status" class="save-status" style="display:none;"></div>
-        </div>
-
-      </div>
-    </div>
+    <!-- /content-grid -->
 
   </div>
-  <!-- /main-area -->
+  <!-- /dashboard-content -->
 
+  <!-- ── Builder slide-over ──────────────────────────────────── -->
+  <div id="builder-panel" class="builder-panel" aria-hidden="true">
+    <div class="builder-inner">
+      <div class="builder-header">
+        <div style="flex:1; min-width:0;">
+          <h2>Agent Builder</h2>
+          <p>Claude asks questions one at a time. Answer each in turn — it will confirm before saving.</p>
+        </div>
+        <button id="btn-close-panel" class="btn-close-panel" aria-label="Close panel">✕</button>
+      </div>
+      <div class="builder-messages" id="builder-messages"></div>
+      <div class="builder-footer">
+        <div class="builder-input-row">
+          <textarea
+            id="builder-input"
+            class="builder-input"
+            rows="2"
+            placeholder="Type your answer… (Enter to send)"
+          ></textarea>
+          <button id="builder-send" class="btn-send">Send</button>
+        </div>
+        <div id="builder-save-status" class="save-status" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<!-- /main-area -->
+</div>
+<!-- /page-content-wrapper -->
 
 <script>
-  // ── PANEL TOGGLE ────────────────────────────────────────────────────────────
-  const mainArea    = document.getElementById('main-area')!
-  const builderPanel = document.getElementById('builder-panel')!
-  const btnOpen     = document.getElementById('btn-new-agent')!
-  const btnClose    = document.getElementById('btn-close-panel')!
+// ── TABS ─────────────────────────────────────────────────────────────────────
+const tabBtns = Array.from(document.querySelectorAll('.tab-btn')) as HTMLButtonElement[]
+const tabPanels = Array.from(document.querySelectorAll('.tab-panel')) as HTMLElement[]
 
-  let chatInitialised = false
+function activateTab(tabId: string) {
+  tabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabId))
+  tabPanels.forEach(p => p.classList.toggle('active-panel', p.id === `tab-${tabId}`))
+}
 
-  btnOpen.addEventListener('click', () => {
-    mainArea.classList.add('panel-open')
-    builderPanel.setAttribute('aria-hidden', 'false')
-    if (!chatInitialised) {
-      initBuilderChat()
-      chatInitialised = true
-    }
-    document.getElementById('builder-input')?.focus()
+tabBtns.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.tab!)))
+
+// ── STAT CARD CLICKS ─────────────────────────────────────────────────────────
+document.querySelectorAll('.stat-card[data-card-tab]').forEach(card => {
+  const el = card as HTMLElement
+  function handleCardClick() {
+    activateTab(el.dataset.cardTab!)
+    const filter = el.dataset.cardFilter ?? 'all'
+    setStatusFilter(filter)
+  }
+  el.addEventListener('click', handleCardClick)
+  el.addEventListener('keydown', (e: Event) => {
+    if ((e as KeyboardEvent).key === 'Enter' || (e as KeyboardEvent).key === ' ') handleCardClick()
   })
+})
 
-  btnClose.addEventListener('click', () => {
-    mainArea.classList.remove('panel-open')
-    builderPanel.setAttribute('aria-hidden', 'true')
+// ── REGISTRY TABLE FILTERS ────────────────────────────────────────────────────
+let currentSearch = ''
+let currentStatus = 'all'
+let showAll = false
+let sortKey = ''
+let sortDir = 1
+
+function getDataRows(): HTMLTableRowElement[] {
+  return Array.from(document.querySelectorAll('#registry-tbody tr')) as HTMLTableRowElement[]
+}
+
+function setStatusFilter(status: string) {
+  currentStatus = status
+  document.querySelectorAll('.status-pill').forEach(p => {
+    const el = p as HTMLElement
+    el.classList.toggle('active', el.dataset.status === status)
   })
+  showAll = false
+  applyFilters()
+}
 
-  // ── AGENT BUILDER CHAT ──────────────────────────────────────────────────────
-  const FIRST_MSG = "Let's register a new agent. What's the name?"
-  const messages: { role: string; content: string }[] = [
-    { role: 'assistant', content: FIRST_MSG },
-  ]
-  let isStreaming = false
+function applyFilters() {
+  const rows = getDataRows()
+  rows.forEach(row => {
+    const nameMatch = !currentSearch || (row.dataset.name ?? '').includes(currentSearch)
+    const statusMatch = currentStatus === 'all' || row.dataset.status === currentStatus
+    row.dataset.filtered = nameMatch && statusMatch ? '0' : '1'
+  })
+  applyRowCap()
+}
 
-  function initBuilderChat() {
-    appendMsg('assistant', FIRST_MSG)
+function applyRowCap() {
+  const rows = getDataRows()
+  const visible = rows.filter(r => r.dataset.filtered !== '1')
+  const hidden = rows.filter(r => r.dataset.filtered === '1')
+
+  hidden.forEach(r => { r.style.display = 'none' })
+
+  const showMoreRow = document.getElementById('show-more-row')!
+  const showMoreBtn = document.getElementById('show-more-btn')!
+
+  if (showAll || visible.length <= 10) {
+    visible.forEach(r => { r.style.display = '' })
+    showMoreRow.style.display = 'none'
+    return
   }
 
-  document.getElementById('builder-send')!.addEventListener('click', sendMsg)
-  document.getElementById('builder-input')!.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMsg()
+  visible.forEach((r, i) => { r.style.display = i < 10 ? '' : 'none' })
+  showMoreBtn.textContent = `Show ${visible.length - 10} more`
+  showMoreRow.style.display = ''
+}
+
+// Search
+document.getElementById('agent-search')!.addEventListener('input', (e) => {
+  currentSearch = (e.target as HTMLInputElement).value.toLowerCase().trim()
+  showAll = false
+  applyFilters()
+})
+
+// Status pills
+document.querySelectorAll('.status-pill').forEach(pill => {
+  pill.addEventListener('click', () => setStatusFilter((pill as HTMLElement).dataset.status!))
+})
+
+// Show more
+document.getElementById('show-more-btn')!.addEventListener('click', () => {
+  showAll = true
+  applyRowCap()
+})
+
+// View all
+document.getElementById('view-all-btn')!.addEventListener('click', () => {
+  currentSearch = '';
+  (document.getElementById('agent-search') as HTMLInputElement).value = ''
+  setStatusFilter('all')
+  showAll = true
+  applyFilters()
+})
+
+// ── SORT ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.sortable[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = (th as HTMLElement).dataset.sort!
+    if (sortKey === key) {
+      sortDir = sortDir === 1 ? -1 : 1
+    } else {
+      sortKey = key
+      sortDir = 1
     }
+    sortRows()
   })
-  document.getElementById('builder-input')!.addEventListener('input', function(this: HTMLTextAreaElement) {
-    this.style.height = 'auto'
-    this.style.height = `${Math.min(this.scrollHeight, 100)}px`
+})
+
+function sortRows() {
+  const tbody = document.getElementById('registry-tbody')!
+  const rows = getDataRows()
+  rows.sort((a, b) => {
+    let va: string | number
+    let vb: string | number
+    if (sortKey === 'name') {
+      va = a.dataset.name ?? ''
+      vb = b.dataset.name ?? ''
+    } else {
+      // last_run — treat 0 (never) as always last
+      const na = parseInt(a.dataset.lastrun ?? '0', 10)
+      const nb = parseInt(b.dataset.lastrun ?? '0', 10)
+      if (na === 0 && nb === 0) return 0
+      if (na === 0) return 1
+      if (nb === 0) return -1
+      va = na
+      vb = nb
+    }
+    if (va < vb) return -sortDir
+    if (va > vb) return sortDir
+    return 0
   })
+  rows.forEach(r => tbody.appendChild(r))
+  applyRowCap()
+}
 
-  async function sendMsg() {
-    if (isStreaming) return
-    const input   = document.getElementById('builder-input')   as HTMLTextAreaElement
-    const sendBtn = document.getElementById('builder-send')    as HTMLButtonElement
-    const text = input.value.trim()
-    if (!text) return
+// ── COLUMN TOGGLE ─────────────────────────────────────────────────────────────
+const COL_KEY = 'agents-columns'
 
-    input.value = ''
-    input.style.height = 'auto'
-    input.disabled  = true
-    sendBtn.disabled = true
-    isStreaming = true
+function getColState(): Record<string, boolean> {
+  try {
+    const stored = localStorage.getItem(COL_KEY)
+    if (stored) return JSON.parse(stored) as Record<string, boolean>
+  } catch { /* ignore */ }
+  return { area: true, status: true, last_run: true, health: true }
+}
 
-    messages.push({ role: 'user', content: text })
-    appendMsg('user', text)
-    const bubble = appendMsg('assistant', '')
+function saveColState(state: Record<string, boolean>) {
+  try { localStorage.setItem(COL_KEY, JSON.stringify(state)) } catch { /* ignore */ }
+}
 
-    try {
-      const res = await fetch('/api/agents/builder-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
-      })
+function applyColVisibility(state: Record<string, boolean>) {
+  Object.entries(state).forEach(([col, visible]) => {
+    document.querySelectorAll(`[data-col="${col}"]`).forEach(el => {
+      el.classList.toggle('hidden-col', !visible)
+    })
+  })
+}
 
-      if (!res.ok || !res.body) {
-        bubble.textContent = 'Error — could not reach the builder.'
-        return
-      }
+function initColumns() {
+  const state = getColState()
+  document.querySelectorAll('#col-dropdown input[type=checkbox]').forEach(cb => {
+    const el = cb as HTMLInputElement
+    const col = el.dataset.col!
+    el.checked = state[col] !== false
+  })
+  applyColVisibility(state)
+}
 
-      const reader  = res.body.getReader()
-      const decoder = new TextDecoder()
-      let fullText  = ''
+document.querySelectorAll('#col-dropdown input[type=checkbox]').forEach(cb => {
+  cb.addEventListener('change', () => {
+    const state = getColState()
+    const el = cb as HTMLInputElement
+    state[el.dataset.col!] = el.checked
+    saveColState(state)
+    applyColVisibility(state)
+  })
+})
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
-          if (!line.startsWith('data: ')) continue
-          const data = line.slice(6).trim()
-          if (!data || data === '[DONE]') continue
-          try {
-            const parsed = JSON.parse(data)
-            if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-              fullText += parsed.delta.text as string
-              bubble.innerHTML = renderText(fullText)
-              scrollMsgs()
-            }
-          } catch { /* ignore malformed SSE lines */ }
-        }
-      }
+const colToggle = document.getElementById('columns-toggle')!
+const colDropdown = document.getElementById('col-dropdown')!
 
-      messages.push({ role: 'assistant', content: fullText })
+colToggle.addEventListener('click', (e) => {
+  e.stopPropagation()
+  colDropdown.classList.toggle('open')
+})
 
-      const match = fullText.match(/<AGENT_READY>([\s\S]*?)<\/AGENT_READY>/)
-      if (match) {
-        bubble.innerHTML = renderText(fullText)
+document.addEventListener('click', () => colDropdown.classList.remove('open'))
+colDropdown.addEventListener('click', (e) => e.stopPropagation())
+
+initColumns()
+applyFilters()
+
+// ── BUILDER PANEL TOGGLE ──────────────────────────────────────────────────────
+const mainArea = document.getElementById('main-area')!
+const builderPanel = document.getElementById('builder-panel')!
+const btnOpen = document.getElementById('btn-new-agent')!
+const btnClose = document.getElementById('btn-close-panel')!
+let chatInitialised = false
+
+btnOpen.addEventListener('click', () => {
+  mainArea.classList.add('panel-open')
+  builderPanel.setAttribute('aria-hidden', 'false')
+  if (!chatInitialised) { initBuilderChat(); chatInitialised = true }
+  ;(document.getElementById('builder-input') as HTMLTextAreaElement)?.focus()
+})
+
+btnClose.addEventListener('click', () => {
+  mainArea.classList.remove('panel-open')
+  builderPanel.setAttribute('aria-hidden', 'true')
+})
+
+// ── AGENT BUILDER CHAT ────────────────────────────────────────────────────────
+const FIRST_MSG = "Let's register a new agent. What's the name?"
+const messages: { role: string; content: string }[] = [
+  { role: 'assistant', content: FIRST_MSG },
+]
+let isStreaming = false
+
+function initBuilderChat() { appendMsg('assistant', FIRST_MSG) }
+
+document.getElementById('builder-send')!.addEventListener('click', sendMsg)
+document.getElementById('builder-input')!.addEventListener('keydown', (e: Event) => {
+  const ke = e as KeyboardEvent
+  if (ke.key === 'Enter' && !ke.shiftKey) { ke.preventDefault(); sendMsg() }
+})
+;(document.getElementById('builder-input') as HTMLTextAreaElement).addEventListener('input', function() {
+  this.style.height = 'auto'
+  this.style.height = `${Math.min(this.scrollHeight, 100)}px`
+})
+
+async function sendMsg() {
+  if (isStreaming) return
+  const input = document.getElementById('builder-input') as HTMLTextAreaElement
+  const sendBtn = document.getElementById('builder-send') as HTMLButtonElement
+  const text = input.value.trim()
+  if (!text) return
+
+  input.value = ''; input.style.height = 'auto'
+  input.disabled = true; sendBtn.disabled = true; isStreaming = true
+  messages.push({ role: 'user', content: text })
+  appendMsg('user', text)
+  const bubble = appendMsg('assistant', '')
+
+  try {
+    const res = await fetch('/api/agents/builder-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    })
+    if (!res.ok || !res.body) { bubble.textContent = 'Error — could not reach the builder.'; return }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let fullText = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (!data || data === '[DONE]') continue
         try {
-          await createAgent(JSON.parse(match[1].trim()))
-        } catch {
-          showSaveStatus('Could not parse agent data — ask Claude to try again.', 'error')
-        }
+          const parsed = JSON.parse(data)
+          if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+            fullText += parsed.delta.text as string
+            bubble.innerHTML = renderText(fullText)
+            scrollMsgs()
+          }
+        } catch { /* ignore malformed SSE */ }
       }
-    } finally {
-      isStreaming = false
-      input.disabled  = false
-      sendBtn.disabled = false
-      input.focus()
     }
-  }
 
-  function renderText(raw: string): string {
-    return raw
-      .replace(/<AGENT_READY>[\s\S]*?<\/AGENT_READY>/g, '')
-      .replace(/<AGENT_READY>[\s\S]*$/, '')
-      .trim()
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>')
-  }
-
-  function appendMsg(role: string, text: string): HTMLElement {
-    const container = document.getElementById('builder-messages')!
-    const el = document.createElement('div')
-    el.className = `bld-msg bld-msg-${role}`
-    if (text) el.innerHTML = renderText(text)
-    container.appendChild(el)
-    scrollMsgs()
-    return el
-  }
-
-  function scrollMsgs() {
-    const c = document.getElementById('builder-messages')!
-    c.scrollTop = c.scrollHeight
-  }
-
-  async function createAgent(agentData: Record<string, unknown>) {
-    showSaveStatus('Saving agent…', 'pending')
-    try {
-      const res = await fetch('/api/agents/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(agentData),
-      })
-      const result = await res.json() as { success?: boolean; agent_id?: string; error?: string }
-      if (res.ok && result.success && result.agent_id) {
-        showSaveStatus(
-          `Agent registered — <a href="/dashboard/agents/${result.agent_id}" style="color:#2D5A35;font-weight:600;">View agent →</a>`,
-          'success',
-        )
-        const sys = document.createElement('div')
-        sys.className = 'bld-msg bld-msg-system'
-        sys.textContent = 'Agent saved to agents_registry with status: to_build.'
-        document.getElementById('builder-messages')!.appendChild(sys)
-        scrollMsgs()
-      } else {
-        showSaveStatus(`Error: ${result.error ?? 'Unknown error'}`, 'error')
-      }
-    } catch {
-      showSaveStatus('Network error — agent not saved. Try again.', 'error')
+    messages.push({ role: 'assistant', content: fullText })
+    const match = fullText.match(/<AGENT_READY>([\s\S]*?)<\/AGENT_READY>/)
+    if (match) {
+      bubble.innerHTML = renderText(fullText)
+      try { await createAgent(JSON.parse(match[1].trim())) }
+      catch { showSaveStatus('Could not parse agent data — ask Claude to try again.', 'error') }
     }
+  } finally {
+    isStreaming = false; input.disabled = false; sendBtn.disabled = false; input.focus()
   }
+}
 
-  function showSaveStatus(html: string, type: 'pending' | 'success' | 'error') {
-    const el = document.getElementById('builder-save-status') as HTMLElement
-    el.innerHTML = html
-    el.className = `save-status save-status-${type}`
-    el.style.display = ''
-  }
+function renderText(raw: string): string {
+  return raw
+    .replace(/<AGENT_READY>[\s\S]*?<\/AGENT_READY>/g, '')
+    .replace(/<AGENT_READY>[\s\S]*$/, '')
+    .trim()
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+}
+
+function appendMsg(role: string, text: string): HTMLElement {
+  const container = document.getElementById('builder-messages')!
+  const el = document.createElement('div')
+  el.className = `bld-msg bld-msg-${role}`
+  if (text) el.innerHTML = renderText(text)
+  container.appendChild(el)
+  scrollMsgs()
+  return el
+}
+
+function scrollMsgs() {
+  const c = document.getElementById('builder-messages')!
+  c.scrollTop = c.scrollHeight
+}
+
+async function createAgent(agentData: Record<string, unknown>) {
+  showSaveStatus('Saving agent…', 'pending')
+  try {
+    const res = await fetch('/api/agents/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(agentData),
+    })
+    const result = await res.json() as { success?: boolean; agent_id?: string; error?: string }
+    if (res.ok && result.success && result.agent_id) {
+      showSaveStatus(
+        `Agent registered — <a href="/dashboard/agents/${result.agent_id}" style="color:var(--color-text-success);font-weight:600;">View agent →</a>`,
+        'success',
+      )
+      const sys = document.createElement('div')
+      sys.className = 'bld-msg bld-msg-system'
+      sys.textContent = 'Agent saved to agents_registry with status: to_build.'
+      document.getElementById('builder-messages')!.appendChild(sys)
+      scrollMsgs()
+    } else {
+      showSaveStatus(`Error: ${result.error ?? 'Unknown error'}`, 'error')
+    }
+  } catch { showSaveStatus('Network error — agent not saved. Try again.', 'error') }
+}
+
+function showSaveStatus(html: string, type: 'pending' | 'success' | 'error') {
+  const el = document.getElementById('builder-save-status') as HTMLElement
+  el.innerHTML = html
+  el.className = `save-status save-status-${type}`
+  el.style.display = ''
+}
 </script>
 </DashboardLayout>
