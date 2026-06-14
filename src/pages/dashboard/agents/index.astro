@@ -3,10 +3,15 @@ export const prerender = false
 import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
 import DashboardLayout from '../../../layouts/DashboardLayout.astro'
 
-const [allAgentsResult, runLogsResult] = await Promise.all([
+const [allAgentsResult, workflowsResult, runLogsResult] = await Promise.all([
   supabase
     .from('agents_registry')
     .select('id, name, area, status, last_run, security_approved')
+    .order('name', { ascending: true }),
+
+  supabase
+    .from('workflow_registry')
+    .select('name, purpose, status, area, version_label, verification_status, last_reviewed')
     .order('name', { ascending: true }),
 
   supabase
@@ -20,6 +25,7 @@ const allAgents = allAgentsResult.data ?? []
 const totalCount = allAgents.length
 const activeCount = allAgents.filter((a: any) => a.status === 'active').length
 const inProgressCount = allAgents.filter((a: any) => a.status === 'in_progress').length
+const workflows = workflowsResult.data ?? []
 const runLogs = runLogsResult.data ?? []
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
@@ -50,6 +56,15 @@ function formatRelative(ts: string | null): string {
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
+}
+
+function formatDate(ts: string | null): string {
+  if (!ts) return '—'
+  return new Intl.DateTimeFormat('en-AU', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(ts))
 }
 
 function healthFlag(a: { status: string; last_run: string | null }): { label: string; cls: string } {
@@ -511,7 +526,53 @@ function healthFlag(a: { status: string; last_run: string | null }): { label: st
 
         <!-- Workflows panel -->
         <div id="tab-workflows" class="tab-panel">
-          <p class="placeholder-text">Workflows coming soon — agents will be linked to workflow steps here.</p>
+          <table class="agents-table" id="workflows-table">
+            <thead>
+              <tr>
+                <th class="sortable" data-workflow-sort="name">Name ↕</th>
+                <th class="sortable" data-workflow-sort="purpose">Purpose ↕</th>
+                <th class="sortable" data-workflow-sort="status">Status ↕</th>
+                <th class="sortable" data-workflow-sort="area">Area ↕</th>
+                <th class="sortable" data-workflow-sort="version_label">Version ↕</th>
+                <th class="sortable" data-workflow-sort="verification_status">Verification ↕</th>
+                <th class="sortable" data-workflow-sort="last_reviewed">Last reviewed ↕</th>
+              </tr>
+            </thead>
+            <tbody id="workflows-tbody">
+              {(workflows as any[]).map((workflow) => {
+                const isMuted = workflow.status !== 'active'
+                const lastReviewedMs = workflow.last_reviewed ? new Date(workflow.last_reviewed).getTime() : 0
+                return (
+                  <tr
+                    class={isMuted ? 'row-muted' : ''}
+                    data-name={String(workflow.name ?? '').toLowerCase()}
+                    data-purpose={String(workflow.purpose ?? '').toLowerCase()}
+                    data-status={String(workflow.status ?? '').toLowerCase()}
+                    data-area={String(workflow.area ?? '').toLowerCase()}
+                    data-version_label={String(workflow.version_label ?? '').toLowerCase()}
+                    data-verification_status={String(workflow.verification_status ?? '').toLowerCase()}
+                    data-last_reviewed={String(lastReviewedMs)}
+                  >
+                    <td style="font-weight:500; color:var(--color-text-primary);">{workflow.name ?? '—'}</td>
+                    <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{workflow.purpose ?? '—'}</td>
+                    <td>{workflow.status ?? '—'}</td>
+                    <td>{workflow.area ?? '—'}</td>
+                    <td>{workflow.version_label ?? '—'}</td>
+                    <td>{workflow.verification_status ?? '—'}</td>
+                    <td>{formatDate(workflow.last_reviewed)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr class="show-more-row" id="workflow-show-more-row" style="display:none;">
+                <td colspan="7">
+                  <button class="show-more-btn" id="workflow-show-more-btn">Show more</button>
+                  <button class="view-all-btn" id="workflow-view-all-btn">View all →</button>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
 
         <!-- Run logs panel -->
@@ -800,6 +861,77 @@ colDropdown.addEventListener('click', (e) => e.stopPropagation())
 
 initColumns()
 applyFilters()
+
+// ── WORKFLOWS TABLE ─────────────────────────────────────────────────────────
+let workflowShowAll = false
+let workflowSortKey = ''
+let workflowSortDir = 1
+
+function getWorkflowRows(): HTMLTableRowElement[] {
+  return Array.from(document.querySelectorAll('#workflows-tbody tr')) as HTMLTableRowElement[]
+}
+
+function applyWorkflowRowCap() {
+  const rows = getWorkflowRows()
+  const showMoreRow = document.getElementById('workflow-show-more-row')!
+  const showMoreBtn = document.getElementById('workflow-show-more-btn')!
+
+  if (workflowShowAll || rows.length <= 10) {
+    rows.forEach(r => { r.style.display = '' })
+    showMoreRow.style.display = 'none'
+    return
+  }
+
+  rows.forEach((r, i) => { r.style.display = i < 10 ? '' : 'none' })
+  showMoreBtn.textContent = `Show ${rows.length - 10} more`
+  showMoreRow.style.display = ''
+}
+
+document.querySelectorAll('[data-workflow-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = (th as HTMLElement).dataset.workflowSort!
+    if (workflowSortKey === key) {
+      workflowSortDir = workflowSortDir === 1 ? -1 : 1
+    } else {
+      workflowSortKey = key
+      workflowSortDir = 1
+    }
+    sortWorkflowRows()
+  })
+})
+
+function sortWorkflowRows() {
+  const tbody = document.getElementById('workflows-tbody')!
+  const rows = getWorkflowRows()
+  rows.sort((a, b) => {
+    let va: string | number = a.dataset[workflowSortKey] ?? ''
+    let vb: string | number = b.dataset[workflowSortKey] ?? ''
+    if (workflowSortKey === 'last_reviewed') {
+      va = parseInt(String(va), 10)
+      vb = parseInt(String(vb), 10)
+      if (va === 0 && vb === 0) return 0
+      if (va === 0) return 1
+      if (vb === 0) return -1
+    }
+    if (va < vb) return -workflowSortDir
+    if (va > vb) return workflowSortDir
+    return 0
+  })
+  rows.forEach(r => tbody.appendChild(r))
+  applyWorkflowRowCap()
+}
+
+document.getElementById('workflow-show-more-btn')!.addEventListener('click', () => {
+  workflowShowAll = true
+  applyWorkflowRowCap()
+})
+
+document.getElementById('workflow-view-all-btn')!.addEventListener('click', () => {
+  workflowShowAll = true
+  applyWorkflowRowCap()
+})
+
+applyWorkflowRowCap()
 
 // ── BUILDER PANEL TOGGLE ──────────────────────────────────────────────────────
 const mainArea = document.getElementById('main-area')!
