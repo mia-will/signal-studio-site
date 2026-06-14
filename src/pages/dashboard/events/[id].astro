@@ -223,6 +223,13 @@ const { data: actionOutputAssetsData } = actionOutputAssetIds.length > 0
   : { data: [] }
 const actionAssetMap = new Map([...allDisplayAssets, ...(actionOutputAssetsData ?? [])].map((asset: any) => [asset.id, asset]))
 
+const { data: eventDocs } = await supabase
+  .from('docs')
+  .select('id, title, document_type, file_path, file_size_kb, created_at')
+  .eq('linked_to_event', id as string)
+  .eq('status', 'active')
+  .order('created_at', { ascending: false })
+
 const coverageMap: Record<string, boolean> = {}
 for (const use of EXPECTED_ASSET_USES) {
   coverageMap[use] = allDisplayAssets.some((a: any) => assetHasUse(a, use))
@@ -736,6 +743,19 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
   .show-more-btn { display: flex; align-items: center; justify-content: center; padding: 9px 16px; font-family: var(--body); font-size: 12px; color: var(--text-muted); background: none; border: none; border-top: 0.5px solid var(--border); cursor: pointer; width: 100%; transition: color 0.12s, background 0.12s; }
   .show-more-btn:hover { color: var(--text-primary); background: rgba(47,47,47,0.02); }
   .hidden-row { display: none; }
+  /* ── MEDIA PICKER ───────────────────────── */
+  .image-slot { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: rgba(47,47,47,0.015); }
+  .image-slot-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+  .image-slot-thumb { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 6px; display: block; }
+  .image-slot-empty { width: 100%; aspect-ratio: 4/3; border: 2px dashed var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-muted); }
+  .image-slot-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .btn-sm { font-family: var(--body); font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--teal); background: var(--teal); color: #fff; cursor: pointer; transition: opacity 0.12s; }
+  .btn-sm:hover { opacity: 0.85; }
+  .btn-sm--muted { background: none; border-color: var(--border); color: var(--text-secondary); }
+  .btn-sm--muted:hover { opacity: 1; background: rgba(47,47,47,0.04); }
+  .doc-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 0.5px solid var(--border); }
+  .doc-row:last-child { border-bottom: none; }
+  .doc-title { font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 
 <main class="content">
@@ -797,6 +817,7 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
         <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="marketing">Marketing</button>
         <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="delivery">Delivery</button>
         <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="registrations">Registrations</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="media">Media</button>
       </div>
 
       <section class="tab-panel" id="tab-plan" data-tab-panel="plan">
@@ -1136,6 +1157,86 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
             </>
           )}
         </div>
+      </section>
+
+      <section class="tab-panel" id="tab-media" data-tab-panel="media" hidden>
+
+        {/* Images card — 4 slots */}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Images</span>
+            <span class="card-counter">{legacyAssetIds.length} of 4 set</span>
+          </div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+              {[
+                { slot: 'hero_media_asset_id',          label: 'Hero',     assetId: event.hero_media_asset_id          ?? null },
+                { slot: 'featured_image_asset_id',      label: 'Featured', assetId: event.featured_image_asset_id      ?? null },
+                { slot: 'og_image_asset_id',            label: 'OG Image', assetId: event.og_image_asset_id            ?? null },
+                { slot: 'promotional_image_asset_id',   label: 'Promo',    assetId: event.promotional_image_asset_id   ?? null },
+              ].map(({ slot, label, assetId }) => {
+                const asset = legacyAssets.find((a: any) => a.id === assetId)
+                return (
+                  <div class="image-slot" data-slot={slot} data-entity-type="event" data-entity-id={event.id}>
+                    <div class="image-slot-label">{label}</div>
+                    {(asset?.image_url)
+                      ? <img class="image-slot-thumb" src={asset.image_url} alt={asset.alt_text ?? label} loading="lazy" />
+                      : <div class="image-slot-empty">No image</div>
+                    }
+                    <div class="image-slot-actions">
+                      <button class="btn-sm btn-slot-pick" type="button">Change</button>
+                      {assetId && <button class="btn-sm btn-sm--muted btn-slot-remove" type="button">Remove</button>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Documents card */}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Documents</span>
+            <span class="card-counter">{(eventDocs ?? []).length}</span>
+          </div>
+          {(eventDocs ?? []).length === 0
+            ? <div class="empty-state">No documents linked to this event yet.</div>
+            : (eventDocs ?? []).map((doc: any) => (
+                <div class="doc-row">
+                  <span class="doc-title">{doc.title}</span>
+                  <span class="badge" style="background:rgba(47,47,47,0.07);color:var(--text-secondary);font-size:11px;">{doc.document_type}</span>
+                  {doc.file_size_kb && <span style="font-size:11px;color:var(--text-muted);flex-shrink:0;">{doc.file_size_kb} KB</span>}
+                </div>
+              ))
+          }
+          <div class="card-body" style="border-top:1px solid var(--border);padding-top:10px;padding-bottom:10px;">
+            <a href={`/dashboard/brand/assets?tab=documents&link_event=${event.id}`} class="btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">+ Add document</a>
+          </div>
+        </div>
+
+        {/* Image picker modal */}
+        <div id="media-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;align-items:center;justify-content:center;">
+          <div style="background:var(--surface);border-radius:12px;padding:24px;width:min(640px,92vw);max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h3 style="font-family:var(--heading);font-size:16px;font-weight:600;color:var(--text-primary);">Pick an image</h3>
+              <button id="media-modal-close" type="button" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);line-height:1;">×</button>
+            </div>
+            <div id="media-modal-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;min-height:80px;"></div>
+          </div>
+        </div>
+
+        {/* Confirm overlay */}
+        <div id="media-confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:200;align-items:center;justify-content:center;">
+          <div style="background:var(--surface);border-radius:12px;padding:24px;width:min(400px,90vw);box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+            <p id="media-confirm-msg" style="font-size:14px;color:var(--text-primary);line-height:1.5;margin-bottom:20px;"></p>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+              <button id="media-confirm-cancel" type="button" class="btn-sm btn-sm--muted">Cancel</button>
+              <button id="media-confirm-ok" type="button" class="btn-sm">Confirm</button>
+            </div>
+          </div>
+        </div>
+
       </section>
     </>
   )}
@@ -1477,5 +1578,108 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
       showMoreBtn.remove()
     })
   }
+</script>
+
+<script>
+// ── Media tab: image slot pickers ─────────────────────────────────────────
+const _mediaModal   = document.getElementById('media-picker-modal') as HTMLElement | null
+const _mediaConfirm = document.getElementById('media-confirm-overlay') as HTMLElement | null
+if (_mediaModal && _mediaConfirm) {
+  const _sessionId = crypto.randomUUID()
+  let _pendingConfirm: (() => Promise<void>) | null = null
+  let _pendingSlot: { slot: string; entityType: string; entityId: string } | null = null
+
+  function showModal()  { _mediaModal!.style.display = 'flex' }
+  function hideModal()  { _mediaModal!.style.display = 'none' }
+  function showConfirm(msg: string, action: () => Promise<void>) {
+    document.getElementById('media-confirm-msg')!.textContent = msg
+    _pendingConfirm = action
+    _mediaConfirm!.style.display = 'flex'
+  }
+  function hideConfirm() { _mediaConfirm!.style.display = 'none'; _pendingConfirm = null }
+
+  document.getElementById('media-modal-close')!.addEventListener('click', hideModal)
+  document.getElementById('media-confirm-cancel')!.addEventListener('click', hideConfirm)
+  document.getElementById('media-confirm-ok')!.addEventListener('click', async () => {
+    hideConfirm()
+    if (_pendingConfirm) await _pendingConfirm()
+  })
+
+  async function callLinkAsset(entityType: string, entityId: string, slot: string, assetId: string | null): Promise<boolean> {
+    const res = await fetch('/api/dashboard/assets/link-asset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asset_id: assetId, entity_type: entityType, entity_id: entityId, slot, session_id: _sessionId })
+    })
+    if (!res.ok) { const e = await res.json().catch(() => ({})); alert('Error: ' + (e.error ?? res.status)); return false }
+    return true
+  }
+
+  function updateSlotUI(slotEl: HTMLElement, asset: { id: string; image_url?: string; alt_text?: string } | null) {
+    const thumb = slotEl.querySelector('.image-slot-thumb') as HTMLImageElement | null
+    const empty = slotEl.querySelector('.image-slot-empty') as HTMLElement | null
+    const removeBtn = slotEl.querySelector('.btn-slot-remove') as HTMLButtonElement | null
+    const actionsDiv = slotEl.querySelector('.image-slot-actions') as HTMLElement
+
+    if (asset?.image_url) {
+      if (thumb) { thumb.src = asset.image_url; thumb.alt = asset.alt_text ?? '' }
+      else if (empty) {
+        const img = document.createElement('img')
+        img.className = 'image-slot-thumb'; img.src = asset.image_url; img.alt = asset.alt_text ?? ''; img.loading = 'lazy'
+        empty.replaceWith(img)
+      }
+      if (!removeBtn) {
+        const btn = document.createElement('button')
+        btn.className = 'btn-sm btn-sm--muted btn-slot-remove'; btn.type = 'button'; btn.textContent = 'Remove'
+        actionsDiv.appendChild(btn)
+        btn.addEventListener('click', () => handleRemove(slotEl))
+      }
+    } else {
+      if (thumb) { const d = document.createElement('div'); d.className = 'image-slot-empty'; d.textContent = 'No image'; thumb.replaceWith(d) }
+      removeBtn?.remove()
+    }
+  }
+
+  function handleRemove(slotEl: HTMLElement) {
+    const label = slotEl.querySelector('.image-slot-label')?.textContent ?? 'image'
+    showConfirm(`Remove the ${label} image?`, async () => {
+      const ok = await callLinkAsset(slotEl.dataset.entityType!, slotEl.dataset.entityId!, slotEl.dataset.slot!, null)
+      if (ok) updateSlotUI(slotEl, null)
+    })
+  }
+
+  async function openPickerFor(slotEl: HTMLElement) {
+    _pendingSlot = { slot: slotEl.dataset.slot!, entityType: slotEl.dataset.entityType!, entityId: slotEl.dataset.entityId! }
+    const grid = document.getElementById('media-modal-grid')!
+    grid.innerHTML = '<div style="padding:20px;text-align:center;font-size:13px;color:var(--text-muted);">Loading…</div>'
+    showModal()
+    try {
+      const { assets } = await fetch('/api/dashboard/assets/library?limit=24').then(r => r.json())
+      if (!assets?.length) { grid.innerHTML = '<div style="padding:20px;text-align:center;font-size:13px;color:var(--text-muted);">No images in library.</div>'; return }
+      grid.innerHTML = assets.map((a: any) => `
+        <button type="button" class="modal-pick-btn"
+          data-asset-id="${a.id}" data-asset-url="${(a.image_url ?? '').replace(/"/g,'&quot;')}" data-asset-alt="${(a.alt_text ?? '').replace(/"/g,'&quot;')}" data-asset-title="${(a.title ?? '').replace(/"/g,'&quot;')}"
+          style="border:2px solid transparent;border-radius:8px;overflow:hidden;cursor:pointer;background:none;padding:0;aspect-ratio:4/3;display:block;">
+          <img src="${(a.image_url ?? '').replace(/"/g,'&quot;')}" alt="" style="width:100%;height:100%;object-fit:cover;" loading="lazy">
+        </button>`).join('')
+      grid.querySelectorAll<HTMLButtonElement>('.modal-pick-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          hideModal()
+          const label = document.querySelector<HTMLElement>(`[data-slot="${_pendingSlot?.slot}"] .image-slot-label`)?.textContent ?? 'slot'
+          const title = btn.dataset.assetTitle || btn.dataset.assetAlt || (btn.dataset.assetId?.slice(0, 8) + '…')
+          showConfirm(`Set "${label}" to "${title}"?`, async () => {
+            if (!_pendingSlot) return
+            const asset = { id: btn.dataset.assetId!, image_url: btn.dataset.assetUrl, alt_text: btn.dataset.assetAlt }
+            const ok = await callLinkAsset(_pendingSlot.entityType, _pendingSlot.entityId, _pendingSlot.slot, asset.id)
+            if (ok) { const el = document.querySelector<HTMLElement>(`[data-slot="${_pendingSlot.slot}"]`); if (el) updateSlotUI(el, asset) }
+          })
+        })
+      })
+    } catch { grid.innerHTML = '<div style="padding:20px;text-align:center;font-size:13px;color:var(--text-muted);">Failed to load library.</div>' }
+  }
+
+  document.querySelectorAll<HTMLElement>('.btn-slot-pick').forEach(btn => btn.addEventListener('click', () => openPickerFor(btn.closest('.image-slot')!)))
+  document.querySelectorAll<HTMLElement>('.btn-slot-remove').forEach(btn => btn.addEventListener('click', () => handleRemove(btn.closest('.image-slot')!)))
+}
 </script>
 </DashboardLayout>

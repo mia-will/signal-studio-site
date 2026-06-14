@@ -1,0 +1,585 @@
+---
+export const prerender = false
+import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
+
+const reqUrl     = new URL(Astro.request.url)
+const activeTab  = reqUrl.searchParams.get('tab') ?? 'images'
+const linkEvent  = reqUrl.searchParams.get('link_event') ?? null
+const linkPathway = reqUrl.searchParams.get('link_pathway') ?? null
+
+const [imagesRes, docsRes, assetTypeRes] = await Promise.all([
+  supabase
+    .from('media_assets')
+    .select('id, image_url, alt_text, caption, asset_type, title, width, height, file_size_kb, created_at')
+    .eq('status', 'published')
+    .order('created_at', { ascending: false })
+    .limit(24),
+  supabase
+    .from('docs')
+    .select('id, title, document_type, description, file_path, file_size_kb, created_at')
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(20),
+  supabase
+    .from('media_assets')
+    .select('asset_type')
+    .not('asset_type', 'is', null)
+    .order('asset_type'),
+])
+
+const recentImages = imagesRes.data ?? []
+const recentDocs   = docsRes.data   ?? []
+const rawTypes     = (assetTypeRes.data ?? []).map((r: any) => r.asset_type).filter(Boolean)
+const assetTypes   = [...new Set(rawTypes)] as string[]
+
+const DOC_TYPES    = ['agreement', 'brochure', 'invoice', 'report', 'other']
+---
+
+<DashboardLayout title="Assets & Documents — Signal Studio">
+<style>
+  .content { padding: 28px 32px; overflow-x: hidden; min-height: 100vh; max-width: 1100px; }
+
+  /* ── PAGE HEADER ──────────────────────────────────────────────────── */
+  .page-header { margin-bottom: 20px; }
+  .page-title { font-family: var(--heading); font-size: 22px; font-weight: 600; color: var(--text-primary); }
+  .page-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+  /* ── TAB BAR ──────────────────────────────────────────────────────── */
+  .tab-bar { display: flex; gap: 2px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    font-family: var(--body); font-size: 13px; font-weight: 500;
+    color: var(--text-muted); background: none; border: none;
+    padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: color 0.12s, border-color 0.12s;
+  }
+  .tab-btn.active { color: var(--teal); border-bottom-color: var(--teal); }
+  .tab-btn:hover:not(.active) { color: var(--text-secondary); }
+
+  /* ── CARDS ────────────────────────────────────────────────────────── */
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(47,47,47,0.06); }
+  .card-header { padding: 10px 16px; border-bottom: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .card-title { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+  .card-counter { font-size: 11px; color: var(--text-muted); }
+  .card-body { padding: 16px; }
+
+  /* ── FORM ELEMENTS ────────────────────────────────────────────────── */
+  .form-group { margin-bottom: 14px; }
+  .form-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 5px; }
+  .form-input, .form-select, .form-textarea {
+    width: 100%; padding: 8px 10px; font-family: var(--body); font-size: 13px;
+    color: var(--text-primary); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px;
+    transition: border-color 0.12s; box-sizing: border-box;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--teal); }
+  .form-textarea { resize: vertical; min-height: 70px; }
+
+  /* ── DROP ZONE ────────────────────────────────────────────────────── */
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: 10px; padding: 32px 20px;
+    text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    margin-bottom: 14px;
+  }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--teal); background: rgba(60,138,126,0.04); }
+  .drop-zone input[type=file] { display: none; }
+  .drop-zone-text { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  .drop-zone-text strong { color: var(--teal); }
+  .drop-zone-file-name { font-size: 12px; font-weight: 500; color: var(--text-primary); margin-top: 6px; }
+
+  /* ── BUTTONS ──────────────────────────────────────────────────────── */
+  .btn { font-family: var(--body); font-size: 13px; font-weight: 500; padding: 8px 18px; border-radius: 7px; border: none; cursor: pointer; transition: opacity 0.12s; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--teal); color: #fff; }
+  .btn-primary:hover:not(:disabled) { opacity: 0.88; }
+  .btn-muted { background: none; border: 1px solid var(--border); color: var(--text-secondary); }
+  .btn-muted:hover:not(:disabled) { background: rgba(47,47,47,0.04); }
+  .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  /* ── STATUS MESSAGES ──────────────────────────────────────────────── */
+  .status-msg { font-size: 13px; padding: 10px 14px; border-radius: 7px; margin-bottom: 14px; }
+  .status-loading { background: rgba(60,138,126,0.08); color: var(--teal); }
+  .status-success { background: rgba(123,190,154,0.15); color: #2D5A35; }
+  .status-error   { background: rgba(192,57,43,0.1); color: var(--red); }
+  .hidden { display: none !important; }
+
+  /* ── LINK CONTEXT BANNER ──────────────────────────────────────────── */
+  .link-banner { background: rgba(60,138,126,0.07); border: 1px solid rgba(60,138,126,0.2); border-radius: 8px; padding: 9px 14px; font-size: 12px; color: var(--teal); margin-bottom: 14px; }
+
+  /* ── CONFIRM BLOCK ────────────────────────────────────────────────── */
+  .confirm-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+  .confirm-preview { width: 100%; max-height: 200px; object-fit: cover; border-radius: 7px; margin-bottom: 12px; display: block; }
+  .confirm-row { display: flex; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+  .confirm-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); min-width: 90px; flex-shrink: 0; padding-top: 1px; }
+  .confirm-value { color: var(--text-secondary); flex: 1; }
+
+  /* ── LIBRARY GRIDS & LISTS ────────────────────────────────────────── */
+  .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .library-thumb { border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--bg); aspect-ratio: 4/3; position: relative; }
+  .library-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .library-thumb-meta { padding: 6px 8px; font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+  .library-doc-row { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-bottom: 0.5px solid var(--border); font-size: 13px; }
+  .library-doc-row:last-child { border-bottom: none; }
+  .library-doc-icon { font-size: 18px; flex-shrink: 0; color: var(--text-muted); }
+  .library-doc-title { flex: 1; min-width: 0; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .library-doc-type { font-size: 11px; font-weight: 500; background: rgba(47,47,47,0.07); color: var(--text-secondary); border-radius: 4px; padding: 2px 7px; flex-shrink: 0; }
+  .library-doc-size { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .empty-state { padding: 28px 20px; text-align: center; font-size: 13px; color: var(--text-muted); font-style: italic; }
+
+  @media (max-width: 768px) { .content { padding: 20px 16px; } .library-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+
+<main class="content">
+
+  <div class="page-header">
+    <h1 class="page-title">Assets &amp; Documents</h1>
+    <p class="page-sub">Upload and manage images and documents for all brands.</p>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn" class:list={['tab-btn', { active: activeTab === 'images' }]} data-tab="images" type="button">Images</button>
+    <button class="tab-btn" class:list={['tab-btn', { active: activeTab === 'documents' }]} data-tab="documents" type="button">Documents</button>
+  </div>
+
+  <!-- ── IMAGES PANEL ──────────────────────────────────────────────── -->
+  <div id="panel-images" hidden={activeTab !== 'images'}>
+
+    {/* Upload card */}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Upload Image</span>
+      </div>
+      <div class="card-body">
+
+        {/* Phase 1: file selection */}
+        <div id="img-phase-1">
+          <div class="drop-zone" id="img-drop-zone">
+            <input type="file" id="img-file-input" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" />
+            <div class="drop-zone-text">
+              <strong>Click to browse</strong> or drag and drop<br>
+              <span style="font-size:12px;">JPEG, PNG, WebP, GIF — will be converted to WebP ~150 KB</span>
+            </div>
+            <div id="img-file-name" class="drop-zone-file-name hidden"></div>
+          </div>
+          <div id="img-phase1-msg" class="status-msg hidden"></div>
+          <button class="btn btn-primary" id="img-analyze-btn" disabled type="button">Analyze with Claude Vision</button>
+        </div>
+
+        {/* Phase 2: analyzing */}
+        <div id="img-phase-2" class="hidden">
+          <div class="status-msg status-loading">Uploading and analyzing image with Claude Vision…</div>
+        </div>
+
+        {/* Phase 3: confirm form */}
+        <div id="img-phase-3" class="hidden">
+          <img id="img-preview" src="" alt="" class="confirm-preview" />
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Claude Vision has suggested alt text and a caption. Edit before saving.</p>
+
+          <div class="form-group">
+            <label class="form-label" for="img-alt-text">Alt text <span style="color:var(--text-muted);font-weight:400;">(required)</span></label>
+            <input class="form-input" id="img-alt-text" type="text" maxlength="250" placeholder="Describe the image for screen readers…" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="img-caption">Caption</label>
+            <input class="form-input" id="img-caption" type="text" placeholder="Short editorial caption…" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="img-title">Title / filename label</label>
+            <input class="form-input" id="img-title" type="text" placeholder="Internal reference name…" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="img-asset-type">Asset type</label>
+            <select class="form-select" id="img-asset-type">
+              {assetTypes.map(t => <option value={t}>{t}</option>)}
+              {assetTypes.length === 0 && <option value="photo">photo</option>}
+            </select>
+          </div>
+
+          <div id="img-phase3-msg" class="status-msg hidden"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="img-save-btn" type="button">Confirm &amp; Save</button>
+            <button class="btn btn-muted" id="img-back-btn" type="button">Back</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    {/* Library */}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Image Library</span>
+        <span class="card-counter" id="img-lib-count">{recentImages.length} shown</span>
+      </div>
+      <div class="card-body" id="img-library-wrap">
+        {recentImages.length === 0
+          ? <div class="empty-state">No images uploaded yet.</div>
+          : <div class="library-grid" id="img-library-grid">
+              {recentImages.map((img: any) => (
+                <div class="library-thumb">
+                  <img src={img.image_url ?? ''} alt={img.alt_text ?? ''} loading="lazy" />
+                  <div class="library-thumb-meta">
+                    <div style="font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{img.title || img.alt_text || '—'}</div>
+                    <div>{img.asset_type ?? ''} {img.file_size_kb ? `· ${img.file_size_kb} KB` : ''}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+    </div>
+
+  </div>
+  <!-- /panel-images -->
+
+  <!-- ── DOCUMENTS PANEL ───────────────────────────────────────────── -->
+  <div id="panel-documents" hidden={activeTab !== 'documents'}>
+
+    {linkEvent && (
+      <div class="link-banner">Will be linked to event <strong>{linkEvent}</strong> on save.</div>
+    )}
+    {linkPathway && (
+      <div class="link-banner">Will be linked to pathway <strong>{linkPathway}</strong> on save.</div>
+    )}
+
+    {/* Upload card */}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Upload Document</span>
+      </div>
+      <div class="card-body">
+
+        {/* Phase 1: form */}
+        <div id="doc-phase-1">
+          <div class="form-group">
+            <label class="form-label" for="doc-title">Title <span style="color:var(--red);">*</span></label>
+            <input class="form-input" id="doc-title" type="text" placeholder="e.g. Sponsorship Agreement 2026…" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="doc-type">Document type <span style="color:var(--red);">*</span></label>
+            <select class="form-select" id="doc-type">
+              <option value="">— Select type —</option>
+              {DOC_TYPES.map(t => <option value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="doc-description">Description</label>
+            <textarea class="form-textarea" id="doc-description" placeholder="Optional internal notes…"></textarea>
+          </div>
+          <div class="drop-zone" id="doc-drop-zone">
+            <input type="file" id="doc-file-input" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+            <div class="drop-zone-text">
+              <strong>Click to select file</strong><br>
+              <span style="font-size:12px;">PDF, DOC, DOCX — max 5 MB</span>
+            </div>
+            <div id="doc-file-name" class="drop-zone-file-name hidden"></div>
+          </div>
+          <div id="doc-phase1-msg" class="status-msg hidden"></div>
+          <button class="btn btn-primary" id="doc-preview-btn" disabled type="button">Preview before saving</button>
+        </div>
+
+        {/* Phase 2: uploading */}
+        <div id="doc-phase-2" class="hidden">
+          <div class="status-msg status-loading">Uploading document…</div>
+        </div>
+
+        {/* Phase 3: confirm */}
+        <div id="doc-phase-3" class="hidden">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Review and confirm before saving to the library.</p>
+          <div class="confirm-block">
+            <div class="confirm-row"><span class="confirm-label">Title</span><span class="confirm-value" id="doc-confirm-title">—</span></div>
+            <div class="confirm-row"><span class="confirm-label">Type</span><span class="confirm-value" id="doc-confirm-type">—</span></div>
+            <div class="confirm-row"><span class="confirm-label">Description</span><span class="confirm-value" id="doc-confirm-desc">—</span></div>
+            <div class="confirm-row"><span class="confirm-label">File</span><span class="confirm-value" id="doc-confirm-file">—</span></div>
+            <div class="confirm-row"><span class="confirm-label">Size</span><span class="confirm-value" id="doc-confirm-size">—</span></div>
+          </div>
+          <div id="doc-phase3-msg" class="status-msg hidden"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="doc-save-btn" type="button">Confirm &amp; Save</button>
+            <button class="btn btn-muted" id="doc-back-btn" type="button">Back</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    {/* Library */}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Document Library</span>
+        <span class="card-counter" id="doc-lib-count">{recentDocs.length} shown</span>
+      </div>
+      <div id="doc-library-wrap">
+        {recentDocs.length === 0
+          ? <div class="empty-state">No documents uploaded yet.</div>
+          : recentDocs.map((doc: any) => (
+              <div class="library-doc-row">
+                <span class="library-doc-icon">📄</span>
+                <span class="library-doc-title">{doc.title}</span>
+                <span class="library-doc-type">{doc.document_type}</span>
+                {doc.file_size_kb && <span class="library-doc-size">{doc.file_size_kb} KB</span>}
+              </div>
+            ))
+        }
+      </div>
+    </div>
+
+  </div>
+  <!-- /panel-documents -->
+
+</main>
+
+<script define:vars={{ linkEvent, linkPathway }}>
+const SESSION_ID  = crypto.randomUUID()
+const LINK_EVENT  = linkEvent
+const LINK_PATHWAY = linkPathway
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+const tabBtns   = document.querySelectorAll('.tab-btn')
+const tabPanels = { images: document.getElementById('panel-images'), documents: document.getElementById('panel-documents') }
+
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab
+    tabBtns.forEach(b => b.classList.toggle('active', b === btn))
+    Object.values(tabPanels).forEach(el => { if (el) el.hidden = true })
+    if (tab && tabPanels[tab]) tabPanels[tab].hidden = false
+  })
+})
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function showEl(id) { const el = document.getElementById(id); if (el) { el.classList.remove('hidden'); el.hidden = false } }
+function hideEl(id) { const el = document.getElementById(id); if (el) { el.classList.add('hidden'); el.hidden = true } }
+function setMsg(id, text, type) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.textContent = text
+  el.className = `status-msg status-${type}`
+  el.classList.remove('hidden')
+}
+function clearMsg(id) { const el = document.getElementById(id); if (el) el.classList.add('hidden') }
+
+// ── Image upload ──────────────────────────────────────────────────────────
+let imgFile = null
+let imgPending = null   // { file_path, image_url, width, height, file_size_kb, suggestions }
+
+const imgDropZone   = document.getElementById('img-drop-zone')
+const imgFileInput  = document.getElementById('img-file-input')
+const imgAnalyzeBtn = document.getElementById('img-analyze-btn')
+
+function setImageFile(file) {
+  imgFile = file
+  const nameEl = document.getElementById('img-file-name')
+  if (nameEl) { nameEl.textContent = file.name; nameEl.classList.remove('hidden') }
+  if (imgAnalyzeBtn) imgAnalyzeBtn.disabled = false
+  clearMsg('img-phase1-msg')
+}
+
+imgDropZone?.addEventListener('click', () => imgFileInput?.click())
+imgFileInput?.addEventListener('change', e => { const f = e.target.files?.[0]; if (f) setImageFile(f) })
+imgDropZone?.addEventListener('dragover', e => { e.preventDefault(); imgDropZone.classList.add('drag-over') })
+imgDropZone?.addEventListener('dragleave', () => imgDropZone.classList.remove('drag-over'))
+imgDropZone?.addEventListener('drop', e => {
+  e.preventDefault(); imgDropZone.classList.remove('drag-over')
+  const f = e.dataTransfer?.files?.[0]; if (f) setImageFile(f)
+})
+
+imgAnalyzeBtn?.addEventListener('click', async () => {
+  if (!imgFile) return
+  hideEl('img-phase-1'); showEl('img-phase-2')
+  try {
+    const fd = new FormData(); fd.append('file', imgFile)
+    const res = await fetch('/api/dashboard/assets/upload-image', { method: 'POST', body: fd })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error ?? res.status)
+    imgPending = data
+    // Populate confirm form
+    const preview = document.getElementById('img-preview')
+    if (preview) { preview.src = data.image_url; preview.alt = data.suggestions?.alt_text ?? '' }
+    const altEl = document.getElementById('img-alt-text')
+    const capEl = document.getElementById('img-caption')
+    if (altEl) altEl.value = data.suggestions?.alt_text ?? ''
+    if (capEl) capEl.value = data.suggestions?.caption ?? ''
+    hideEl('img-phase-2'); showEl('img-phase-3')
+  } catch (err) {
+    hideEl('img-phase-2'); showEl('img-phase-1')
+    setMsg('img-phase1-msg', 'Upload failed: ' + err.message, 'error')
+  }
+})
+
+document.getElementById('img-back-btn')?.addEventListener('click', () => {
+  hideEl('img-phase-3'); showEl('img-phase-1'); clearMsg('img-phase1-msg')
+})
+
+document.getElementById('img-save-btn')?.addEventListener('click', async () => {
+  if (!imgPending) return
+  const altText = document.getElementById('img-alt-text')?.value?.trim()
+  if (!altText) { setMsg('img-phase3-msg', 'Alt text is required.', 'error'); return }
+  const saveBtn = document.getElementById('img-save-btn')
+  if (saveBtn) saveBtn.disabled = true
+  clearMsg('img-phase3-msg')
+  try {
+    const body = {
+      file_path:   imgPending.file_path,
+      image_url:   imgPending.image_url,
+      alt_text:    altText,
+      caption:     document.getElementById('img-caption')?.value?.trim() || null,
+      title:       document.getElementById('img-title')?.value?.trim() || null,
+      asset_type:  document.getElementById('img-asset-type')?.value || null,
+      width:       imgPending.width,
+      height:      imgPending.height,
+      file_size_kb: imgPending.file_size_kb,
+      session_id:  SESSION_ID
+    }
+    const res = await fetch('/api/dashboard/assets/upload-image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error ?? res.status)
+    // Reset and refresh library
+    imgPending = null; imgFile = null
+    hideEl('img-phase-3'); showEl('img-phase-1')
+    if (imgFileInput) imgFileInput.value = ''
+    const nameEl = document.getElementById('img-file-name'); if (nameEl) nameEl.classList.add('hidden')
+    if (imgAnalyzeBtn) imgAnalyzeBtn.disabled = true
+    setMsg('img-phase1-msg', 'Image saved successfully.', 'success')
+    await refreshImageLibrary()
+  } catch (err) {
+    setMsg('img-phase3-msg', 'Save failed: ' + err.message, 'error')
+  } finally {
+    if (saveBtn) saveBtn.disabled = false
+  }
+})
+
+async function refreshImageLibrary() {
+  const wrap  = document.getElementById('img-library-wrap')
+  const count = document.getElementById('img-lib-count')
+  if (!wrap) return
+  try {
+    const { assets, total } = await fetch('/api/dashboard/assets/library?limit=24').then(r => r.json())
+    if (count) count.textContent = `${assets?.length ?? 0} shown`
+    if (!assets?.length) { wrap.innerHTML = '<div class="empty-state">No images uploaded yet.</div>'; return }
+    wrap.innerHTML = `<div class="library-grid" id="img-library-grid">${assets.map(a => `
+      <div class="library-thumb">
+        <img src="${(a.image_url ?? '').replace(/"/g,'&quot;')}" alt="${(a.alt_text ?? '').replace(/"/g,'&quot;')}" loading="lazy">
+        <div class="library-thumb-meta">
+          <div style="font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(a.title || a.alt_text || '—').replace(/</g,'&lt;')}</div>
+          <div>${(a.asset_type ?? '').replace(/</g,'&lt;')}${a.file_size_kb ? ` · ${a.file_size_kb} KB` : ''}</div>
+        </div>
+      </div>`).join('')}</div>`
+  } catch { /* silently ignore refresh errors */ }
+}
+
+// ── Document upload ───────────────────────────────────────────────────────
+let docFile = null
+let docPending = null   // { file_path, file_url, file_size_kb, original_name }
+
+const docDropZone   = document.getElementById('doc-drop-zone')
+const docFileInput  = document.getElementById('doc-file-input')
+const docPreviewBtn = document.getElementById('doc-preview-btn')
+
+function setDocFile(file) {
+  docFile = file
+  const nameEl = document.getElementById('doc-file-name')
+  if (nameEl) { nameEl.textContent = file.name; nameEl.classList.remove('hidden') }
+  updateDocPreviewBtn()
+}
+
+function updateDocPreviewBtn() {
+  const titleOk = !!document.getElementById('doc-title')?.value?.trim()
+  const typeOk  = !!document.getElementById('doc-type')?.value
+  if (docPreviewBtn) docPreviewBtn.disabled = !(docFile && titleOk && typeOk)
+}
+
+docDropZone?.addEventListener('click', () => docFileInput?.click())
+docFileInput?.addEventListener('change', e => { const f = e.target.files?.[0]; if (f) setDocFile(f) })
+docDropZone?.addEventListener('dragover', e => { e.preventDefault(); docDropZone.classList.add('drag-over') })
+docDropZone?.addEventListener('dragleave', () => docDropZone.classList.remove('drag-over'))
+docDropZone?.addEventListener('drop', e => {
+  e.preventDefault(); docDropZone.classList.remove('drag-over')
+  const f = e.dataTransfer?.files?.[0]; if (f) setDocFile(f)
+})
+document.getElementById('doc-title')?.addEventListener('input', updateDocPreviewBtn)
+document.getElementById('doc-type')?.addEventListener('change', updateDocPreviewBtn)
+
+docPreviewBtn?.addEventListener('click', async () => {
+  if (!docFile) return
+  const title = document.getElementById('doc-title')?.value?.trim()
+  const type  = document.getElementById('doc-type')?.value
+  if (!title || !type) { setMsg('doc-phase1-msg', 'Title and document type are required.', 'error'); return }
+  hideEl('doc-phase-1'); showEl('doc-phase-2')
+  try {
+    const fd = new FormData(); fd.append('file', docFile)
+    const res  = await fetch('/api/dashboard/assets/upload-document', { method: 'POST', body: fd })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error ?? res.status)
+    docPending = { ...data, title, document_type: type, description: document.getElementById('doc-description')?.value?.trim() || null }
+    // Populate confirm
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—' }
+    setText('doc-confirm-title', title)
+    setText('doc-confirm-type', type)
+    setText('doc-confirm-desc', docPending.description)
+    setText('doc-confirm-file', data.original_name)
+    setText('doc-confirm-size', data.file_size_kb ? `${data.file_size_kb} KB` : '—')
+    hideEl('doc-phase-2'); showEl('doc-phase-3')
+  } catch (err) {
+    hideEl('doc-phase-2'); showEl('doc-phase-1')
+    setMsg('doc-phase1-msg', 'Upload failed: ' + err.message, 'error')
+  }
+})
+
+document.getElementById('doc-back-btn')?.addEventListener('click', () => {
+  hideEl('doc-phase-3'); showEl('doc-phase-1'); clearMsg('doc-phase1-msg')
+})
+
+document.getElementById('doc-save-btn')?.addEventListener('click', async () => {
+  if (!docPending) return
+  const saveBtn = document.getElementById('doc-save-btn')
+  if (saveBtn) saveBtn.disabled = true
+  clearMsg('doc-phase3-msg')
+  try {
+    const body = {
+      file_path:       docPending.file_path,
+      title:           docPending.title,
+      document_type:   docPending.document_type,
+      description:     docPending.description,
+      file_size_kb:    docPending.file_size_kb,
+      linked_to_event:   LINK_EVENT || null,
+      linked_to_pathway: LINK_PATHWAY || null,
+      session_id:      SESSION_ID
+    }
+    const res = await fetch('/api/dashboard/assets/upload-document', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error ?? res.status)
+    // Reset
+    docPending = null; docFile = null
+    hideEl('doc-phase-3'); showEl('doc-phase-1')
+    if (docFileInput) docFileInput.value = ''
+    const nameEl = document.getElementById('doc-file-name'); if (nameEl) nameEl.classList.add('hidden')
+    document.getElementById('doc-title').value = ''
+    document.getElementById('doc-type').value = ''
+    document.getElementById('doc-description').value = ''
+    updateDocPreviewBtn()
+    setMsg('doc-phase1-msg', 'Document saved successfully.', 'success')
+    await refreshDocLibrary()
+  } catch (err) {
+    setMsg('doc-phase3-msg', 'Save failed: ' + err.message, 'error')
+  } finally {
+    if (saveBtn) saveBtn.disabled = false
+  }
+})
+
+async function refreshDocLibrary() {
+  const wrap  = document.getElementById('doc-library-wrap')
+  const count = document.getElementById('doc-lib-count')
+  if (!wrap) return
+  try {
+    const res   = await fetch('/api/dashboard/assets/library?limit=0')   // placeholder — docs don't use the image library
+    // Reload page section by fetching HTML — simpler: just reload
+    window.location.href = window.location.pathname + '?tab=documents'
+  } catch { /* ignore */ }
+}
+</script>
+</DashboardLayout>
