@@ -1,5 +1,6 @@
 ---
 import DashboardNav from '../components/dashboard/DashboardNav.astro'
+import DashboardChatPanel from '../components/dashboard/DashboardChatPanel.astro'
 import { supabaseAdmin as supabase } from '../lib/supabase-admin'
 
 interface Props {
@@ -79,15 +80,28 @@ const { data: livePathways } = await supabase
       grid-template-columns: 220px 1fr;
     }
 
+    .dash-content {
+      min-width: 0;
+      transition: padding-right 0.3s ease;
+    }
+
+    body.chat-open .dash-content {
+      padding-right: 380px;
+    }
+
     @media (max-width: 768px) {
       .dash-shell { grid-template-columns: 1fr; }
+      body.chat-open .dash-content { padding-right: 0; }
     }
   </style>
 </head>
 <body>
   <div class="dash-shell">
     <DashboardNav livePathways={livePathways ?? []} />
-    <slot />
+    <div class="dash-content">
+      <slot />
+    </div>
   </div>
+  <DashboardChatPanel currentPath={Astro.url.pathname} />
 </body>
 </html>
