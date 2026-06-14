@@ -29,12 +29,10 @@ const [contactsRes, michelleRes, needsAttentionRes] = await Promise.all([
 const contacts       = contactsRes.data ?? []
 const michelle       = michelleRes.data
 const needsAttnDB    = needsAttentionRes.data ?? []
-const mainContacts   = contacts.filter(c => c.subscriber === true && c.do_not_contact === false)
 const allCount       = contacts.length
-const builderCount   = mainContacts.filter(c => c.audience_track === 'builder').length
-const applierCount   = mainContacts.filter(c => c.audience_track === 'applier').length
-const bothCount      = mainContacts.filter(c => c.audience_track === 'both').length
-const unassignedCount = mainContacts.filter(c => !c.audience_track).length
+const subscribedCount = contacts.filter(c => c.subscriber === true).length
+const generalCount    = contacts.filter(c => c.subscriber === false || c.subscriber === null).length
+const unassignedCount = contacts.filter(c => !c.audience_track).length
 const needsAttnCount = needsAttnDB.length
 ---
 
@@ -77,7 +75,7 @@ const needsAttnCount = needsAttnDB.length
   }
 
   /* ── STAT CARDS ──────────────────────────── */
-  .stat-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; align-items: start; }
+  .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: start; }
 
   .stat-card {
     align-self: start;
@@ -262,36 +260,12 @@ const needsAttnCount = needsAttnDB.length
   .name-block { min-width: 0; }
   .contact-name { font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .contact-email { font-size: 12px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .contact-email.dnc { text-decoration: line-through; }
-
-  .dnc-pill {
-    display: inline-block; margin-left: 6px;
-    background: #FCEBEB; color: #A32D2D;
-    font-size: 10px; font-weight: 500; border-radius: 4px; padding: 1px 5px;
-  }
 
   /* ── TRACK PILL ──────────────────────────── */
   .track-pill { font-size: 11px; font-weight: 500; border-radius: 4px; padding: 2px 7px; display: inline-block; }
   .track-builder { background: #E1F5EE; color: #0F6E56; }
   .track-applier { background: #E6F1FB; color: #185FA5; }
   .track-both    { background: #EEEDFE; color: #3C3489; }
-
-  /* ── STATE BADGE ─────────────────────────── */
-  .state-badge { font-size: 9px; font-weight: 600; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; letter-spacing: 0.03em; }
-  .state-subscriber { background: #E1F5EE; color: #0F6E56; }
-  .state-crm        { background: rgba(47,47,47,0.07); color: var(--text-muted); }
-
-  /* ── STATE FILTER TOGGLE ─────────────────── */
-  .state-filter { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
-  .state-btn {
-    font-family: var(--body); font-size: 11px; color: var(--text-muted);
-    background: var(--surface); border: none; padding: 7px 10px;
-    cursor: pointer; border-right: 1px solid var(--border);
-    transition: background 0.12s, color 0.12s;
-  }
-  .state-btn:last-child { border-right: none; }
-  .state-btn:hover { background: rgba(47,47,47,0.04); color: var(--text-primary); }
-  .state-btn.active { background: #2F2F2F; color: #fff; }
 
   /* ── EMPTY + LOADING ─────────────────────── */
   .table-message { padding: 36px 20px; text-align: center; color: var(--text-muted); font-family: var(--body); font-size: 13px; font-style: italic; }
@@ -342,26 +316,19 @@ const needsAttnCount = needsAttnDB.length
         </div>
         <div class="stat-value" id="count-all">{allCount}</div>
       </div>
-      <div class="stat-card" data-filter="builder">
+      <div class="stat-card" data-filter="subscribed">
         <div class="stat-card-top">
           <div class="stat-dot" style="background:#1D9E75"></div>
-          <div class="stat-label">Builders</div>
+          <div class="stat-label">Subscribed</div>
         </div>
-        <div class="stat-value">{builderCount}</div>
+        <div class="stat-value">{subscribedCount}</div>
       </div>
-      <div class="stat-card" data-filter="applier">
+      <div class="stat-card" data-filter="general">
         <div class="stat-card-top">
           <div class="stat-dot" style="background:#378ADD"></div>
-          <div class="stat-label">Appliers</div>
+          <div class="stat-label">General</div>
         </div>
-        <div class="stat-value">{applierCount}</div>
-      </div>
-      <div class="stat-card" data-filter="both">
-        <div class="stat-card-top">
-          <div class="stat-dot" style="background:#7F77DD"></div>
-          <div class="stat-label">Both</div>
-        </div>
-        <div class="stat-value">{bothCount}</div>
+        <div class="stat-value">{generalCount}</div>
       </div>
       <div class="stat-card" data-filter="unassigned">
         <div class="stat-card-top">
@@ -395,16 +362,10 @@ const needsAttnCount = needsAttnDB.length
 
   <!-- Tab bar -->
   <div class="tab-bar">
-    <button class="tab" data-tab="needs_attention">
-      Needs attention
-      <span class="tab-badge">{needsAttnCount}</span>
-    </button>
     <button class="tab active" data-tab="all">All</button>
     <button class="tab" data-tab="builder">Builders</button>
     <button class="tab" data-tab="applier">Appliers</button>
     <button class="tab" data-tab="both">Both</button>
-    <button class="tab" data-tab="unassigned">Unassigned</button>
-    <button class="tab" data-tab="general">General</button>
   </div>
 
   <!-- Toolbar -->
@@ -419,11 +380,6 @@ const needsAttnCount = needsAttnDB.length
       <option value="created_at">Date added</option>
       <option value="name">Name A–Z</option>
     </select>
-    <div class="state-filter" id="state-filter">
-      <button class="state-btn active" data-state="all">All</button>
-      <button class="state-btn" data-state="subscriber">Subscribers</button>
-      <button class="state-btn" data-state="crm_only">CRM-only</button>
-    </div>
   </div>
 
   <!-- Column toggle pills -->
@@ -488,7 +444,6 @@ const needsAttnCount = needsAttnDB.length
 <!-- Embedded data -->
 <script is:inline type="application/json" id="contacts-data" set:html={JSON.stringify(contacts)}></script>
 <script is:inline type="application/json" id="michelle-data" set:html={JSON.stringify(michelle)}></script>
-<script is:inline type="application/json" id="needs-attn-data" set:html={JSON.stringify(needsAttnDB.map(c => c.id))}></script>
 
 <script>
   // ── Types ─────────────────────────────────
@@ -517,7 +472,6 @@ const needsAttnCount = needsAttnDB.length
   // ── Data ──────────────────────────────────
   const baseContacts: Contact[] = JSON.parse(document.getElementById('contacts-data')!.textContent ?? '[]')
   const michelleContact: Contact | null = JSON.parse(document.getElementById('michelle-data')!.textContent ?? 'null')
-  const needsAttnIds: string[] = JSON.parse(document.getElementById('needs-attn-data')!.textContent ?? '[]')
 
   // ── Avatar palette ────────────────────────
   const PALETTE = ['#FD6F2F','#9DDCE3','#7BBE9A','#B5D4F4','#FAC775','#F4C0D1','#CECBF6','#9FE1CB','#F5C4B3','#C0DD97']
@@ -562,8 +516,8 @@ const needsAttnCount = needsAttnDB.length
   }
 
   let showMichelle   = false
-  let activeTrack    = 'all'      // 'all' | 'builder' | 'applier' | 'both' | 'unassigned' | 'general' | 'needs_attention'
-  let stateFilter    = 'all'      // 'all' | 'subscriber' | 'crm_only'
+  let activeSegment  = 'all'      // 'all' | 'subscribed' | 'general' | 'unassigned'
+  let activeTrack    = 'all'      // 'all' | 'builder' | 'applier' | 'both'
   let currentSort    = loadSort()
   let currentPage    = 0
   let visibleCols    = loadColumns()
@@ -574,7 +528,7 @@ const needsAttnCount = needsAttnDB.length
   }
 
   function isGeneralContact(c: Contact): boolean {
-    return c.subscriber === false || c.do_not_contact === true
+    return c.subscriber === false || c.subscriber === null
   }
 
   function isMainContact(c: Contact): boolean {
@@ -621,19 +575,17 @@ const needsAttnCount = needsAttnDB.length
   function filtered(): Contact[] {
     let list = allContacts()
 
-    if (activeTrack === 'needs_attention') {
-      list = list.filter(c => isMainContact(c) && needsAttnIds.includes(c.id))
-    } else if (activeTrack === 'general') {
+    if (activeSegment === 'subscribed') {
+      list = list.filter(c => c.subscriber === true)
+    } else if (activeSegment === 'general') {
       list = list.filter(isGeneralContact)
-    } else {
-      // Apply state filter: defaults to 'all' (shows both subscribers and CRM-only contacts)
-      if (stateFilter === 'subscriber')     list = list.filter(isMainContact)
-      else if (stateFilter === 'crm_only') list = list.filter(c => c.subscriber !== true)
-      if (activeTrack === 'builder')         list = list.filter(c => c.audience_track === 'builder')
-      else if (activeTrack === 'applier')    list = list.filter(c => c.audience_track === 'applier')
-      else if (activeTrack === 'both')       list = list.filter(c => c.audience_track === 'both')
-      else if (activeTrack === 'unassigned') list = list.filter(c => !c.audience_track)
+    } else if (activeSegment === 'unassigned') {
+      list = list.filter(c => !c.audience_track)
     }
+
+    if (activeTrack === 'builder')      list = list.filter(c => c.audience_track === 'builder')
+    else if (activeTrack === 'applier') list = list.filter(c => c.audience_track === 'applier')
+    else if (activeTrack === 'both')    list = list.filter(c => c.audience_track === 'both')
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -695,7 +647,6 @@ const needsAttnCount = needsAttnDB.length
       tbody.innerHTML = `<tr><td colspan="10" class="table-message">No contacts match this filter.</td></tr>`
     } else {
         tbody.innerHTML = page.map(c => {
-        const isDNC = c.do_not_contact === true
         const score = c.engagement_score
         const stage = c.readiness_stage ? c.readiness_stage.replace(/_/g,' ') : '—'
 
@@ -704,8 +655,7 @@ const needsAttnCount = needsAttnDB.length
             <div class="name-cell">
               <div class="name-block">
                 <div class="contact-name">${fullName(c)}</div>
-                <div class="contact-email${isDNC ? ' dnc' : ''}">${c.email ?? '—'}${isDNC ? '<span class="dnc-pill">Unsubscribed</span>' : ''}</div>
-                ${c.subscriber === true ? '<span class="state-badge state-subscriber">Subscriber</span>' : '<span class="state-badge state-crm">CRM-only</span>'}
+                <div class="contact-email">${c.email ?? '—'}</div>
               </div>
             </div>
           </td>
@@ -793,7 +743,7 @@ const needsAttnCount = needsAttnDB.length
   // ── Needs attention panel visibility ─────
   function syncNeedsAttnPanel() {
     const panel = document.getElementById('needs-attention-panel')!
-    panel.style.display = activeTrack === 'needs_attention' ? 'none' : ''
+    panel.style.display = ''
   }
 
   // ── Init: set hidden cols ─────────────────
@@ -811,10 +761,9 @@ const needsAttnCount = needsAttnDB.length
     const card = (e.target as HTMLElement).closest('[data-filter]') as HTMLElement | null
     if (!card) return
     const filter = card.dataset.filter!
-    activeTrack = filter
+    activeSegment = filter
     currentPage = 0
     document.querySelectorAll('.stat-card').forEach(c => c.classList.toggle('active', (c as HTMLElement).dataset.filter === filter))
-    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', (t as HTMLElement).dataset.tab === filter))
     syncNeedsAttnPanel()
     render()
   })
@@ -826,9 +775,6 @@ const needsAttnCount = needsAttnDB.length
       activeTrack = tab
       currentPage = 0
       document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn))
-      document.querySelectorAll('.stat-card').forEach(c =>
-        c.classList.toggle('active', (c as HTMLElement).dataset.filter === tab)
-      )
       syncNeedsAttnPanel()
       render()
     })
@@ -877,16 +823,6 @@ const needsAttnCount = needsAttnDB.length
     else visibleCols.add(col)
     localStorage.setItem(LS_COL, JSON.stringify([...visibleCols]))
     syncColPills()
-    render()
-  })
-
-  // ── Event: state filter ───────────────────
-  document.getElementById('state-filter')!.addEventListener('click', e => {
-    const btn = (e.target as HTMLElement).closest('.state-btn') as HTMLElement | null
-    if (!btn) return
-    stateFilter = btn.dataset.state!
-    currentPage = 0
-    document.querySelectorAll('.state-btn').forEach(b => b.classList.toggle('active', b === btn))
     render()
   })
 

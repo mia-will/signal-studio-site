@@ -290,7 +290,16 @@ const startDisplay = (() => {
     </div>
   </div>
 
+  <!-- ── TAB BAR ─────────────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="details">Details</button>
+    <button class="tab-btn" data-tab="modules">Modules</button>
+    <button class="tab-btn" data-tab="people">Campaign &amp; people</button>
+    <button class="tab-btn" data-tab="media">Media</button>
+  </div>
+
   <!-- ── DETAILS (inline editable) ────────────────────────────────────── -->
+  <div id="tab-details">
   <div class="panel" id="pathway-details-card" style="margin-bottom:16px;">
     <div class="panel-header"><h2>Pathway details</h2></div>
     <div class="field-row" data-field="title" data-type="text" data-api={`/api/dashboard/pathways/${pathway.id}`} data-raw={pathway.title ?? ''}>
@@ -329,16 +338,10 @@ const startDisplay = (() => {
       </div>
     </div>
   </div>
-
-  <!-- ── TAB BAR ─────────────────────────────────────────────────────── -->
-  <div class="tab-bar">
-    <button class="tab-btn active" data-tab="modules">Modules</button>
-    <button class="tab-btn" data-tab="people">Campaign &amp; people</button>
-    <button class="tab-btn" data-tab="media">Media</button>
   </div>
 
   <!-- ── MODULES TAB ─────────────────────────────────────────────────── -->
-  <div id="tab-modules">
+  <div id="tab-modules" style="display:none">
 
     {modules.length === 0 ? (
       <div class="empty-dashed">No modules yet.</div>
@@ -637,11 +640,16 @@ const startDisplay = (() => {
 <script>
   // Tab switching
   const tabBtns   = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
-  const tabPanels = { modules: document.getElementById('tab-modules')!, people: document.getElementById('tab-people')!, media: document.getElementById('tab-media')! }
+  const tabPanels = {
+    details: document.getElementById('tab-details')!,
+    modules: document.getElementById('tab-modules')!,
+    people: document.getElementById('tab-people')!,
+    media: document.getElementById('tab-media')!,
+  }
 
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab as 'modules' | 'people' | 'media'
+      const tab = btn.dataset.tab as 'details' | 'modules' | 'people' | 'media'
       tabBtns.forEach(b => b.classList.toggle('active', b === btn))
       Object.entries(tabPanels).forEach(([k, el]) => { el.style.display = k === tab ? '' : 'none' })
     })

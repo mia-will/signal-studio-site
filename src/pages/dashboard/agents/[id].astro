@@ -6,6 +6,7 @@ export const prerender = false
 // Writes must go through server-side actions or Edge Functions, never directly
 // from browser code. See: src/lib/supabase-admin.ts
 import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
+import DashboardLayout from '../../../layouts/DashboardLayout.astro'
 
 const { id } = Astro.params
 
@@ -247,75 +248,12 @@ const hasLoops = (agent.calls_external ?? []).includes('Loops')
 const loopsUrl = 'https://app.loops.so'
 ---
 
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Signal OS — {agent.name}</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<DashboardLayout title={`The Signal OS — ${agent.name}`}>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --bg:             #F5F4F1;
-      --surface:        #FFFFFF;
-      --text-primary:   #2F2F2F;
-      --text-secondary: #505050;
-      --text-muted:     #909090;
-      --border:         rgba(47,47,47,0.08);
-      --teal:           #3C8A7E;
-      --orange:         #FF8A33;
-      --green:          #7BBE9A;
-      --red:            #C0392B;
-      --dark:           #111111;
-      --heading:        'DM Sans', sans-serif;
-      --body:           'Inter', sans-serif;
-    }
-
-    body { background: var(--bg); color: var(--text-primary); font-family: var(--body); }
-
-    .os-shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
-
-    /* ── SIDEBAR ───────────────────────────────────────────────────── */
-    .sidebar {
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      display: flex; flex-direction: column;
-      position: sticky; top: 0; height: 100vh; overflow-y: auto;
-    }
-    .sidebar-logo {
-      padding: 20px 16px 16px;
-      display: flex; align-items: center; gap: 8px;
-      font-family: var(--heading); font-size: 13px; font-weight: 700;
-      letter-spacing: 0.08em; color: var(--text-primary);
-      border-bottom: 1px solid var(--border);
-    }
-    .nav-section-label {
-      font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
-      color: var(--text-muted); text-transform: uppercase;
-      padding: 20px 16px 4px;
-    }
-    .nav-item {
-      display: block; font-size: 13px; color: var(--text-secondary);
-      padding: 6px 16px; border-radius: 6px; margin: 1px 8px; text-decoration: none;
-    }
-    .nav-item.active { background: rgba(60,138,126,0.10); color: var(--teal); font-weight: 500; }
-    .sidebar-footer {
-      margin-top: auto; padding: 14px 16px;
-      border-top: 1px solid var(--border);
-      display: flex; align-items: center; gap: 10px;
-    }
-    .avatar {
-      width: 28px; height: 28px; border-radius: 50%;
-      background: var(--teal); color: white;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 600; flex-shrink: 0;
-    }
-    .footer-name { font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
-    .footer-role { font-size: 11px; color: var(--text-muted); }
-
     /* ── MAIN ──────────────────────────────────────────────────────── */
-    .content { padding: 28px 32px; overflow-x: hidden; max-width: 960px; }
+    .content { padding: 28px 32px; overflow-x: hidden; width: 100%; min-height: 100vh; }
 
     .back-link {
       display: inline-block; font-size: 13px;
@@ -576,45 +514,6 @@ const loopsUrl = 'https://app.loops.so'
     .save-status-success { background: rgba(123,190,154,0.15); color: #2D5A35; }
     .save-status-error   { background: rgba(192,57,43,0.10); color: var(--red); }
   </style>
-</head>
-<body>
-<div class="os-shell">
-
-  <!-- ── SIDEBAR ───────────────────────────────────────────────────── -->
-  <nav class="sidebar">
-    <div class="sidebar-logo">
-      <span>✦</span>
-      <span>THE SIGNAL OS</span>
-    </div>
-    <div style="padding: 8px 0;">
-      <span class="nav-item">🏠 Snapshot</span>
-      <div class="nav-section-label">Relationships</div>
-      <a href="/dashboard/crm" class="nav-item">CRM</a>
-      <span class="nav-item">Growth</span>
-      <span class="nav-item">Clients</span>
-      <div class="nav-section-label">Delivery</div>
-      <span class="nav-item">Projects</span>
-      <span class="nav-item">Pathways</span>
-      <span class="nav-item">Events</span>
-      <div class="nav-section-label">Content</div>
-      <span class="nav-item">Content</span>
-      <span class="nav-item">Campaigns</span>
-      <span class="nav-item">EDMs</span>
-      <div class="nav-section-label">Operations</div>
-      <span class="nav-item">Finance</span>
-      <a href="/dashboard/governance" class="nav-item">Governance</a>
-      <span class="nav-item">Automations</span>
-      <a href="/dashboard/agents" class="nav-item active">Agents</a>
-    </div>
-    <div class="sidebar-footer">
-      <div class="avatar">M</div>
-      <div>
-        <div class="footer-name">Michelle</div>
-        <div class="footer-role">System Operator</div>
-      </div>
-    </div>
-  </nav>
-
   <!-- ── MAIN ──────────────────────────────────────────────────────── -->
   <main class="content">
 
@@ -1160,7 +1059,6 @@ const loopsUrl = 'https://app.loops.so'
     </div>
 
   </main>
-</div>
 
 <!-- ── CONTINUE BUILDING SLIDE-OVER ──────────────────────────────────────── -->
 <div id="builder-overlay" class="builder-overlay" aria-hidden="true">
@@ -1377,5 +1275,4 @@ const loopsUrl = 'https://app.loops.so'
   }
 </script>
 
-</body>
-</html>
+</DashboardLayout>

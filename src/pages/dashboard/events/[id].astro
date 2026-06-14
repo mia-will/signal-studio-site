@@ -836,7 +836,21 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
     </div>
   )}
 
+  <div class="tab-bar" role="tablist" aria-label="Event detail sections">
+    <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="details">Details</button>
+    <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="production">Production</button>
+    {(eventTiming === 'upcoming' || eventTiming === 'draft') && (
+      <>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="marketing">Marketing</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="delivery">Delivery</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="registrations">Registrations</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="media">Media</button>
+      </>
+    )}
+  </div>
+
   {/* ─────────────── DETAILS (inline editable) ──────────────────────── */}
+  <section class="tab-panel" id="tab-details" data-tab-panel="details">
   <div class="card" id="event-details-card">
     <div class="card-header"><span class="card-title">Event details</span></div>
     <div class="field-row" data-field="title" data-type="text" data-api={`/api/dashboard/events/${event.id}`} data-raw={event.title ?? ''}>
@@ -882,19 +896,12 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
       </div>
     </div>
   </div>
+  </section>
 
   {/* ─────────────── PRODUCTION MODE ─────────────────────────────────── */}
   {(eventTiming === 'upcoming' || eventTiming === 'draft') && (
     <>
-      <div class="tab-bar" role="tablist" aria-label="Event detail sections">
-        <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="plan">Plan</button>
-        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="marketing">Marketing</button>
-        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="delivery">Delivery</button>
-        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="registrations">Registrations</button>
-        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="media">Media</button>
-      </div>
-
-      <section class="tab-panel" id="tab-plan" data-tab-panel="plan">
+      <section class="tab-panel" id="tab-production" data-tab-panel="production" hidden>
         {eventTiming === 'draft' && (
           <div class="card">
             <div class="card-header">
@@ -1317,7 +1324,7 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
 
   {/* ─────────────── PAST MODE (unchanged) ────────────────────────────── */}
   {eventTiming === 'past' && (
-    <div>
+    <section class="tab-panel" id="tab-production" data-tab-panel="production" hidden>
 
       {/* 1. Post-event work */}
       <div class="card">
@@ -1619,7 +1626,7 @@ const headerDaysLabel = countdown === null ? '—' : countdown === 0 ? 'Today' :
         </div>
       </div>
 
-    </div>
+    </section>
   )}
 
 </main>
