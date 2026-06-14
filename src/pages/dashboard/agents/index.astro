@@ -179,6 +179,9 @@ function healthFlag(a: { status: string; last_run: string | null }): { label: st
     align-items: start;
     padding: 0 24px 18px;
   }
+  .table-column {
+    min-width: 0;
+  }
 
   /* ── Tab panels ───────────────────────────────────────────── */
   .tab-panel { display: none; }
@@ -459,7 +462,7 @@ function healthFlag(a: { status: string; last_run: string | null }): { label: st
     <!-- ── Content grid (table col + needs-attention rail) ─────── -->
     <div class="content-grid">
 
-      <div>
+      <div class="table-column">
 
         <!-- Registry panel -->
         <div id="tab-registry" class="tab-panel active-panel">

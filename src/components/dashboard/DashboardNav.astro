@@ -22,19 +22,12 @@ function routeStatus(route: string): Status {
 
 const pathname = Astro.url.pathname
 
-interface LivePathway {
-  id: string
-  title: string | null
-}
-
-const { livePathways = [] } = Astro.props as { livePathways?: LivePathway[] }
-
 function isActive(href: string): boolean {
   if (href === '/dashboard') return pathname === '/dashboard' || pathname === '/dashboard/'
   return pathname === href || pathname.startsWith(href + '/')
 }
 
-interface NavItem { label: string; href: string; children?: NavItem[] }
+interface NavItem { label: string; href: string }
 interface NavSection { label?: string; items: NavItem[] }
 
 const sections: NavSection[] = [
@@ -136,24 +129,6 @@ const sections: NavSection[] = [
                 <span class={`dot dot--${status}`} aria-hidden="true"></span>
                 <span class="nav-label">{item.label}</span>
               </a>
-              {item.children && item.children.length > 0 && (
-                <div class="nav-children">
-                  {item.children.map(child => {
-                    const childActive = pathname === child.href
-                    const childStatus = routeStatus('/dashboard/remix/pathways/[id]')
-                    return (
-                      <a
-                        href={child.href}
-                        class:list={['nav-item', 'nav-child', { active: childActive }]}
-                        aria-current={childActive ? 'page' : undefined}
-                      >
-                        <span class={`dot dot--${childStatus}`} aria-hidden="true"></span>
-                        <span class="nav-label">{child.label}</span>
-                      </a>
-                    )
-                  })}
-                </div>
-              )}
             </>
           )
         })}
@@ -268,15 +243,6 @@ const sections: NavSection[] = [
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .nav-children {
-    margin: 0 0 2px;
-  }
-
-  .nav-child {
-    font-size: 12px;
-    padding-left: 28px;
   }
 
   /* ── STATUS DOTS ───────────────────────────────────────────────── */

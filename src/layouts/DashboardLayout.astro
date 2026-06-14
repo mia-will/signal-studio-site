@@ -1,20 +1,12 @@
 ---
 import DashboardNav from '../components/dashboard/DashboardNav.astro'
 import DashboardChatPanel from '../components/dashboard/DashboardChatPanel.astro'
-import { supabaseAdmin as supabase } from '../lib/supabase-admin'
 
 interface Props {
   title: string
 }
 
 const { title } = Astro.props
-
-const { data: livePathways } = await supabase
-  .from('pathways')
-  .select('id, title')
-  .eq('status', 'active')
-  .in('pathway_status', ['open', 'coming_soon'])
-  .order('sort_order', { ascending: true })
 ---
 
 <html lang="en">
@@ -97,7 +89,7 @@ const { data: livePathways } = await supabase
 </head>
 <body>
   <div class="dash-shell">
-    <DashboardNav livePathways={livePathways ?? []} />
+    <DashboardNav />
     <div class="dash-content">
       <slot />
     </div>
