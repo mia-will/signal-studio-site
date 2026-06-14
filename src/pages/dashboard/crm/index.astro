@@ -211,11 +211,11 @@ const clientsCount    = contacts.filter(c => c.client_stage !== null).length
   }
 
   tbody td {
-    padding: 14px 12px; color: var(--color-text-secondary);
+    padding: 20px 12px; color: var(--color-text-secondary);
     border-bottom: 0.5px solid var(--color-border-tertiary);
     vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  tbody td:first-child { padding: 14px 24px; }
+  tbody td:first-child { padding: 20px 24px; }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr { cursor: pointer; transition: background 0.1s; }
   tbody tr:hover td { background: var(--color-background-secondary); }
@@ -475,7 +475,7 @@ const clientsCount    = contacts.filter(c => c.client_stage !== null).length
   let activeTrack   = 'all'
   let currentSort   = loadSort()
   let currentPage   = 0
-  let pageSize      = 10
+  let pageSize      = 20
   let visibleCols   = loadColumns()
   let searchQuery   = ''
 
