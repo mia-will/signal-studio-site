@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { supabaseAdmin } from '../../../../lib/supabase-admin'
 
-const ALLOWED_FIELDS = ['first_name', 'last_name', 'organisation', 'job_title', 'notes', 'tags']
+const ALLOWED_FIELDS = ['first_name', 'last_name', 'organisation', 'job_title', 'notes', 'tags', 'audience_track']
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -45,7 +45,7 @@ export const PATCH: APIRoute = async ({ request, params, cookies }) => {
     .eq('id', id)
     .maybeSingle()
 
-  const previousValue = previousRes.data?.[field] ?? null
+  const previousValue = (previousRes.data as Record<string, unknown> | null)?.[field] ?? null
 
   const { error } = await supabaseAdmin
     .from('contacts_crm')

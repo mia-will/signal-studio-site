@@ -3,289 +3,279 @@ export const prerender = false
 import { supabaseAdmin as supabase } from '../../../lib/supabase-admin'
 import DashboardLayout from '../../../layouts/DashboardLayout.astro'
 
-const SELECT_FIELDS = 'id, first_name, last_name, email, phone, organisation, audience_track, readiness_stage, engagement_score, last_active, source, leaders_group, subscriber, do_not_contact, do_not_contact_reason, contact_type, created_at, suburb, state'
-const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+type OrgRaw = { name: string | null; type: string | null } | null
+type ProjectRaw = { stage: string | null; client_business_name: string | null }
 
-const [contactsRes, michelleRes, needsAttentionRes] = await Promise.all([
-  supabase.from('contacts_crm')
-    .select(SELECT_FIELDS)
+function flattenContact(c: Record<string, unknown>) {
+  const org = c.organisations as OrgRaw
+  const rawProjects = c.client_projects
+  const projects: ProjectRaw[] = Array.isArray(rawProjects)
+    ? rawProjects as ProjectRaw[]
+    : rawProjects ? [rawProjects as ProjectRaw] : []
+  const activeProject = projects.find(p => p.stage === 'Active') ?? projects[0] ?? null
+  return {
+    id:                   c.id as string,
+    first_name:           c.first_name as string | null,
+    last_name:            c.last_name as string | null,
+    email:                c.email as string | null,
+    phone:                c.phone as string | null,
+    audience_track:       c.audience_track as string | null,
+    readiness_stage:      c.readiness_stage as string | null,
+    engagement_score:     c.engagement_score as number | null,
+    last_active:          c.last_active as string | null,
+    source:               c.source as string | null,
+    subscriber:           c.subscriber as boolean | null,
+    do_not_contact:       c.do_not_contact as boolean | null,
+    suburb:               c.suburb as string | null,
+    state:                c.state as string | null,
+    leaders_group:        c.leaders_group as boolean | null,
+    created_at:           c.created_at as string | null,
+    organisation_name:    org?.name ?? null,
+    organisation_type:    org?.type ?? null,
+    client_stage:         activeProject?.stage ?? null,
+    client_business_name: activeProject?.client_business_name ?? null,
+  }
+}
+
+const SELECT = `
+  id, first_name, last_name, email, phone,
+  audience_track, readiness_stage, engagement_score,
+  last_active, source, subscriber, do_not_contact,
+  suburb, state, leaders_group, created_at,
+  organisations!organisation_id ( name, type ),
+  client_projects!contact_id ( stage, client_business_name )
+`
+
+const [contactsRes, michelleRes] = await Promise.all([
+  supabase
+    .from('contacts_crm')
+    .select(SELECT)
     .neq('email', 'michelle@theremix.au')
     .order('engagement_score', { ascending: false, nullsFirst: false }),
-  supabase.from('contacts_crm')
-    .select(SELECT_FIELDS)
+  supabase
+    .from('contacts_crm')
+    .select(SELECT)
     .eq('email', 'michelle@theremix.au')
     .maybeSingle(),
-  supabase.from('contacts_crm')
-    .select('id, first_name, last_name, email, source, created_at')
-    .in('source', ['website_form', 'social_form', 'studio_form'])
-    .gte('created_at', sevenDaysAgo)
-    .neq('email', 'michelle@theremix.au')
-    .eq('subscriber', true)
-    .eq('do_not_contact', false)
-    .order('created_at', { ascending: false })
-    .limit(10),
 ])
 
-const contacts       = contactsRes.data ?? []
-const michelle       = michelleRes.data
-const needsAttnDB    = needsAttentionRes.data ?? []
-const allCount       = contacts.length
+const contacts       = (contactsRes.data ?? []).map(c => flattenContact(c as Record<string, unknown>))
+const michelle       = michelleRes.data ? flattenContact(michelleRes.data as Record<string, unknown>) : null
+
+const totalCount      = contacts.length
 const subscribedCount = contacts.filter(c => c.subscriber === true).length
 const generalCount    = contacts.filter(c => c.subscriber === false || c.subscriber === null).length
-const unassignedCount = contacts.filter(c => !c.audience_track).length
-const needsAttnCount = needsAttnDB.length
+const clientsCount    = contacts.filter(c => c.client_stage !== null).length
 ---
 
 <DashboardLayout title="The Signal OS — CRM">
 <style>
   .content { padding: 0; overflow-x: hidden; min-height: 100vh; }
 
-  /* ── PAGE HEADER ─────────────────────────── */
+  /* ── PAGE HEADER ─── */
   .page-header {
     display: flex; align-items: flex-start; justify-content: space-between;
     padding: 20px 24px 12px; gap: 16px;
   }
-  .page-header h1 { font-family: var(--heading); font-size: 22px; font-weight: 500; color: var(--text-primary); line-height: 1.2; }
-  .page-header-sub { font-family: var(--body); font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+  .page-header h1 {
+    font-family: var(--heading); font-size: 22px; font-weight: 500;
+    color: var(--color-text-primary); line-height: 1.2;
+  }
+  .page-header-sub {
+    font-family: var(--body); font-size: 13px;
+    color: var(--color-text-tertiary); margin-top: 3px;
+  }
   .header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
   .btn-ghost {
-    font-family: var(--body); font-size: 12px; color: var(--text-muted);
+    font-family: var(--body); font-size: 12px; color: var(--color-text-tertiary);
     background: none; border: none; cursor: pointer; padding: 4px 8px;
-    border-radius: 6px; transition: background 0.12s;
+    border-radius: var(--border-radius-md); transition: background 0.12s;
   }
-  .btn-ghost:hover { background: rgba(47,47,47,0.06); }
-  .btn-ghost span { color: var(--text-secondary); text-decoration: underline; }
+  .btn-ghost:hover { background: var(--color-background-tertiary); }
+  .btn-ghost span { color: var(--color-text-secondary); text-decoration: underline; }
 
   .btn-primary {
     font-family: var(--body); font-size: 12px; font-weight: 500;
-    background: var(--text-primary); color: #fff;
-    border: none; border-radius: 8px; padding: 6px 14px; cursor: pointer;
+    background: var(--color-text-primary); color: var(--color-background-primary);
+    border: none; border-radius: var(--border-radius-md); padding: 6px 14px; cursor: pointer;
     transition: opacity 0.12s;
   }
   .btn-primary:hover { opacity: 0.85; }
 
-  /* ── TOP PANEL ───────────────────────────── */
-  .top-panel {
-    display: grid;
-    grid-template-columns: 1fr 240px;
-    gap: 14px;
-    padding: 0 24px 20px;
-    align-items: start;
+  /* ── STAT CARDS ─── */
+  .stat-cards {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 14px; padding: 0 24px 20px; align-items: start;
   }
-
-  /* ── STAT CARDS ──────────────────────────── */
-  .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; align-items: start; }
-
   .stat-card {
     align-self: start;
-    background: var(--color-background-secondary, var(--surface));
-    border: 0.5px solid var(--color-border-tertiary, var(--border));
+    background: var(--color-background-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
     border-radius: var(--border-radius-lg);
     padding: 1rem 1.25rem;
-    cursor: pointer;
-    transition: border-color 0.15s;
+    cursor: pointer; transition: border-color 0.15s;
   }
-  .stat-card:hover { border-color: rgba(47,47,47,0.18); }
+  .stat-card:hover { border-color: var(--color-border-secondary); }
   .stat-card.active { border: 1.5px solid var(--color-border-info); }
-
   .stat-card-top { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; }
   .stat-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
-  .stat-value { font-family: var(--heading); font-size: 1.75rem; font-weight: 500; color: var(--text-primary); line-height: 1; }
-  .stat-label { font-family: var(--body); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
-
-  /* ── NEEDS ATTENTION PANEL ───────────────── */
-  .needs-attention-panel {
-    border: 0.5px solid #FD6F2F;
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--surface);
+  .stat-value {
+    font-family: var(--heading); font-size: 1.75rem; font-weight: 500;
+    color: var(--color-text-primary); line-height: 1;
   }
-  .attn-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px;
-    border-bottom: 0.5px solid rgba(253,111,47,0.2);
+  .stat-label {
     font-family: var(--body); font-size: 11px; font-weight: 600;
-    color: var(--text-primary);
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-tertiary);
   }
-  .attn-badge {
-    background: #FD6F2F; color: #fff;
-    font-size: 10px; font-weight: 600;
-    border-radius: 10px; padding: 1px 6px;
-    line-height: 1.6;
-  }
-  .attn-empty {
-    padding: 14px 12px;
-    font-family: var(--body); font-size: 11px;
-    color: var(--text-muted); font-style: italic;
-  }
-  .attn-item {
-    display: flex; align-items: center; gap: 7px;
-    padding: 7px 12px;
-    border-bottom: 0.5px solid rgba(47,47,47,0.06);
-    text-decoration: none;
-    transition: background 0.1s;
-  }
-  .attn-item:last-child { border-bottom: none; }
-  .attn-item:hover { background: rgba(47,47,47,0.03); }
-  .attn-name { font-family: var(--body); font-size: 12px; font-weight: 500; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .attn-time { font-family: var(--body); font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
 
-  .type-pill {
-    font-size: 10px; font-weight: 500; border-radius: 4px; padding: 1px 6px; flex-shrink: 0;
-  }
-  .type-form    { background: #E1F5EE; color: #0F6E56; }
-  .type-meeting { background: #E6F1FB; color: #185FA5; }
-  .type-email   { background: #FAEEDA; color: #854F0B; }
-
-  /* ── TAB BAR ─────────────────────────────── */
+  /* ── AUDIENCE TABS ─── */
   .tab-bar {
-    display: flex; align-items: center; gap: 0;
-    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    border-bottom: 1px solid var(--color-border-tertiary);
     margin: 0 24px 14px;
   }
   .tab {
     font-family: var(--body); font-size: 13px; font-weight: 400;
-    color: var(--text-muted);
+    color: var(--color-text-secondary);
     background: none; border: none; cursor: pointer;
     padding: 8px 14px;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
     transition: color 0.12s, border-color 0.12s;
-    display: flex; align-items: center; gap: 5px;
   }
-  .tab:hover { color: var(--text-primary); }
-  .tab.active { color: var(--text-primary); font-weight: 500; border-bottom-color: #FD6F2F; }
-  .tab-badge {
-    background: rgba(47,47,47,0.1); color: var(--text-secondary);
-    font-size: 10px; font-weight: 600;
-    border-radius: 10px; padding: 1px 6px; line-height: 1.6;
-  }
-  .tab.active .tab-badge { background: #FD6F2F; color: #fff; }
+  .tab:hover { color: var(--color-text-primary); }
+  .tab.active { color: var(--color-text-primary); font-weight: 500; border-bottom-color: var(--color-text-primary); }
 
-  /* ── TOOLBAR ─────────────────────────────── */
+  /* ── TOOLBAR ─── */
   .toolbar { display: flex; align-items: center; gap: 8px; margin: 0 24px 10px; }
-
   .search-input {
     flex: 1;
-    border: 1px solid var(--border); border-radius: 8px;
+    border: 1px solid var(--color-border-tertiary); border-radius: var(--border-radius-md);
     padding: 7px 12px;
-    font-family: var(--body); font-size: 13px; color: var(--text-primary);
-    background: var(--surface); outline: none;
-    transition: border-color 0.15s;
+    font-family: var(--body); font-size: 13px; color: var(--color-text-primary);
+    background: var(--color-background-primary); outline: none; transition: border-color 0.15s;
   }
-  .search-input:focus { border-color: rgba(47,47,47,0.3); }
-  .search-input::placeholder { color: var(--text-muted); }
-
+  .search-input:focus { border-color: var(--color-border-secondary); }
+  .search-input::placeholder { color: var(--color-text-tertiary); }
   .sort-select {
-    border: 1px solid var(--border); border-radius: 8px;
+    border: 1px solid var(--color-border-tertiary); border-radius: var(--border-radius-md);
     padding: 7px 10px;
-    font-family: var(--body); font-size: 12px; color: var(--text-secondary);
-    background: var(--surface); outline: none; cursor: pointer;
+    font-family: var(--body); font-size: 12px; color: var(--color-text-secondary);
+    background: var(--color-background-primary); outline: none; cursor: pointer;
   }
 
-  .btn-outline {
-    font-family: var(--body); font-size: 12px; color: var(--text-secondary);
-    border: 1px solid var(--border); border-radius: 8px;
-    padding: 7px 12px; background: var(--surface); cursor: pointer;
-    transition: border-color 0.12s;
-  }
-  .btn-outline:hover { border-color: rgba(47,47,47,0.25); }
-
-  /* ── COLUMN TOGGLES ──────────────────────── */
+  /* ── COLUMN TOGGLES ─── */
   .col-toggles {
     display: flex; align-items: center; gap: 6px;
     margin: 0 24px 12px; flex-wrap: wrap;
   }
-  .col-label { font-family: var(--body); font-size: 11px; color: var(--text-muted); margin-right: 2px; }
+  .col-label { font-family: var(--body); font-size: 11px; color: var(--color-text-tertiary); margin-right: 2px; }
   .col-pill {
     font-family: var(--body); font-size: 11px; font-weight: 500;
     border-radius: 20px; padding: 3px 10px;
-    cursor: pointer; border: 1px solid var(--border);
+    cursor: pointer; border: 1px solid var(--color-border-tertiary);
     transition: background 0.12s, color 0.12s, border-color 0.12s;
     user-select: none;
   }
-  .col-pill.on  { background: #2F2F2F; color: #fff; border-color: #2F2F2F; }
-  .col-pill.off { background: transparent; color: var(--text-muted); border-color: var(--border); }
+  .col-pill.on  { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
+  .col-pill.off { background: transparent; color: var(--color-text-tertiary); border-color: var(--color-border-tertiary); }
 
-  /* ── TABLE ───────────────────────────────── */
+  /* ── TABLE ─── */
   .table-wrap {
-    border: 0.5px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
-    margin: 0 24px;
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    overflow: hidden; margin: 0 24px;
   }
-
   table {
     width: 100%; border-collapse: collapse;
-    font-family: var(--body); font-size: 13px;
-    table-layout: fixed;
+    font-family: var(--body); font-size: 13px; table-layout: fixed;
   }
-
   col.col-name         { width: 220px; }
-  col.col-track        { width: 85px; }
-  col.col-stage        { width: 120px; }
+  col.col-track        { width: 90px; }
+  col.col-stage        { width: 130px; }
   col.col-score        { width: 60px; }
-  col.col-last_active  { width: 90px; }
-  col.col-phone        { width: 120px; }
-  col.col-organisation { width: 130px; }
+  col.col-last_active  { width: 100px; }
+  col.col-phone        { width: 130px; }
+  col.col-organisation { width: 140px; }
+  col.col-type         { width: 90px; }
   col.col-source       { width: 100px; }
-  col.col-leaders      { width: 70px; }
-  col.col-location     { width: 130px; }
+  col.col-location     { width: 140px; }
 
   thead th {
     text-align: left; padding: 9px 12px;
     font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
-    text-transform: uppercase; color: var(--text-muted);
-    border-bottom: 0.5px solid var(--border);
-    white-space: nowrap; user-select: none; background: var(--surface);
+    text-transform: uppercase; color: var(--color-text-tertiary);
+    border-bottom: 0.5px solid var(--color-border-tertiary);
+    white-space: nowrap; user-select: none; background: var(--color-background-primary);
   }
-  thead th.sortable { cursor: pointer; }
-  thead th.sortable:hover { color: var(--text-primary); }
-  thead th.sort-asc::after  { content: ' ↑'; color: #FD6F2F; }
-  thead th.sort-desc::after { content: ' ↓'; color: #FD6F2F; }
 
   tbody td {
-    padding: 12px; color: var(--text-secondary);
-    border-bottom: 0.5px solid var(--border);
+    padding: 14px 12px; color: var(--color-text-secondary);
+    border-bottom: 0.5px solid var(--color-border-tertiary);
     vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  tbody td:first-child { padding: 12px 24px; }
+  tbody td:first-child { padding: 14px 24px; }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr { cursor: pointer; transition: background 0.1s; }
-  tbody tr:hover td { background: rgba(47,47,47,0.025); }
+  tbody tr:hover td { background: var(--color-background-secondary); }
 
-  /* ── NAME CELL ───────────────────────────── */
-  .name-cell { display: flex; align-items: center; }
-  .name-block { min-width: 0; }
-  .contact-name { font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .contact-email { font-size: 12px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* ── TRACK PILL ──────────────────────────── */
-  .track-pill { font-size: 11px; font-weight: 500; border-radius: 4px; padding: 2px 7px; display: inline-block; }
-  .track-builder { background: #E1F5EE; color: #0F6E56; }
-  .track-applier { background: #E6F1FB; color: #185FA5; }
+  /* ── TRACK PILL ─── */
+  .track-pill {
+    font-size: 11px; font-weight: 500; border-radius: var(--border-radius-sm);
+    padding: 2px 7px; display: inline-block; cursor: pointer;
+  }
+  .track-builder { background: #E1F5EE; color: #085041; }
+  .track-applier { background: #E6F1FB; color: #0C447C; }
   .track-both    { background: #EEEDFE; color: #3C3489; }
 
-  /* ── EMPTY + LOADING ─────────────────────── */
-  .table-message { padding: 36px 20px; text-align: center; color: var(--text-muted); font-family: var(--body); font-size: 13px; font-style: italic; }
-
-  /* ── PAGINATION ──────────────────────────── */
-  .pagination {
-    display: flex; align-items: center; justify-content: flex-end;
-    gap: 6px; padding: 12px 24px 0;
-    font-family: var(--body); font-size: 13px; color: var(--text-muted);
+  .track-select {
+    font-family: var(--body); font-size: 11px;
+    border: 1px solid var(--color-border-secondary); border-radius: var(--border-radius-sm);
+    padding: 2px 4px; background: var(--color-background-primary);
+    color: var(--color-text-primary); outline: none; cursor: pointer;
   }
-  .pagination-info { margin-right: 8px; }
+
+  /* ── TYPE PILL ─── */
+  .type-pill-client {
+    font-size: 11px; font-weight: 500; border-radius: var(--border-radius-sm);
+    padding: 2px 7px; display: inline-block;
+    background: var(--color-background-success); color: var(--color-text-success);
+  }
+  .type-pill-past {
+    font-size: 11px; font-weight: 500; border-radius: var(--border-radius-sm);
+    padding: 2px 7px; display: inline-block;
+    background: var(--color-background-tertiary); color: var(--color-text-tertiary);
+  }
+
+  /* ── EMPTY STATE ─── */
+  .table-message {
+    padding: 36px 20px; text-align: center;
+    color: var(--color-text-tertiary); font-family: var(--body); font-size: 13px; font-style: italic;
+  }
+
+  /* ── PAGINATION ─── */
+  .pagination-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px 0;
+    font-family: var(--body); font-size: 13px; color: var(--color-text-tertiary);
+  }
+  .pagination-left { display: flex; align-items: center; gap: 8px; }
+  .pagination-right { display: flex; align-items: center; gap: 6px; }
+  .page-size-select {
+    font-family: var(--body); font-size: 12px; color: var(--color-text-secondary);
+    border: 1px solid var(--color-border-tertiary); border-radius: var(--border-radius-md);
+    padding: 3px 8px; background: var(--color-background-primary); cursor: pointer; outline: none;
+  }
   .page-btn {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 6px; padding: 4px 10px;
-    font-family: var(--body); font-size: 12px; color: var(--text-secondary);
+    background: var(--color-background-primary); border: 1px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md); padding: 4px 10px;
+    font-family: var(--body); font-size: 12px; color: var(--color-text-secondary);
     cursor: pointer; transition: border-color 0.12s, color 0.12s;
   }
-  .page-btn:hover:not(:disabled) { border-color: rgba(47,47,47,0.3); color: var(--text-primary); }
+  .page-btn:hover:not(:disabled) { border-color: var(--color-border-secondary); color: var(--color-text-primary); }
   .page-btn:disabled { opacity: 0.35; cursor: default; }
-  .page-btn.active { background: #2F2F2F; color: #fff; border-color: #2F2F2F; }
+  .page-btn.active { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
 </style>
 
 <main class="content">
@@ -294,78 +284,55 @@ const needsAttnCount = needsAttnDB.length
   <header class="page-header">
     <div>
       <h1>CRM</h1>
-      <p class="page-header-sub" id="header-subtitle">{allCount} contacts · sorted by engagement</p>
+      <p class="page-header-sub" id="header-subtitle">{totalCount} contacts · sorted by engagement</p>
     </div>
     <div class="header-actions">
       <button class="btn-ghost" id="toggle-michelle">
-        Hiding you · <span id="toggle-michelle-label">show anyway</span>
+        Hiding you · <span id="toggle-label">show anyway</span>
       </button>
       <button class="btn-primary">+ Add contact</button>
     </div>
   </header>
 
-  <!-- Top panel: stat cards + needs attention -->
-  <div class="top-panel">
-
-    <!-- Stat cards -->
-    <div class="stat-cards" id="stat-cards">
-      <div class="stat-card active" data-filter="all">
-        <div class="stat-card-top">
-          <div class="stat-dot" style="background:#888"></div>
-          <div class="stat-label">All</div>
-        </div>
-        <div class="stat-value" id="count-all">{allCount}</div>
+  <!-- Stat cards -->
+  <div class="stat-cards" id="stat-cards">
+    <div class="stat-card active" data-filter="all">
+      <div class="stat-card-top">
+        <div class="stat-dot" style="background:var(--color-text-tertiary)"></div>
+        <div class="stat-label">All</div>
       </div>
-      <div class="stat-card" data-filter="subscribed">
-        <div class="stat-card-top">
-          <div class="stat-dot" style="background:#1D9E75"></div>
-          <div class="stat-label">Subscribed</div>
-        </div>
-        <div class="stat-value">{subscribedCount}</div>
-      </div>
-      <div class="stat-card" data-filter="general">
-        <div class="stat-card-top">
-          <div class="stat-dot" style="background:#378ADD"></div>
-          <div class="stat-label">General</div>
-        </div>
-        <div class="stat-value">{generalCount}</div>
-      </div>
-      <div class="stat-card" data-filter="unassigned">
-        <div class="stat-card-top">
-          <div class="stat-dot" style="background:#EF9F27"></div>
-          <div class="stat-label">Unassigned</div>
-        </div>
-        <div class="stat-value">{unassignedCount}</div>
-      </div>
+      <div class="stat-value" id="count-all">{totalCount}</div>
     </div>
-
-    <!-- Needs attention panel -->
-    <div class="needs-attention-panel" id="needs-attention-panel">
-      <div class="attn-header">
-        Needs attention
-        <span class="attn-badge" id="attn-badge">{needsAttnCount}</span>
+    <div class="stat-card" data-filter="subscribed">
+      <div class="stat-card-top">
+        <div class="stat-dot" style="background:var(--color-border-success)"></div>
+        <div class="stat-label">Subscribed</div>
       </div>
-      {needsAttnDB.length === 0 ? (
-        <div class="attn-empty">No contacts need attention right now.</div>
-      ) : (
-        needsAttnDB.slice(0, 3).map(c => (
-          <a href={`/dashboard/crm/${c.id}`} class="attn-item">
-            <span class="type-pill type-form">Form</span>
-            <span class="attn-name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || c.email}</span>
-            <span class="attn-time" data-ts={c.created_at}></span>
-          </a>
-        ))
-      )}
-      {/* TODO: Gmail unread-reply items and Google Calendar upcoming-meeting items go here once MCPs are wired */}
+      <div class="stat-value">{subscribedCount}</div>
+    </div>
+    <div class="stat-card" data-filter="general">
+      <div class="stat-card-top">
+        <div class="stat-dot" style="background:var(--color-border-info)"></div>
+        <div class="stat-label">General</div>
+      </div>
+      <div class="stat-value">{generalCount}</div>
+    </div>
+    <div class="stat-card" data-filter="clients">
+      <div class="stat-card-top">
+        <div class="stat-dot" style="background:var(--color-text-success)"></div>
+        <div class="stat-label">Clients</div>
+      </div>
+      <div class="stat-value">{clientsCount}</div>
     </div>
   </div>
 
-  <!-- Tab bar -->
+  <!-- Audience tab row -->
   <div class="tab-bar">
     <button class="tab active" data-tab="all">All</button>
     <button class="tab" data-tab="builder">Builders</button>
     <button class="tab" data-tab="applier">Appliers</button>
     <button class="tab" data-tab="both">Both</button>
+    <button class="tab" data-tab="unassigned">Unassigned</button>
   </div>
 
   <!-- Toolbar -->
@@ -385,14 +352,14 @@ const needsAttnCount = needsAttnDB.length
   <!-- Column toggle pills -->
   <div class="col-toggles" id="col-toggles">
     <span class="col-label">Columns:</span>
-    <button class="col-pill on" data-col="track">Track</button>
-    <button class="col-pill on" data-col="stage">Stage</button>
-    <button class="col-pill on" data-col="score">Score</button>
-    <button class="col-pill on" data-col="last_active">Last active</button>
+    <button class="col-pill on"  data-col="track">Track</button>
+    <button class="col-pill on"  data-col="stage">Stage</button>
+    <button class="col-pill on"  data-col="score">Score</button>
+    <button class="col-pill on"  data-col="last_active">Last active</button>
     <button class="col-pill off" data-col="phone">Phone</button>
     <button class="col-pill off" data-col="organisation">Organisation</button>
+    <button class="col-pill off" data-col="type">Type</button>
     <button class="col-pill off" data-col="source">Source</button>
-    <button class="col-pill off" data-col="leaders">Leaders</button>
     <button class="col-pill off" data-col="location">Location</button>
   </div>
 
@@ -401,42 +368,50 @@ const needsAttnCount = needsAttnDB.length
     <table>
       <colgroup>
         <col class="col-name">
-        <col class="col-track" data-col="track">
-        <col class="col-stage" data-col="stage">
-        <col class="col-score" data-col="score">
-        <col class="col-last_active" data-col="last_active">
-        <col class="col-phone" data-col="phone">
+        <col class="col-track"        data-col="track">
+        <col class="col-stage"        data-col="stage">
+        <col class="col-score"        data-col="score">
+        <col class="col-last_active"  data-col="last_active">
+        <col class="col-phone"        data-col="phone">
         <col class="col-organisation" data-col="organisation">
-        <col class="col-source" data-col="source">
-        <col class="col-leaders" data-col="leaders">
-        <col class="col-location" data-col="location">
+        <col class="col-type"         data-col="type">
+        <col class="col-source"       data-col="source">
+        <col class="col-location"     data-col="location">
       </colgroup>
       <thead>
         <tr>
           <th>Name</th>
           <th data-col="track">Track</th>
           <th data-col="stage">Stage</th>
-          <th class="sortable" data-col="score" data-sort="engagement_score">Score</th>
-          <th class="sortable" data-col="last_active" data-sort="last_active">Last active</th>
+          <th data-col="score">Score</th>
+          <th data-col="last_active">Last active</th>
           <th data-col="phone">Phone</th>
           <th data-col="organisation">Organisation</th>
+          <th data-col="type">Type</th>
           <th data-col="source">Source</th>
-          <th data-col="leaders">Leaders</th>
           <th data-col="location">Location</th>
         </tr>
       </thead>
       <tbody id="contacts-tbody">
-        <tr><td colspan="9" class="table-message">Loading…</td></tr>
+        <tr><td colspan="10" class="table-message">Loading…</td></tr>
       </tbody>
     </table>
   </div>
 
   <!-- Pagination -->
-  <div class="pagination" id="pagination">
-    <span class="pagination-info" id="pagination-info"></span>
-    <button class="page-btn" id="btn-prev">←</button>
-    <span id="page-numbers"></span>
-    <button class="page-btn" id="btn-next">→</button>
+  <div class="pagination-row" id="pagination-row">
+    <div class="pagination-left">
+      <span id="pagination-info"></span>
+      <select class="page-size-select" id="page-size-select">
+        <option value="10">Show 10</option>
+        <option value="20">Show 20</option>
+      </select>
+    </div>
+    <div class="pagination-right">
+      <button class="page-btn" id="btn-prev">←</button>
+      <span id="page-numbers"></span>
+      <button class="page-btn" id="btn-next">→</button>
+    </div>
   </div>
 
 </main>
@@ -446,56 +421,36 @@ const needsAttnCount = needsAttnDB.length
 <script is:inline type="application/json" id="michelle-data" set:html={JSON.stringify(michelle)}></script>
 
 <script>
-  // ── Types ─────────────────────────────────
   type Contact = {
     id: string
     first_name: string | null
     last_name: string | null
     email: string | null
     phone: string | null
-    organisation: string | null
     audience_track: string | null
     readiness_stage: string | null
     engagement_score: number | null
     last_active: string | null
     source: string | null
-    leaders_group: boolean | null
     subscriber: boolean | null
     do_not_contact: boolean | null
-    do_not_contact_reason: string | null
-    contact_type: string | null
-    created_at: string | null
     suburb: string | null
     state: string | null
+    leaders_group: boolean | null
+    created_at: string | null
+    organisation_name: string | null
+    organisation_type: string | null
+    client_stage: string | null
+    client_business_name: string | null
   }
 
   // ── Data ──────────────────────────────────
   const baseContacts: Contact[] = JSON.parse(document.getElementById('contacts-data')!.textContent ?? '[]')
   const michelleContact: Contact | null = JSON.parse(document.getElementById('michelle-data')!.textContent ?? 'null')
 
-  // ── Avatar palette ────────────────────────
-  const PALETTE = ['#FD6F2F','#9DDCE3','#7BBE9A','#B5D4F4','#FAC775','#F4C0D1','#CECBF6','#9FE1CB','#F5C4B3','#C0DD97']
-
-  function hashStr(s: string): number {
-    let h = 0
-    for (let i = 0; i < s.length; i++) { h = Math.imul(31, h) + s.charCodeAt(i) | 0 }
-    return Math.abs(h)
-  }
-
-  function avatarColor(email: string | null): string {
-    return PALETTE[hashStr(email ?? '') % PALETTE.length]
-  }
-
-  function avatarInitials(c: Contact): string {
-    const f = (c.first_name ?? '').charAt(0).toUpperCase()
-    const l = (c.last_name ?? '').charAt(0).toUpperCase()
-    return f + l || (c.email ?? '?').charAt(0).toUpperCase()
-  }
-
   // ── State ─────────────────────────────────
-  const LS_COL   = 'crm_columns'
-  const LS_SORT  = 'crm_sort'
-  const PAGE_SIZE = 20
+  const LS_COL  = 'crm_columns_v2'
+  const LS_SORT = 'crm_sort'
 
   const DEFAULT_VISIBLE = new Set(['track','stage','score','last_active'])
 
@@ -515,24 +470,17 @@ const needsAttnCount = needsAttnDB.length
     return { col: 'engagement_score', dir: 'desc' }
   }
 
-  let showMichelle   = false
-  let activeSegment  = 'all'      // 'all' | 'subscribed' | 'general' | 'unassigned'
-  let activeTrack    = 'all'      // 'all' | 'builder' | 'applier' | 'both'
-  let currentSort    = loadSort()
-  let currentPage    = 0
-  let visibleCols    = loadColumns()
-  let searchQuery    = ''
+  let showMichelle  = false
+  let activeSegment = 'all'
+  let activeTrack   = 'all'
+  let currentSort   = loadSort()
+  let currentPage   = 0
+  let pageSize      = 10
+  let visibleCols   = loadColumns()
+  let searchQuery   = ''
 
   function allContacts(): Contact[] {
     return showMichelle && michelleContact ? [...baseContacts, michelleContact] : baseContacts
-  }
-
-  function isGeneralContact(c: Contact): boolean {
-    return c.subscriber === false || c.subscriber === null
-  }
-
-  function isMainContact(c: Contact): boolean {
-    return c.subscriber === true && c.do_not_contact === false
   }
 
   // ── Helpers ───────────────────────────────
@@ -544,48 +492,56 @@ const needsAttnCount = needsAttnDB.length
     if (!ts) return '—'
     const diff = Date.now() - new Date(ts).getTime()
     const m = Math.floor(diff / 60000)
-    if (m < 1)   return 'just now'
-    if (m < 60)  return `${m}m ago`
+    if (m < 1)  return 'just now'
+    if (m < 60) return `${m}m ago`
     const h = Math.floor(m / 60)
-    if (h < 24)  return `${h}h ago`
+    if (h < 24) return `${h}h ago`
     const d = Math.floor(h / 24)
-    if (d < 7)   return `${d}d ago`
-    if (d < 30)  return `${Math.floor(d / 7)}w ago`
+    if (d < 7)  return `${d}d ago`
+    if (d < 30) return `${Math.floor(d / 7)}w ago`
     return `${Math.floor(d / 30)}mo ago`
   }
 
   function scoreColor(score: number | null): string {
-    if (score === null) return 'var(--text-muted)'
-    if (score >= 20) return '#0F6E56'
-    if (score >= 8)  return '#854F0B'
-    return 'var(--text-muted)'
+    if (score === null) return 'var(--color-text-tertiary)'
+    if (score >= 20) return 'var(--color-text-success)'
+    if (score >= 8)  return 'var(--color-text-warning)'
+    return 'var(--color-text-tertiary)'
   }
 
-  function trackPill(track: string | null): string {
-    if (!track) return '<span style="color:var(--text-muted)">—</span>'
+  function trackPillHtml(track: string | null): string {
+    if (!track) return '<span style="color:var(--color-text-tertiary)">—</span>'
     const map: Record<string, string> = {
       builder: '<span class="track-pill track-builder">Builder</span>',
       applier: '<span class="track-pill track-applier">Applier</span>',
       both:    '<span class="track-pill track-both">Both</span>',
     }
-    return map[track.toLowerCase()] ?? `<span class="track-pill" style="background:rgba(47,47,47,0.07);color:var(--text-secondary)">${track}</span>`
+    return map[track.toLowerCase()] ??
+      `<span class="track-pill" style="background:var(--color-background-tertiary);color:var(--color-text-secondary)">${track}</span>`
   }
 
-  // ── Filter + sort ─────────────────────────
+  function typePillHtml(clientStage: string | null): string {
+    if (!clientStage) return ''
+    if (clientStage === 'Active') return '<span class="type-pill-client">Client</span>'
+    return '<span class="type-pill-past">Past client</span>'
+  }
+
+  // ── Filter ────────────────────────────────
   function filtered(): Contact[] {
     let list = allContacts()
 
     if (activeSegment === 'subscribed') {
       list = list.filter(c => c.subscriber === true)
     } else if (activeSegment === 'general') {
-      list = list.filter(isGeneralContact)
-    } else if (activeSegment === 'unassigned') {
-      list = list.filter(c => !c.audience_track)
+      list = list.filter(c => c.subscriber === false || c.subscriber === null)
+    } else if (activeSegment === 'clients') {
+      list = list.filter(c => c.client_stage !== null)
     }
 
-    if (activeTrack === 'builder')      list = list.filter(c => c.audience_track === 'builder')
+    if (activeTrack === 'builder')    list = list.filter(c => c.audience_track === 'builder')
     else if (activeTrack === 'applier') list = list.filter(c => c.audience_track === 'applier')
     else if (activeTrack === 'both')    list = list.filter(c => c.audience_track === 'both')
+    else if (activeTrack === 'unassigned') list = list.filter(c => !c.audience_track)
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -618,71 +574,141 @@ const needsAttnCount = needsAttnDB.length
   }
 
   // ── Column visibility ─────────────────────
+  const ALL_COLS = ['track','stage','score','last_active','phone','organisation','type','source','location']
+
   function applyColumnVisibility() {
-    const ALL_COLS = ['track','stage','score','last_active','phone','organisation','source','leaders','location']
     ALL_COLS.forEach(col => {
       const on = visibleCols.has(col)
-      // col elements
       document.querySelectorAll(`col[data-col="${col}"]`).forEach(el => {
-        ;(el as HTMLElement).style.display = on ? '' : 'none'
+        (el as HTMLElement).style.display = on ? '' : 'none'
       })
-      // th elements
       document.querySelectorAll(`th[data-col="${col}"]`).forEach(el => {
-        ;(el as HTMLElement).style.display = on ? '' : 'none'
+        (el as HTMLElement).style.display = on ? '' : 'none'
       })
     })
-    // td elements handled per-row in render
+  }
+
+  function syncColPills() {
+    document.querySelectorAll('.col-pill').forEach(el => {
+      const col = (el as HTMLElement).dataset.col!
+      el.classList.toggle('on',  visibleCols.has(col))
+      el.classList.toggle('off', !visibleCols.has(col))
+    })
+    applyColumnVisibility()
+  }
+
+  // ── Inline track edit ─────────────────────
+  async function patchTrack(id: string, value: string | null) {
+    const res = await fetch(`/api/dashboard/contacts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: 'audience_track', value: value || null }),
+    })
+    if (!res.ok) return false
+    const contact = baseContacts.find(c => c.id === id)
+    if (contact) contact.audience_track = value || null
+    return true
+  }
+
+  function openTrackSelect(cell: HTMLElement, contactId: string, currentTrack: string | null) {
+    const select = document.createElement('select')
+    select.className = 'track-select'
+    select.innerHTML = `
+      <option value="">—</option>
+      <option value="builder"${currentTrack === 'builder' ? ' selected' : ''}>Builder</option>
+      <option value="applier"${currentTrack === 'applier' ? ' selected' : ''}>Applier</option>
+      <option value="both"${currentTrack === 'both' ? ' selected' : ''}>Both</option>
+    `
+
+    select.addEventListener('change', async () => {
+      const newVal = select.value || null
+      const ok = await patchTrack(contactId, newVal)
+      if (ok) {
+        cell.innerHTML = trackPillHtml(newVal)
+        attachTrackClick(cell, contactId, newVal)
+      } else {
+        cell.innerHTML = trackPillHtml(currentTrack)
+        attachTrackClick(cell, contactId, currentTrack)
+      }
+    })
+
+    select.addEventListener('blur', () => {
+      cell.innerHTML = trackPillHtml(currentTrack)
+      attachTrackClick(cell, contactId, currentTrack)
+    })
+
+    cell.innerHTML = ''
+    cell.appendChild(select)
+    select.focus()
+  }
+
+  function attachTrackClick(cell: HTMLElement, contactId: string, track: string | null) {
+    cell.onclick = (e) => {
+      e.stopPropagation()
+      openTrackSelect(cell, contactId, track)
+    }
   }
 
   // ── Render table ──────────────────────────
   function render() {
     const list  = filtered()
     const total = list.length
-    const start = currentPage * PAGE_SIZE
-    const page  = list.slice(start, start + PAGE_SIZE)
+    const start = currentPage * pageSize
+    const page  = list.slice(start, start + pageSize)
     const cols  = visibleCols
+
+    const sortLabels: Record<string, string> = {
+      engagement_score: 'engagement score',
+      last_active: 'last active',
+      created_at: 'date added',
+      name: 'name A–Z',
+    }
+    document.getElementById('header-subtitle')!.textContent =
+      `${total} contact${total !== 1 ? 's' : ''} · sorted by ${sortLabels[currentSort.col] ?? currentSort.col}`
 
     const tbody = document.getElementById('contacts-tbody')!
     if (page.length === 0) {
       tbody.innerHTML = `<tr><td colspan="10" class="table-message">No contacts match this filter.</td></tr>`
     } else {
-        tbody.innerHTML = page.map(c => {
+      tbody.innerHTML = page.map(c => {
         const score = c.engagement_score
-        const stage = c.readiness_stage ? c.readiness_stage.replace(/_/g,' ') : '—'
-
-        return `<tr onclick="window.location='/dashboard/crm/${c.id}'">
+        const stage = c.readiness_stage ? c.readiness_stage.replace(/_/g, ' ') : '—'
+        return `<tr data-id="${c.id}" onclick="window.location='/dashboard/crm/${c.id}'">
           <td>
-            <div class="name-cell">
-              <div class="name-block">
-                <div class="contact-name">${fullName(c)}</div>
-                <div class="contact-email">${c.email ?? '—'}</div>
-              </div>
-            </div>
+            <div style="font-size:13px;font-weight:500;color:var(--color-text-primary)">${fullName(c)}</div>
+            <div style="font-size:12px;color:var(--color-text-secondary)">${c.email ?? '—'}</div>
           </td>
-          ${cols.has('track')        ? `<td>${trackPill(c.audience_track)}</td>` : ''}
-          ${cols.has('stage')        ? `<td style="font-size:11px;color:var(--text-muted)">${stage}</td>` : ''}
+          ${cols.has('track')        ? `<td class="track-cell" data-id="${c.id}" data-track="${c.audience_track ?? ''}">${trackPillHtml(c.audience_track)}</td>` : ''}
+          ${cols.has('stage')        ? `<td style="font-size:11px;color:var(--color-text-tertiary)">${stage}</td>` : ''}
           ${cols.has('score')        ? `<td style="font-variant-numeric:tabular-nums;font-weight:500;color:${scoreColor(score)}">${score ?? '—'}</td>` : ''}
-          ${cols.has('last_active')  ? `<td style="font-size:12px;color:var(--text-muted)">${relativeDate(c.last_active)}</td>` : ''}
+          ${cols.has('last_active')  ? `<td style="font-size:12px;color:var(--color-text-tertiary)">${relativeDate(c.last_active)}</td>` : ''}
           ${cols.has('phone')        ? `<td style="font-size:12px">${c.phone ?? '—'}</td>` : ''}
-          ${cols.has('organisation') ? `<td style="font-size:12px">${c.organisation ?? '—'}</td>` : ''}
-          ${cols.has('source')       ? `<td style="font-size:12px;color:var(--text-muted)">${c.source ?? '—'}</td>` : ''}
-          ${cols.has('leaders')      ? `<td style="font-size:12px;text-align:center">${c.leaders_group ? '✓' : ''}</td>` : ''}
-          ${cols.has('location')     ? `<td style="font-size:12px;color:var(--text-muted)">${[c.suburb, c.state].filter(Boolean).join(' · ') || '—'}</td>` : ''}
+          ${cols.has('organisation') ? `<td style="font-size:12px">${c.organisation_name ?? '—'}</td>` : ''}
+          ${cols.has('type')         ? `<td>${typePillHtml(c.client_stage)}</td>` : ''}
+          ${cols.has('source')       ? `<td style="font-size:12px;color:var(--color-text-tertiary)">${c.source ?? '—'}</td>` : ''}
+          ${cols.has('location')     ? `<td style="font-size:12px;color:var(--color-text-tertiary)">${[c.suburb, c.state].filter(Boolean).join(' · ') || '—'}</td>` : ''}
         </tr>`
       }).join('')
+
+      // Attach track cell click handlers
+      tbody.querySelectorAll('.track-cell').forEach(cell => {
+        const el = cell as HTMLElement
+        const id = el.dataset.id!
+        const track = el.dataset.track || null
+        attachTrackClick(el, id, track)
+      })
     }
 
     // Pagination info
-    const pageCount = Math.ceil(total / PAGE_SIZE)
-    const s = start + 1
-    const e = Math.min(start + PAGE_SIZE, total)
+    const pageCount = Math.ceil(total / pageSize)
+    const s = total === 0 ? 0 : start + 1
+    const e = Math.min(start + pageSize, total)
     document.getElementById('pagination-info')!.textContent =
       total === 0 ? '' : `Showing ${s}–${e} of ${total}`
 
     ;(document.getElementById('btn-prev') as HTMLButtonElement).disabled = currentPage === 0
     ;(document.getElementById('btn-next') as HTMLButtonElement).disabled = currentPage >= pageCount - 1
 
-    // Page number buttons (max 5 shown)
     const pageNumEl = document.getElementById('page-numbers')!
     if (pageCount <= 1) {
       pageNumEl.innerHTML = ''
@@ -699,7 +725,7 @@ const needsAttnCount = needsAttnDB.length
       }
       pageNumEl.innerHTML = pages.map(p =>
         p === '...'
-          ? `<span style="padding:0 4px;color:var(--text-muted)">…</span>`
+          ? `<span style="padding:0 4px;color:var(--color-text-tertiary)">…</span>`
           : `<button class="page-btn${p === currentPage ? ' active' : ''}" data-page="${p}">${(p as number) + 1}</button>`
       ).join('')
       pageNumEl.querySelectorAll('[data-page]').forEach(btn => {
@@ -709,112 +735,59 @@ const needsAttnCount = needsAttnDB.length
         })
       })
     }
-
-    // Sort header indicators
-    document.querySelectorAll('thead th.sortable').forEach(th => {
-      const el = th as HTMLElement
-      el.classList.remove('sort-asc','sort-desc')
-      if (el.dataset.sort === currentSort.col) {
-        el.classList.add(currentSort.dir === 'asc' ? 'sort-asc' : 'sort-desc')
-      }
-    })
-
-    // Header subtitle
-    const sortLabels: Record<string, string> = {
-      engagement_score: 'engagement score',
-      last_active: 'last active',
-      created_at: 'date added',
-      name: 'name A–Z',
-    }
-    document.getElementById('header-subtitle')!.textContent =
-      `${total} contact${total !== 1 ? 's' : ''} · sorted by ${sortLabels[currentSort.col] ?? currentSort.col}`
   }
 
-  // ── Apply column pill state to DOM ────────
-  function syncColPills() {
-    document.querySelectorAll('.col-pill').forEach(el => {
-      const col = (el as HTMLElement).dataset.col!
-      el.classList.toggle('on',  visibleCols.has(col))
-      el.classList.toggle('off', !visibleCols.has(col))
-    })
-    applyColumnVisibility()
-  }
-
-  // ── Needs attention panel visibility ─────
-  function syncNeedsAttnPanel() {
-    const panel = document.getElementById('needs-attention-panel')!
-    panel.style.display = ''
-  }
-
-  // ── Init: set hidden cols ─────────────────
+  // ── Init ──────────────────────────────────
   applyColumnVisibility()
   syncColPills()
+  render()
 
-  // Relative times in attention panel
-  document.querySelectorAll('.attn-time[data-ts]').forEach(el => {
-    const ts = (el as HTMLElement).dataset.ts ?? null
-    el.textContent = relativeDate(ts)
-  })
-
-  // ── Event: stat cards ─────────────────────
+  // ── Events: stat cards ────────────────────
   document.getElementById('stat-cards')!.addEventListener('click', e => {
     const card = (e.target as HTMLElement).closest('[data-filter]') as HTMLElement | null
     if (!card) return
-    const filter = card.dataset.filter!
-    activeSegment = filter
+    activeSegment = card.dataset.filter!
     currentPage = 0
-    document.querySelectorAll('.stat-card').forEach(c => c.classList.toggle('active', (c as HTMLElement).dataset.filter === filter))
-    syncNeedsAttnPanel()
+    document.querySelectorAll('.stat-card').forEach(c =>
+      c.classList.toggle('active', (c as HTMLElement).dataset.filter === activeSegment)
+    )
     render()
   })
 
-  // ── Event: tabs ───────────────────────────
+  // ── Events: tabs ──────────────────────────
   document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      const tab = (btn as HTMLElement).dataset.tab!
-      activeTrack = tab
+      activeTrack = (btn as HTMLElement).dataset.tab!
       currentPage = 0
       document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn))
-      syncNeedsAttnPanel()
       render()
     })
   })
 
-  // ── Event: search ─────────────────────────
+  // ── Events: search ────────────────────────
   document.getElementById('crm-search')!.addEventListener('input', e => {
     searchQuery = (e.target as HTMLInputElement).value
     currentPage = 0
     render()
   })
 
-  // ── Event: sort select ────────────────────
+  // ── Events: sort select ───────────────────
   document.getElementById('sort-select')!.addEventListener('change', e => {
     const val = (e.target as HTMLSelectElement).value
     currentSort = { col: val, dir: val === 'name' ? 'asc' : 'desc' }
     currentPage = 0
-    localStorage.setItem('crm_sort', JSON.stringify(currentSort))
+    localStorage.setItem(LS_SORT, JSON.stringify(currentSort))
     render()
   })
 
-  // ── Event: sortable headers ───────────────
-  document.querySelectorAll('thead th.sortable').forEach(th => {
-    th.addEventListener('click', () => {
-      const sortCol = (th as HTMLElement).dataset.sort!
-      if (currentSort.col === sortCol) {
-        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc'
-      } else {
-        currentSort = { col: sortCol, dir: 'desc' }
-      }
-      currentPage = 0
-      localStorage.setItem('crm_sort', JSON.stringify(currentSort))
-      // Sync select
-      const sel = document.getElementById('sort-select') as HTMLSelectElement
-      sel.value = sortCol
-      render()
-    })
+  // ── Events: page size ─────────────────────
+  document.getElementById('page-size-select')!.addEventListener('change', e => {
+    pageSize = parseInt((e.target as HTMLSelectElement).value)
+    currentPage = 0
+    render()
   })
 
-  // ── Event: column toggles ─────────────────
+  // ── Events: column toggles ────────────────
   document.getElementById('col-toggles')!.addEventListener('click', e => {
     const pill = (e.target as HTMLElement).closest('.col-pill') as HTMLElement | null
     if (!pill) return
@@ -826,10 +799,10 @@ const needsAttnCount = needsAttnDB.length
     render()
   })
 
-  // ── Event: Michelle toggle ────────────────
+  // ── Events: Michelle toggle ───────────────
   document.getElementById('toggle-michelle')!.addEventListener('click', () => {
     showMichelle = !showMichelle
-    const label = document.getElementById('toggle-michelle-label')!
+    const label = document.getElementById('toggle-label')!
     const btn   = document.getElementById('toggle-michelle')!
     if (showMichelle) {
       label.textContent = 'hide again'
@@ -842,11 +815,8 @@ const needsAttnCount = needsAttnDB.length
     render()
   })
 
-  // ── Event: pagination ─────────────────────
+  // ── Events: pagination ────────────────────
   document.getElementById('btn-prev')!.addEventListener('click', () => { currentPage--; render() })
   document.getElementById('btn-next')!.addEventListener('click', () => { currentPage++; render() })
-
-  // ── Initial render ────────────────────────
-  render()
 </script>
 </DashboardLayout>
